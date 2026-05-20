@@ -1,0 +1,4 @@
+# Heavy ML deps — GPU recommended. Install separately when needed.
+# pip install -r requirements-ml.txt
+marker-pdf>=0.2.0
+surya-ocr>=0.5.0
