@@ -1,0 +1,39 @@
+# Lightweight dev compose for DocIntel — runs in the docintel Lightning Studio.
+# Tesseract/poppler are baked into the image (Dockerfile installs via apt).
+#
+# Usage inside the Studio:
+#   docker compose -f docker-compose.dev.yml up --build
+#
+# Reach it from the laptop: ssh -L 8001:localhost:8001 lightning-docintel
+# Then: http://localhost:8001/health
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: docintel:dev
+    volumes:
+      - ./core:/app/core
+      - ./services:/app/services
+      - ./api.py:/app/api.py
+      - ./demo:/app/demo
+      - ./logs:/app/logs
+      - ./.env:/app/.env:ro
+    ports:
+      - "8001:8001"
+    env_file: .env
+    environment:
+      PYTHONUNBUFFERED: "1"
+    command: >
+      uvicorn api:app
+      --host 0.0.0.0
+      --port 8001
+      --reload
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
