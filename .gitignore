@@ -46,3 +46,6 @@ STATUS.md
 eval/synthetic_invoices/
 eval/invoices_eval.jsonl
 eval/results.json
+
+# Real-doc eval artifacts (reproducible via eval/fetch_real_invoices.sh)
+eval/real_invoices/

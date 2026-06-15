@@ -55,6 +55,28 @@ def extract_text_from_image(image_bytes: bytes) -> str:
         return ""
 
 
+def is_pdf(data: bytes) -> bool:
+    return data[:5] == b"%PDF-"
+
+
+def pdf_first_page_to_png(pdf_bytes: bytes, dpi: int = 150) -> bytes:
+    """Render page 1 of a PDF to PNG bytes — the vision/OCR routes are image-based and
+    first-page for multi-page PDFs (documented limitation). Returns b'' if unavailable."""
+    if not _PDF2IMAGE:
+        log.warning("pdf2image/poppler not installed — cannot render PDF to image")
+        return b""
+    try:
+        pages = pdf2image.convert_from_bytes(pdf_bytes, dpi=dpi, first_page=1, last_page=1)
+        if not pages:
+            return b""
+        buf = io.BytesIO()
+        pages[0].save(buf, "PNG")
+        return buf.getvalue()
+    except Exception as e:
+        log.error("PDF→PNG render failed: %s", e)
+        return b""
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # PDF TABLE EXTRACTION
 # ════════════════════════════════════════════════════════════════════════════
