@@ -41,6 +41,20 @@ except ImportError:
     _PDF2IMAGE = False
 
 
+def extract_text_from_image(image_bytes: bytes) -> str:
+    """Route C (Tesseract): plain OCR of an image's text. Returns '' when Tesseract isn't
+    available or finds no text — the caller decides how to degrade."""
+    if not _TESSERACT:
+        log.warning("pytesseract/Tesseract not installed — OCR route unavailable")
+        return ""
+    try:
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        return pytesseract.image_to_string(img).strip()
+    except Exception as e:
+        log.error("OCR (Tesseract) failed: %s", e)
+        return ""
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # PDF TABLE EXTRACTION
 # ════════════════════════════════════════════════════════════════════════════
