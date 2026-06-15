@@ -52,11 +52,20 @@ PDF/IMG │   api.py    │
    / local)           → JSON)
 ```
 
+## Validation
+
+Validated on **real, multilingual third-party invoices** (EN/FR/DE/NL, `invoice2data` test
+set) — see [eval/EVAL_REAL.md](eval/EVAL_REAL.md). Route A (Claude Vision) and Route C
+(Tesseract + LLM) both score **100%** on the fields each document carries; `/classify-image`
+returns invoice 0.98–0.99. Reproduce with `bash eval/fetch_real_invoices.sh` then
+`python eval/run_real_eval.py --route vision_premium`.
+
 ## Known Limitations
 
 - Handwritten invoices: not supported (use external OCR)
-- Multi-page PDFs: first page only for vision routes
-- Foreign currencies: USD/EUR/GBP/JPY supported; others may need config
+- Multi-page PDFs: first page only for vision routes (PDFs are auto-rendered to a page-1 image)
+- Currencies: USD/EUR/GBP/INR validated on real invoices; others may need config
+- Route C non-English: needs the matching Tesseract packs (`tesseract-ocr-fra/deu/nld`)
 
 ## License
 
