@@ -41,3 +41,8 @@ dist/
 
 # Week 0 working notes (not committed)
 STATUS.md
+
+# Eval artifacts (reproducible via `python eval/generate_synthetic.py`)
+eval/synthetic_invoices/
+eval/invoices_eval.jsonl
+eval/results.json
