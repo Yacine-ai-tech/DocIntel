@@ -119,6 +119,16 @@ async def extract(
     t0 = time.time()
     img = await file.read()
 
+    # Vision/OCR routes are image-based — render PDFs to a page-1 PNG first.
+    from services.ocr_extractor import is_pdf, pdf_first_page_to_png
+    if is_pdf(img):
+        png = pdf_first_page_to_png(img)
+        if png:
+            img = png
+        else:
+            return ProcessResponse(doc_type=doc_type, route=route,
+                                   error="pdf_render_failed (install poppler/pdf2image)")
+
     if route == "vision_premium":
         model = settings.LLM_VISION_PREMIUM
         fields = await extract_via_vision_llm(img, model=model, doc_type=doc_type)
