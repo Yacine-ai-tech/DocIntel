@@ -126,8 +126,16 @@ async def extract(
         model = settings.LLM_VISION_LOCAL
         fields = await extract_via_vision_llm(img, model=model, doc_type=doc_type)
     elif route == "ocr_fallback":
-        # OCR not wired here — return placeholder; upstream caller does OCR
-        fields = {"note": "ocr_fallback route — text should be passed via /extract-llm"}
+        # Route C: Tesseract OCR → LLM structuring.
+        from services.ocr_extractor import extract_text_from_image
+        text = extract_text_from_image(img)
+        if not text:
+            fields = {"error": "ocr_unavailable_or_empty",
+                      "note": "Tesseract returned no text (ensure the tesseract-ocr binary is installed)."}
+        else:
+            fields = await extractor.extract(text, doc_type=doc_type)
+            if isinstance(fields, dict):
+                fields["_ocr_chars"] = len(text)
     else:
         raise HTTPException(status_code=400, detail=f"Unknown route: {route}")
 
