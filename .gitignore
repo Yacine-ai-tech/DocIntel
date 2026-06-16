@@ -49,3 +49,6 @@ eval/results.json
 
 # Real-doc eval artifacts (reproducible via eval/fetch_real_invoices.sh)
 eval/real_invoices/
+
+# Benchmark corpus artifacts (reproducible via eval/build_corpus.py)
+eval/benchmark/
