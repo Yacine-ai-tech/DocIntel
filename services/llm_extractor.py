@@ -27,8 +27,10 @@ except ImportError:
 # so aggregate across them. Encode EU-decimal + ISO-currency normalization and confidence.
 _RULES = (
     " The text may span multiple pages (separated by form-feed characters) — aggregate across "
-    "them. Normalize numbers to a dot decimal (European '1.234,56' -> 1234.56; strip thousands "
-    "separators and currency symbols). Use ISO-4217 currency codes and ISO YYYY-MM-DD dates. "
+    "them. Normalize numbers to a dot decimal (European '1.234,56' -> 1234.56; West African "
+    "'1 234 567 FCFA' -> 1234567; strip thousands separators, spaces and currency symbols). "
+    "Use ISO-4217 currency codes (the West African CFA franc 'FCFA'/'CFA'/'F CFA' is XOF, "
+    "Central African is XAF) and ISO YYYY-MM-DD dates. "
     "Use null for missing fields. Include a numeric \"_confidence\" (0-1). Return ONLY valid JSON."
 )
 
