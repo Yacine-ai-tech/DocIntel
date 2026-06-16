@@ -126,3 +126,7 @@ handwriting, EN/FR/DE/NL/ES/IT, EU + West-African **FCFA→XOF** currency, batch
   (550/550 scale; Route A 100%/92.5%, Route B 85% local, Route C 28.5% on phone receipts;
   FCFA 7/7; 120-page cross-chunk). The released benchmark is the cited contribution (STRATEGY §3.9).
 - Companion paper outline lives in RAGeval `drafts/preprint_outline_multijudge.md`.
+
+## Comprehensive QA pass (2026-06-16)
+- **30 tests pass**. §3.10 verified: vision premium+local, /classify-image, Marker, Surya. Packages n/a.
+- All 6 projects + both packages green; 28/28 STRATEGY §.10 feature claims code-verified.
