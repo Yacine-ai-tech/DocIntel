@@ -5,7 +5,8 @@
 ## What It Does
 
 - **3 extraction routes**: Claude Sonnet 4.6 Vision (premium), Ollama Llama 3.2 Vision (local/private), Tesseract+LLM (fallback)
-- **Multi-page documents**: every page of a PDF is rendered and sent to the vision model together, so fields are aggregated across pages (totals on a later page, multi-page contracts). The OCR route concatenates full-document text.
+- **Inputs**: PDF (native or scanned), PNG, JPEG — auto-detected. PDFs are rendered per page; images flow straight through.
+- **Multi-page & large documents**: every page is processed and fields aggregated across pages (a total on a later page, multi-page contracts). **100+ page PDFs** are handled via map-reduce — pages are split into chunks, extracted concurrently, and merged (`MAX_PDF_PAGES` default 200). The OCR route concatenates/chunks full-document text the same way.
 - **Handwriting & mixed languages**: the vision routes read handwritten entries and EN/FR/DE/NL/ES/IT documents; numbers are normalized (EU `1.234,56` → `1234.56`; West-African `1 003 000 FCFA` → `1003000`) and currencies to ISO-4217, including the West-African CFA franc (**FCFA/CFA → XOF**, Central-African → XAF).
 - **Doc-type-aware schemas**: invoice, contract, receipt, financial_report, auction_listing, form
 - **Confidence scores** on every extraction; retry-on-bad-JSON for reliability
@@ -69,7 +70,7 @@ returns invoice 0.98–0.99. Reproduce with `bash eval/fetch_real_invoices.sh` t
 
 ## Scope & Notes
 
-- **Multi-page**: capped at `MAX_PDF_PAGES` (default 20) per document for cost/safety; raise it via env for long contracts. Vision pages are downscaled past `VISION_MAX_EDGE` px to bound token cost.
+- **Multi-page / large docs**: up to `MAX_PDF_PAGES` (default **200**) per document; documents larger than `VISION_PAGES_PER_CALL` (default 8) pages are chunked and merged via map-reduce. Vision pages are downscaled past `VISION_MAX_EDGE` px to bound token cost.
 - **Handwriting**: handled by the vision routes (Route A is strongest). The pure-OCR route (Route C) is weaker on handwriting — use a vision route for handwritten docs.
 - **Currencies**: ISO-4217 generic; EU decimal/comma and West-African FCFA (space-grouped, no decimal subunit → XOF/XAF) formats normalized. Ambiguous thousands/decimal separators on low-quality scans can still mislead the pure-OCR route.
 - **Route C non-English**: install the matching Tesseract packs (`tesseract-ocr-fra/deu/nld/...`); falls back to English automatically if a pack is missing.

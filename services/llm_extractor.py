@@ -6,12 +6,14 @@ extraction. Doc-type-specific prompts return JSON.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
 from typing import Any, Dict, Optional
 
 from core.logger import get_logger
+from services.doc_merge import merge_doc_fields
 
 log = get_logger(__name__)
 
@@ -91,22 +93,8 @@ class LLMExtractor:
         """
         self.model = model or os.getenv("LLM_REASONING", "anthropic/claude-sonnet-4-6")
 
-    async def extract(self, text: str, doc_type: str = "default") -> Dict[str, Any]:
-        """
-        Extract structured fields from text.
-
-        Args:
-            text: Raw OCR/PDF text from the document.
-            doc_type: One of invoice|contract|receipt|financial_report|auction_listing|default.
-
-        Returns:
-            A dict of extracted fields. Empty dict if extraction fails.
-        """
-        if not _LITELLM:
-            return {"error": "litellm_not_installed", "doc_type": doc_type}
-        if not text or not text.strip():
-            return {"error": "empty_text", "doc_type": doc_type}
-
+    async def _extract_one(self, text: str, doc_type: str) -> Dict[str, Any]:
+        """One LLM call over a text block, with a single JSON retry. Never raises."""
         prompt = PROMPTS.get(doc_type, PROMPTS["default"]) + _RULES
         content = ""
         for attempt in (1, 2):
@@ -115,12 +103,13 @@ class LLMExtractor:
                     model=self.model,
                     messages=[
                         {"role": "system", "content": prompt},
-                        {"role": "user", "content": text[:_MAX_TEXT_CHARS]},
+                        {"role": "user", "content": text},
                     ],
                     temperature=0.1,
                 )
                 content = response.choices[0].message.content or "{}"
-                return json.loads(_strip_fences(content))
+                result = json.loads(_strip_fences(content))
+                return result if isinstance(result, dict) else {"value": result}
             except json.JSONDecodeError as e:
                 log.warning("LLM non-JSON (attempt %d): %s", attempt, e)
                 if attempt == 1:
@@ -131,3 +120,44 @@ class LLMExtractor:
                 log.exception("LLM extraction failed: %s", e)
                 return {"error": str(e)}
         return {"error": "unreachable"}
+
+    async def extract(self, text: str, doc_type: str = "default") -> Dict[str, Any]:
+        """
+        Extract structured fields from text.
+
+        Long multi-page documents (text longer than the per-call budget) are split into
+        page-aligned chunks — pages are separated by form-feed (`\\f`) markers upstream — each
+        extracted and then merged (map-reduce), so 100+ page documents are handled.
+
+        Args:
+            text: Raw OCR/PDF text from the document.
+            doc_type: One of invoice|contract|receipt|financial_report|auction_listing|default.
+
+        Returns:
+            A dict of extracted fields ("_chunks" set when the document was chunked).
+        """
+        if not _LITELLM:
+            return {"error": "litellm_not_installed", "doc_type": doc_type}
+        if not text or not text.strip():
+            return {"error": "empty_text", "doc_type": doc_type}
+
+        if len(text) <= _MAX_TEXT_CHARS:
+            return await self._extract_one(text, doc_type)
+
+        # Large document: pack pages (form-feed separated) into chunks under the char budget.
+        chunks: list = []
+        cur = ""
+        for page in text.split("\f"):
+            if cur and len(cur) + len(page) > _MAX_TEXT_CHARS:
+                chunks.append(cur)
+                cur = page
+            else:
+                cur = f"{cur}\f{page}" if cur else page
+        if cur:
+            chunks.append(cur)
+
+        log.info("large document text: %d chars → %d LLM chunks", len(text), len(chunks))
+        parts = await asyncio.gather(*(self._extract_one(c, doc_type) for c in chunks))
+        merged = merge_doc_fields(parts)
+        merged["_chunks"] = len(chunks)
+        return merged

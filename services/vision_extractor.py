@@ -11,6 +11,7 @@ multi-page contracts, etc.).
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import io
 import json
@@ -19,6 +20,7 @@ import re
 from typing import Any, Dict, List, Optional, Union
 
 from core.logger import get_logger
+from services.doc_merge import merge_doc_fields
 
 log = get_logger(__name__)
 
@@ -34,8 +36,13 @@ try:
 except ImportError:
     _PIL = False
 
-# Cap how many page-images are sent to the vision model in one request (cost/safety).
-MAX_VISION_IMAGES = int(os.getenv("MAX_VISION_IMAGES", "20"))
+# Page images sent to the vision model in ONE request. Larger docs are split into chunks of
+# this size and merged (map-reduce) so 100+ page PDFs work without a token blow-up.
+VISION_PAGES_PER_CALL = int(os.getenv("VISION_PAGES_PER_CALL", "8"))
+# Hard ceiling on total pages processed per document (cost/safety). Raise via env for huge docs.
+MAX_VISION_PAGES = int(os.getenv("MAX_VISION_PAGES", "200"))
+# Concurrent vision calls when chunking a large document.
+VISION_CHUNK_CONCURRENCY = int(os.getenv("VISION_CHUNK_CONCURRENCY", "3"))
 # Downscale page images whose longest side exceeds this (px) to control token cost.
 VISION_MAX_EDGE = int(os.getenv("VISION_MAX_EDGE", "2200"))
 
@@ -135,6 +142,27 @@ async def _vision_call(model: str, prompt: str, imgs: List[bytes]) -> str:
     return response.choices[0].message.content or "{}"
 
 
+async def _extract_one(model: str, prompt: str, imgs: List[bytes]) -> Dict[str, Any]:
+    """One vision call over up to VISION_PAGES_PER_CALL images, with a single JSON retry.
+    Returns a parsed dict or an {"error": ...} dict (never raises)."""
+    p, last = prompt, ""
+    for attempt in (1, 2):
+        try:
+            last = await _vision_call(model, p, imgs)
+            result = json.loads(_strip_fences(last))
+            return result if isinstance(result, dict) else {"value": result}
+        except json.JSONDecodeError as e:
+            log.warning("Vision-LLM non-JSON (attempt %d): %s", attempt, e)
+            if attempt == 1:
+                p = prompt + " Your previous reply was not valid JSON. Output ONLY the JSON object."
+                continue
+            return {"error": "non_json_response", "raw": last[:500]}
+        except Exception as e:
+            log.exception("Vision extraction failed: %s", e)
+            return {"error": str(e)}
+    return {"error": "unreachable"}
+
+
 async def extract_via_vision_llm(
     images: Union[bytes, List[bytes]],
     model: Optional[str] = None,
@@ -143,13 +171,18 @@ async def extract_via_vision_llm(
     """
     Extract structured data from one or more document page images using a vision LLM.
 
+    Multi-page documents are sent together so the model can aggregate across pages. Large
+    documents (more pages than VISION_PAGES_PER_CALL) are processed in page-chunks
+    concurrently and merged (map-reduce), so 100+ page PDFs work without exceeding the
+    request's token budget.
+
     Args:
         images: Raw PNG/JPEG bytes, or a list of page images for a multi-page document.
         model: LiteLLM vision-capable model. Defaults to LLM_VISION_PREMIUM.
         doc_type: invoice|contract|receipt|financial_report|auction_listing|form|default.
 
     Returns:
-        A dict of extracted fields (with a "_confidence" float and "_pages" count).
+        A dict of extracted fields (with "_confidence", "_pages", and "_chunks" when chunked).
         Error dict if extraction fails.
     """
     if not _LITELLM:
@@ -159,32 +192,38 @@ async def extract_via_vision_llm(
     if not imgs:
         return {"error": "no_image"}
     n_pages = len(imgs)
-    if n_pages > MAX_VISION_IMAGES:
-        log.warning("document has %d pages — capping vision input at %d", n_pages, MAX_VISION_IMAGES)
-        imgs = imgs[:MAX_VISION_IMAGES]
+    if n_pages > MAX_VISION_PAGES:
+        log.warning("document has %d pages — capping at %d", n_pages, MAX_VISION_PAGES)
+        imgs = imgs[:MAX_VISION_PAGES]
+        n_pages = MAX_VISION_PAGES
 
     model = model or os.getenv("LLM_VISION_PREMIUM", "anthropic/claude-sonnet-4-6")
     prompt = VISION_PROMPTS.get(doc_type, VISION_PROMPTS["default"]) + _RULES
 
-    content = ""
-    for attempt in (1, 2):
-        try:
-            content = await _vision_call(model, prompt, imgs)
-            result = json.loads(_strip_fences(content))
-            if isinstance(result, dict):
-                result.setdefault("_confidence", None)
-                result["_pages"] = n_pages
-            return result
-        except json.JSONDecodeError as e:
-            log.warning("Vision-LLM non-JSON (attempt %d): %s", attempt, e)
-            if attempt == 1:
-                prompt += " Your previous reply was not valid JSON. Output ONLY the JSON object."
-                continue
-            return {"error": "non_json_response", "raw": content[:500], "_pages": n_pages}
-        except Exception as e:
-            log.exception("Vision extraction failed: %s", e)
-            return {"error": str(e), "_pages": n_pages}
-    return {"error": "unreachable"}
+    # Small document → a single call so the model sees all pages at once.
+    if n_pages <= VISION_PAGES_PER_CALL:
+        result = await _extract_one(model, prompt, imgs)
+        if isinstance(result, dict):
+            result.setdefault("_confidence", None)
+            result["_pages"] = n_pages
+        return result
+
+    # Large document → map-reduce over page chunks (bounded concurrency), then merge.
+    chunks = [imgs[i:i + VISION_PAGES_PER_CALL] for i in range(0, n_pages, VISION_PAGES_PER_CALL)]
+    log.info("large document: %d pages → %d vision chunks of %d", n_pages, len(chunks),
+             VISION_PAGES_PER_CALL)
+    sem = asyncio.Semaphore(VISION_CHUNK_CONCURRENCY)
+
+    async def _run(chunk: List[bytes]) -> Dict[str, Any]:
+        async with sem:
+            return await _extract_one(model, prompt, chunk)
+
+    parts = await asyncio.gather(*(_run(c) for c in chunks))
+    merged = merge_doc_fields(parts)
+    merged.setdefault("_confidence", None)
+    merged["_pages"] = n_pages
+    merged["_chunks"] = len(chunks)
+    return merged
 
 
 async def classify_image(
