@@ -46,6 +46,26 @@ all four languages** — vendor, invoice number, date, currency, subtotal, tax, 
 requires the matching Tesseract language packs (`tesseract-ocr-fra/deu/nld`) for non-English
 documents.
 
+### French + West-African CFA franc (FCFA → XOF)
+
+A French invoice priced in FCFA (UEMOA-style, 18% TVA, space-grouped amounts like
+`1 003 000 FCFA`) — reproducible via `python eval/make_fcfa_sample.py`, ground truth in
+`eval/fcfa_eval.jsonl`:
+
+```bash
+python eval/make_fcfa_sample.py
+python eval/run_real_eval.py --dataset eval/fcfa_eval.jsonl --image-dir eval/fcfa_sample --route vision_premium
+OCR_LANGS=fra+eng python eval/run_real_eval.py --dataset eval/fcfa_eval.jsonl --image-dir eval/fcfa_sample --route ocr_fallback
+```
+
+| Route | Engine | Score |
+|-------|--------|-------|
+| **A — vision_premium** | Claude Sonnet 4.6 Vision | **7/7 = 100%** |
+| **C — ocr_fallback (fra+eng)** | Tesseract + LLM | **7/7 = 100%** |
+
+Both routes read the French labels, transcribe the space-grouped amounts to plain decimals
+(`1 003 000` → `1003000`), and normalize the currency to **XOF**.
+
 ### `/classify-image` (vision-first object classification)
 
 | Image | Top category | Confidence |

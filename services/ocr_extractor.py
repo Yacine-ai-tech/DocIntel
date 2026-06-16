@@ -41,15 +41,29 @@ except ImportError:
     _PDF2IMAGE = False
 
 
-def extract_text_from_image(image_bytes: bytes) -> str:
-    """Route C (Tesseract): plain OCR of an image's text. Returns '' when Tesseract isn't
+import os as _os
+
+# Tesseract language packs to try (install the matching tesseract-ocr-<lang> packages).
+# Falls back to "eng" automatically if a pack is missing.
+_OCR_LANGS = _os.getenv("OCR_LANGS", "eng+fra+deu+nld+spa+ita")
+
+
+def extract_text_from_image(image_bytes: bytes, lang: Optional[str] = None) -> str:
+    """Route C (Tesseract): plain OCR of an image's text. ``lang`` is a Tesseract language
+    string like "eng+fra"; defaults to ``OCR_LANGS``. Returns '' when Tesseract isn't
     available or finds no text — the caller decides how to degrade."""
     if not _TESSERACT:
         log.warning("pytesseract/Tesseract not installed — OCR route unavailable")
         return ""
+    langs = lang or _OCR_LANGS
     try:
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-        return pytesseract.image_to_string(img).strip()
+        try:
+            return pytesseract.image_to_string(img, lang=langs).strip()
+        except pytesseract.TesseractError:
+            # A requested language pack isn't installed — degrade to English.
+            log.warning("Tesseract langs %r unavailable — falling back to eng", langs)
+            return pytesseract.image_to_string(img, lang="eng").strip()
     except Exception as e:
         log.error("OCR (Tesseract) failed: %s", e)
         return ""
@@ -59,22 +73,76 @@ def is_pdf(data: bytes) -> bool:
     return data[:5] == b"%PDF-"
 
 
-def pdf_first_page_to_png(pdf_bytes: bytes, dpi: int = 150) -> bytes:
-    """Render page 1 of a PDF to PNG bytes — the vision/OCR routes are image-based and
-    first-page for multi-page PDFs (documented limitation). Returns b'' if unavailable."""
+def pdf_page_count(pdf_bytes: bytes) -> int:
+    """Number of pages in a PDF (0 if it can't be read)."""
+    if _PDFPLUMBER:
+        try:
+            with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+                return len(pdf.pages)
+        except Exception as e:
+            log.error("pdf_page_count (pdfplumber) failed: %s", e)
+    if _PDF2IMAGE:
+        try:
+            from pdf2image.pdf2image import pdfinfo_from_bytes
+            return int(pdfinfo_from_bytes(pdf_bytes).get("Pages", 0))
+        except Exception as e:
+            log.error("pdf_page_count (pdfinfo) failed: %s", e)
+    return 0
+
+
+def pdf_to_pngs(pdf_bytes: bytes, dpi: int = 150, max_pages: int = 20) -> List[bytes]:
+    """Render **every** page of a PDF to PNG bytes (capped at ``max_pages`` for cost/safety).
+
+    This is what makes the vision routes multi-page: each page becomes one image and all
+    images are sent to the vision LLM in a single request so it can reason across pages
+    (e.g. an invoice whose totals sit on a later page, or a multi-page contract).
+    Returns [] if rendering is unavailable.
+    """
     if not _PDF2IMAGE:
         log.warning("pdf2image/poppler not installed — cannot render PDF to image")
-        return b""
+        return []
     try:
-        pages = pdf2image.convert_from_bytes(pdf_bytes, dpi=dpi, first_page=1, last_page=1)
-        if not pages:
-            return b""
-        buf = io.BytesIO()
-        pages[0].save(buf, "PNG")
-        return buf.getvalue()
+        last = max_pages if max_pages and max_pages > 0 else None
+        pages = pdf2image.convert_from_bytes(pdf_bytes, dpi=dpi, first_page=1, last_page=last)
+        out: List[bytes] = []
+        for page in pages:
+            buf = io.BytesIO()
+            page.save(buf, "PNG")
+            out.append(buf.getvalue())
+        return out
     except Exception as e:
         log.error("PDF→PNG render failed: %s", e)
-        return b""
+        return []
+
+
+def pdf_first_page_to_png(pdf_bytes: bytes, dpi: int = 150) -> bytes:
+    """Render page 1 of a PDF to PNG bytes (back-compat helper). Returns b'' if unavailable."""
+    pages = pdf_to_pngs(pdf_bytes, dpi=dpi, max_pages=1)
+    return pages[0] if pages else b""
+
+
+def extract_text_from_pdf(pdf_bytes: bytes, max_pages: int = 50, ocr_dpi: int = 200) -> str:
+    """Full-document text for the OCR route. Uses pdfplumber's native text layer across all
+    pages; for scanned PDFs with no embedded text it falls back to rendering each page and
+    running Tesseract. Pages are separated by a form-feed marker so the LLM sees boundaries.
+    """
+    parts: List[str] = []
+    if _PDFPLUMBER:
+        try:
+            with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+                for page in pdf.pages[:max_pages]:
+                    parts.append(page.extract_text() or "")
+        except Exception as e:
+            log.error("extract_text_from_pdf (pdfplumber) failed: %s", e)
+    native = "\n\f\n".join(parts).strip()
+    if native:
+        return native
+    # Scanned PDF (no text layer) → OCR each rendered page.
+    if _TESSERACT and _PDF2IMAGE:
+        log.info("PDF has no text layer — falling back to per-page Tesseract OCR")
+        imgs = pdf_to_pngs(pdf_bytes, dpi=ocr_dpi, max_pages=max_pages)
+        return "\n\f\n".join(extract_text_from_image(img) for img in imgs).strip()
+    return ""
 
 
 # ════════════════════════════════════════════════════════════════════════════
