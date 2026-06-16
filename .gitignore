@@ -58,3 +58,6 @@ eval/fcfa_sample/
 
 # Large-doc test PDF (reproducible via eval/make_large_pdf.py)
 eval/large_doc/
+
+# Writing drafts (publish later, not in repo)
+drafts/
