@@ -21,7 +21,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 _CUR = {"$": "USD", "us$": "USD", "usd": "USD", "€": "EUR", "eur": "EUR",
-        "₹": "INR", "inr": "INR", "rs": "INR", "rs.": "INR", "£": "GBP", "gbp": "GBP"}
+        "₹": "INR", "inr": "INR", "rs": "INR", "rs.": "INR", "£": "GBP", "gbp": "GBP",
+        # West/Central African CFA franc: FCFA / CFA / "F CFA" → XOF (West) / XAF (Central)
+        "fcfa": "XOF", "cfa": "XOF", "f cfa": "XOF", "cfa f": "XOF", "xof": "XOF",
+        "fcfa xof": "XOF", "xaf": "XAF", "₣": "XOF"}
 
 
 def _norm(s):
