@@ -48,6 +48,18 @@ def _norm(s):
     return re.sub(r"\s+", " ", str(s if s is not None else "").strip().lower())
 
 
+_CUR = {"$": "USD", "us$": "USD", "usd": "USD", "€": "EUR", "eur": "EUR", "₹": "INR",
+        "inr": "INR", "rs": "INR", "rs.": "INR", "£": "GBP", "gbp": "GBP",
+        # West/Central African CFA franc → XOF (West) / XAF (Central)
+        "fcfa": "XOF", "cfa": "XOF", "f cfa": "XOF", "cfa f": "XOF", "xof": "XOF",
+        "fcfa xof": "XOF", "xaf": "XAF", "₣": "XOF"}
+
+
+def _cur(v):
+    s = _norm(v)
+    return _CUR.get(s, s.upper() if len(s) == 3 else s)
+
+
 def score(doc_type, expected, actual):
     """Per-field correctness for the fields present in the ground truth."""
     actual = actual or {}
@@ -60,6 +72,8 @@ def score(doc_type, expected, actual):
             ev = _norm(v)
             av = _norm(actual.get("vendor") or actual.get("merchant"))
             r[k] = bool(ev and av and (ev in av or av in ev))
+        elif k == "currency":
+            r[k] = _cur(v) == _cur(actual.get(k))
         else:
             r[k] = _norm(v) == _norm(actual.get(k))
     return r
@@ -85,7 +99,8 @@ async def extract(route, row):
             return {"error": "ocr_empty"}
         return await LLMExtractor(model=settings.LLM_CLEANUP).extract(text, row["doc_type"])
     from services.vision_extractor import extract_via_vision_llm
-    model = "ollama/llama3.2-vision" if route == "vision_local" else None
+    from core.config import settings
+    model = settings.LLM_VISION_LOCAL if route == "vision_local" else None
     return await extract_via_vision_llm(imgs, model=model, doc_type=row["doc_type"])
 
 
