@@ -55,3 +55,6 @@ eval/benchmark/
 
 # FCFA French sample (reproducible via eval/make_fcfa_sample.py)
 eval/fcfa_sample/
+
+# Large-doc test PDF (reproducible via eval/make_large_pdf.py)
+eval/large_doc/
