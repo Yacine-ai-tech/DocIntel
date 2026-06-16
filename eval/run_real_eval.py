@@ -73,7 +73,8 @@ async def _extract(route, png_path):
         text = extract_text_from_image(img)
         return await LLMExtractor().extract(text, "invoice") if text else {"error": "ocr_empty"}
     from services.vision_extractor import extract_via_vision_llm
-    model = "ollama/llama3.2-vision" if route == "vision_local" else None
+    from core.config import settings
+    model = settings.LLM_VISION_LOCAL if route == "vision_local" else None
     return await extract_via_vision_llm(img, model=model, doc_type="invoice")
 
 
