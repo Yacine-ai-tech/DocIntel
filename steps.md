@@ -119,3 +119,10 @@ handwriting, EN/FR/DE/NL/ES/IT, EU + West-African **FCFA→XOF** currency, batch
 - **Code (Week 4.5):** added `services/surya_extractor.py` — layout-aware OCR (Surya 0.4+
   predictor API), gated on `surya-ocr` (requirements-ml.txt) with graceful stub, matching
   `MarkerExtractor`. `tests/test_surya.py` (stub-safe).
+
+## Week 18 — arXiv preprint draft (capstone, 2026-06-16)
+- Wrote `drafts/preprint_docai_benchmark.md` (gitignored): "LLM-Enhanced OCR: A Released
+  Benchmark and Three-Route Comparison" — full draft grounded in the REAL measured numbers
+  (550/550 scale; Route A 100%/92.5%, Route B 85% local, Route C 28.5% on phone receipts;
+  FCFA 7/7; 120-page cross-chunk). The released benchmark is the cited contribution (STRATEGY §3.9).
+- Companion paper outline lives in RAGeval `drafts/preprint_outline_multijudge.md`.
