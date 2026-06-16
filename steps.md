@@ -109,3 +109,13 @@ handwriting, EN/FR/DE/NL/ES/IT, EU + West-African **FCFA→XOF** currency, batch
 5. **Route B**: pull a current Ollama build that supports `mllama` to add Llama-3.2-Vision
    alongside qwen2.5vl; per-page large-doc mode for the local route.
 6. **Eval gating in CI**: run the scale + Route C eval on a fixed sample as a regression gate.
+
+## Phase 2 completion pass (2026-06-16, post-GPU)
+- **Audit (user-prompted):** confirmed code core done+validated, but Week 6 **writing** was
+  missing and the Week 4.5 **Surya** layout-OCR code was absent (Marker was wired).
+- **Writing (Week 6):** added `drafts/` (gitignored, publish-later, per IntelAI convention):
+  `blog_post_2_vision_first_docai.md` (tied to the real 550-doc benchmark), 
+  `upwork_proposal_templates.md` (4 OCR niches, §3.7), `demo_script.md` (60s, §3.6).
+- **Code (Week 4.5):** added `services/surya_extractor.py` — layout-aware OCR (Surya 0.4+
+  predictor API), gated on `surya-ocr` (requirements-ml.txt) with graceful stub, matching
+  `MarkerExtractor`. `tests/test_surya.py` (stub-safe).
