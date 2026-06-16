@@ -52,3 +52,6 @@ eval/real_invoices/
 
 # Benchmark corpus artifacts (reproducible via eval/build_corpus.py)
 eval/benchmark/
+
+# FCFA French sample (reproducible via eval/make_fcfa_sample.py)
+eval/fcfa_sample/
