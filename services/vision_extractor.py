@@ -43,6 +43,10 @@ VISION_PAGES_PER_CALL = int(os.getenv("VISION_PAGES_PER_CALL", "8"))
 MAX_VISION_PAGES = int(os.getenv("MAX_VISION_PAGES", "200"))
 # Concurrent vision calls when chunking a large document.
 VISION_CHUNK_CONCURRENCY = int(os.getenv("VISION_CHUNK_CONCURRENCY", "3"))
+# Local (Ollama) vision models have a small context window, so use fewer pages per call and
+# raise the Ollama context size so a chunk still fits.
+VISION_PAGES_PER_CALL_LOCAL = int(os.getenv("VISION_PAGES_PER_CALL_LOCAL", "2"))
+OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
 # Downscale page images whose longest side exceeds this (px) to control token cost.
 VISION_MAX_EDGE = int(os.getenv("VISION_MAX_EDGE", "2200"))
 
@@ -134,11 +138,16 @@ def _image_block(image_bytes: bytes) -> Dict[str, Any]:
 async def _vision_call(model: str, prompt: str, imgs: List[bytes]) -> str:
     content: List[Dict[str, Any]] = [{"type": "text", "text": prompt}]
     content.extend(_image_block(i) for i in imgs)
-    response = await acompletion(
-        model=model,
-        messages=[{"role": "user", "content": content}],
-        temperature=0.1,
-    )
+    kwargs: Dict[str, Any] = {
+        "model": model,
+        "messages": [{"role": "user", "content": content}],
+        "temperature": 0.1,
+    }
+    # Local Ollama models default to a tiny 4096-token context; raise it so multi-image
+    # chunks fit (each downscaled page is ~2.5-3k tokens).
+    if model.startswith("ollama"):
+        kwargs["num_ctx"] = OLLAMA_NUM_CTX
+    response = await acompletion(**kwargs)
     return response.choices[0].message.content or "{}"
 
 
@@ -199,9 +208,11 @@ async def extract_via_vision_llm(
 
     model = model or os.getenv("LLM_VISION_PREMIUM", "anthropic/claude-sonnet-4-6")
     prompt = VISION_PROMPTS.get(doc_type, VISION_PROMPTS["default"]) + _RULES
+    # Local models have a smaller context, so send fewer pages per call.
+    per_call = VISION_PAGES_PER_CALL_LOCAL if model.startswith("ollama") else VISION_PAGES_PER_CALL
 
     # Small document → a single call so the model sees all pages at once.
-    if n_pages <= VISION_PAGES_PER_CALL:
+    if n_pages <= per_call:
         result = await _extract_one(model, prompt, imgs)
         if isinstance(result, dict):
             result.setdefault("_confidence", None)
@@ -209,9 +220,8 @@ async def extract_via_vision_llm(
         return result
 
     # Large document → map-reduce over page chunks (bounded concurrency), then merge.
-    chunks = [imgs[i:i + VISION_PAGES_PER_CALL] for i in range(0, n_pages, VISION_PAGES_PER_CALL)]
-    log.info("large document: %d pages → %d vision chunks of %d", n_pages, len(chunks),
-             VISION_PAGES_PER_CALL)
+    chunks = [imgs[i:i + per_call] for i in range(0, n_pages, per_call)]
+    log.info("large document: %d pages → %d vision chunks of %d", n_pages, len(chunks), per_call)
     sem = asyncio.Semaphore(VISION_CHUNK_CONCURRENCY)
 
     async def _run(chunk: List[bytes]) -> Dict[str, Any]:

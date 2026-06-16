@@ -70,7 +70,9 @@ python eval/run_benchmark.py --route vision_local   --doc-type receipt --limit 4
 | **A — vision_premium** | Claude Sonnet 4.6 Vision | receipts (40, CORD phone photos) | **37/40 = 92.5%** |
 | **C — ocr_fallback** | Tesseract (eng) + Claude Haiku | invoices (clean PDFs) | **100%** (see [EVAL_REAL.md](EVAL_REAL.md)) |
 | **C — ocr_fallback** | Tesseract (eng) + Claude Haiku | receipts (200, CORD phone photos) | **57/200 = 28.5%** |
-| **B — vision_local** | Ollama vision (local) | — | not validated — see note |
+| **B — vision_local** | Ollama **qwen2.5vl:7b** (local, T4 GPU) | receipts (20, CORD phone photos) | **17/20 = 85.0%** |
+| **B — vision_local** | Ollama **qwen2.5vl:7b** (local, T4 GPU) | invoices (6, multilingual, multi-page) | **25/39 = 64.1%** |
+| **B — vision_local** | Ollama **qwen2.5vl:7b** (local, T4 GPU) | French + FCFA(XOF) sample | **7/7 = 100%** |
 
 **Reading the numbers.** Vision-first (Route A) is strong everywhere: **100%** on real
 multilingual, multi-page invoices (vendor, number, date, currency, subtotal, tax, total — incl.
@@ -92,18 +94,26 @@ read **100% correctly by both routes** — full breakdown in [EVAL_REAL.md](EVAL
 | A — vision_premium | Claude Sonnet 4.6 Vision | **7/7 = 100%** |
 | C — ocr_fallback (fra+eng) | Tesseract + Claude Haiku | **7/7 = 100%** |
 
-### Route B (Ollama local vision) — environment-blocked, not a capability gap
+### Route B (Ollama local vision) — validated on a T4 GPU
 
-Route B is wired and identical in code path to Route A (same `extract_via_vision_llm`, different
-model string). It was **not** validated in this run for two environment reasons, both outside
-the code:
-1. The pinned Ollama on the test box (0.30.8) rejects Llama-3.2-Vision with
-   `unknown model architecture: 'mllama'` — a runner-compat issue fixed by a current Ollama
-   build or by switching `LLM_VISION_LOCAL` to `ollama/qwen2.5vl:7b` (STRATEGY's alternate).
-2. The Lightning GPU/Studio became unavailable (account credits) mid-run.
+Route B is the **private, zero-API-cost** path (everything stays on the box). Validated with
+**Ollama `qwen2.5vl:7b` on a Lightning T4** (the pitch model `llama3.2-vision` is blocked by a
+`mllama` runner bug in the available Ollama 0.30.8, so we use Qwen2.5-VL — also Ollama, and
+listed in STRATEGY §3.10):
 
-Reproduce on any host with a current Ollama + GPU:
-`ollama pull qwen2.5vl:7b && LLM_VISION_LOCAL=ollama/qwen2.5vl:7b python eval/run_benchmark.py --route vision_local --doc-type receipt --limit 20`
+- **Receipts (CORD phone photos): 17/20 = 85%** — far above the pure-OCR fallback (28.5%) and
+  approaching premium Claude Vision (92.5%), at **$0 per page**.
+- **French + FCFA(XOF): 7/7 = 100%.**
+- Invoices (multilingual, multi-page): 25/39 = 64% (a 7B local model trails Claude on the
+  hardest layouts — the expected premium-vs-local tradeoff).
+
+**Large docs on the local route:** Ollama's default context is 4096 tokens, too small for
+multi-image chunks. The extractor now sends fewer pages per call for `ollama/` models
+(`VISION_PAGES_PER_CALL_LOCAL`, default 2) and raises `num_ctx` (`OLLAMA_NUM_CTX`, default
+8192). For 100+ page documents the OCR route (Route C, validated 7/7 on a 120-page PDF) or
+premium vision is recommended.
+
+Reproduce: `ollama pull qwen2.5vl:7b && LLM_VISION_LOCAL=ollama/qwen2.5vl:7b python eval/run_benchmark.py --route vision_local --doc-type receipt --limit 20`
 <!--/ACCURACY-->
 
 ## Cost & compute notes
