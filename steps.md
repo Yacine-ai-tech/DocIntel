@@ -136,3 +136,8 @@ handwriting, EN/FR/DE/NL/ES/IT, EU + West-African **FCFA→XOF** currency, batch
   standard receipt KIE) → **OVERALL 95.0%** (company 95 / date 90 / total 100), N=20, zero-shot.
   **Exceeds STRATEGY §3.4's 90% target**; near published SOTA (96-98% from fine-tuned models).
   Found+fixed a misleading date-scoring artifact (ISO vs DD/MM/YYYY → was 0%, truly 90%).
+
+## Remediation (GPU) — Route B at scale + SROIE (2026-06-17)
+- Route B qwen2.5vl on **100** CORD receipts (T4, conc 4): **77.0%** (0 errors) — credible larger-N.
+- SROIE world-standard KIE: **95%** zero-shot (committed earlier). llama3.2-vision retry FAILED
+  again (mllama) → qwen2.5vl confirmed as Route B.
