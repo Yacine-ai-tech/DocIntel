@@ -1,5 +1,7 @@
 # DocIntel
 
+[![CI](https://github.com/Yacine-ai-tech/DocIntel/actions/workflows/ci.yml/badge.svg)](https://github.com/Yacine-ai-tech/DocIntel/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 **Vision-first document AI. Drop a PDF or image, get structured JSON in under 2 seconds. Local or cloud.**
 
 ## What It Does
