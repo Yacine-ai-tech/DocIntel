@@ -70,7 +70,19 @@ fileInput.addEventListener('change', async e => {
 async function process(file) {
   const route = document.getElementById('route').value;
   const docType = document.getElementById('doctype').value;
-  results.innerHTML = '<div class="meta">Processing...</div>';
+  // Graceful warming UX: free tier can cold-start (~45s), and Route B wakes a GPU studio (longer).
+  // Show a progressing message instead of a frozen-looking pause.
+  const t0 = Date.now();
+  const phases = route === 'vision_local'
+    ? ['Processing…', 'Waking the on-demand vision GPU… (Route B, first call can take 1–2 min)', 'Running local vision model…', 'Almost there…']
+    : ['Processing…', 'Waking the service… (free tier, up to ~45s on the first request)', 'Extracting…', 'Almost there…'];
+  let i = 0;
+  results.innerHTML = `<div class="meta">${phases[0]}</div>`;
+  const timer = setInterval(() => {
+    i = Math.min(i + 1, phases.length - 1);
+    const s = Math.round((Date.now() - t0) / 1000);
+    results.innerHTML = `<div class="meta">${phases[i]} <span style="opacity:.6">(${s}s)</span></div>`;
+  }, 8000);
 
   const fd = new FormData();
   fd.append('file', file);
@@ -80,9 +92,11 @@ async function process(file) {
   try {
     const r = await fetch('/extract', { method: 'POST', body: fd });
     const data = await r.json();
+    clearInterval(timer);
     render(data);
   } catch (err) {
-    results.innerHTML = `<pre>Error: ${err}</pre>`;
+    clearInterval(timer);
+    results.innerHTML = `<pre>Error: ${err}\n\n(If this was the first request, the free-tier service may have been waking up — try again.)</pre>`;
   }
 }
 
