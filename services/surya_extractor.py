@@ -44,7 +44,12 @@ class SuryaExtractor:
         if self._rec is None and _SURYA:
             log.info("Loading Surya detection + recognition models (first call only)...")
             self._det = DetectionPredictor()
-            self._rec = RecognitionPredictor()
+            # surya recent: RecognitionPredictor(FoundationPredictor()); older: no-arg
+            try:
+                from surya.foundation import FoundationPredictor
+                self._rec = RecognitionPredictor(FoundationPredictor())
+            except Exception:
+                self._rec = RecognitionPredictor()
 
     def extract(self, image_bytes: bytes) -> Dict[str, Any]:
         """
@@ -59,11 +64,18 @@ class SuryaExtractor:
         try:
             self._ensure_models()
             img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-            # surya 0.6+ recognition API: full-page OCR (no separate det_predictor kwarg)
-            try:
-                preds = self._rec([img], full_page=True)
-            except TypeError:
-                preds = self._rec([img])  # older signature fallback
+            # surya's recognition signature has churned — try the known variants in order.
+            preds = None
+            for call in (lambda: self._rec([img], det_predictor=self._det),
+                         lambda: self._rec([img], full_page=True),
+                         lambda: self._rec([img])):
+                try:
+                    preds = call()
+                    break
+                except TypeError:
+                    continue
+            if preds is None:
+                return {"text": "", "lines": [], "error": "surya_api_mismatch", "method": "surya"}
             page = preds[0]
             lines = [
                 {"text": ln.text, "bbox": getattr(ln, "bbox", None),
