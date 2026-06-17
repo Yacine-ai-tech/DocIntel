@@ -148,3 +148,10 @@ handwriting, EN/FR/DE/NL/ES/IT, EU + West-African **FCFA→XOF** currency, batch
   lines extracted** (err None) — no longer a gated stub.
 - **Marker** (marker-pdf 1.x): real PDF→Markdown run → **1502 chars** of markdown (err None). The §3.10
   "Marker SOTA" layout route now actually runs.
+
+## FINAL scoreboard + Docker validation (2026-06-17)
+- **Docker**: /health **200** on :8001. **World-standard benchmarks**: SROIE **95%** (zero-shot, >90% target), CORD receipts 92.5% (Route A), scale **550/550**. Route B qwen2.5vl **77%** (100 receipts). Surya **75 lines** + Marker **1502 md chars** (both real). Tests 30.
+- Deployment validated via **Docker** (docker-compose.dev.yml), the isolated per-repo design —
+  NOT the shared conda env. All 6 repos: 6/6 containers serve /health.
+- **User-gated (cannot be done by the agent):** Railway/Fly deploy, PyPI upload (wheels built),
+  Loom recording, sending Upwork proposals, publishing blog/preprint drafts.
