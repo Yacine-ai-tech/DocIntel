@@ -14,6 +14,7 @@ from typing import Any, Dict, Optional
 
 from core.logger import get_logger
 from services.doc_merge import merge_doc_fields
+from services.normalize import normalize_fields
 
 log = get_logger(__name__)
 
@@ -29,10 +30,10 @@ except ImportError:
 # so aggregate across them. Encode EU-decimal + ISO-currency normalization and confidence.
 _RULES = (
     " The text may span multiple pages (separated by form-feed characters) — aggregate across "
-    "them. Normalize numbers to a dot decimal (European '1.234,56' -> 1234.56; West African "
-    "'1 234 567 FCFA' -> 1234567; strip thousands separators, spaces and currency symbols). "
-    "Use ISO-4217 currency codes (the West African CFA franc 'FCFA'/'CFA'/'F CFA' is XOF, "
-    "Central African is XAF) and ISO YYYY-MM-DD dates. "
+    "them. Normalize numbers to a dot decimal (US '1,234.56' -> 1234.56; European '1.234,56' "
+    "-> 1234.56; spaced '1 234 567 FCFA' -> 1234567; strip thousands separators, spaces and "
+    "currency symbols). Use ISO-4217 currency codes (USD, EUR, GBP, JPY, INR, CNY, ...); the "
+    "West African CFA franc 'FCFA'/'CFA'/'F CFA' is XOF, Central African is XAF. ISO YYYY-MM-DD dates. "
     "Use null for missing fields. Include a numeric \"_confidence\" (0-1). Return ONLY valid JSON."
 )
 
@@ -142,7 +143,10 @@ class LLMExtractor:
             return {"error": "empty_text", "doc_type": doc_type}
 
         if len(text) <= _MAX_TEXT_CHARS:
-            return await self._extract_one(text, doc_type)
+            result = await self._extract_one(text, doc_type)
+            if isinstance(result, dict) and "error" not in result:
+                normalize_fields(result, doc_type)
+            return result
 
         # Large document: pack pages (form-feed separated) into chunks under the char budget.
         chunks: list = []
@@ -159,5 +163,6 @@ class LLMExtractor:
         log.info("large document text: %d chars → %d LLM chunks", len(text), len(chunks))
         parts = await asyncio.gather(*(self._extract_one(c, doc_type) for c in chunks))
         merged = merge_doc_fields(parts)
+        normalize_fields(merged, doc_type)
         merged["_chunks"] = len(chunks)
         return merged

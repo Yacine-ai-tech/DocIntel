@@ -155,3 +155,32 @@ handwriting, EN/FR/DE/NL/ES/IT, EU + West-African **FCFA→XOF** currency, batch
   NOT the shared conda env. All 6 repos: 6/6 containers serve /health.
 - **User-gated (cannot be done by the agent):** Railway/Fly deploy, PyPI upload (wheels built),
   Loom recording, sending Upwork proposals, publishing blog/preprint drafts.
+
+## Internationalization — multi-currency / multi-locale normalization (2026-06-17)
+Trigger: "FCFA is not the only currency — read STRATEGY then implement all it says." STRATEGY §3.4
+(EU comma-decimals, ISO 4217 currency, USD/EUR/GBP/JPY, dateparser dates) demands more than FCFA.
+- NEW `services/normalize.py` — deterministic hybrid post-processing (the layer STRATEGY §3.4 /
+  Day 36 calls for, since LLMs are unreliable at locale parsing). Multi-currency by design:
+  - Amounts: US `1,234.56`, EU `1.234,56`, spaced `1 234 567`, Swiss `1'234.56`, paren-negatives
+    → float (rightmost of `.`/`,` is the decimal mark; longest-token currency match).
+  - Currency → ISO 4217: `$ € £ ¥ ₹ ₦ ₩ ฿ ₫ FCFA RM R$ zł …` + 50 ISO codes; missing `currency`
+    inferred from symbols seen in amount strings.
+  - Dates → ISO 8601 via `dateparser` (added to requirements.txt) with common-format fallback.
+  - Conservative: unparseable values left untouched (can only improve LLM output).
+- Wired into BOTH `vision_extractor.py` (Route A/B, single + map-reduce paths) and
+  `llm_extractor.py` (Route C, single + chunked). Prompts de-FCFA-centered (US+EU+spaced examples).
+- Tests: `tests/test_normalize.py` (40+ cases: US/EU/JP/IN/UK/CH/FCFA amounts, ISO currencies,
+  ISO dates, field-mapping, currency inference, unparseable-preserved). Verified green on laptop
+  (fallback date path; dateparser path runs in Docker/Studio). Fixed 1 real bug: `RMB`→CNY was
+  shadowed by `RM`→MYR (substring) → now longest-token-first.
+- llama3.2-vision, honest final: the `mllama` load error is Ollama-version-specific (loads on
+  **0.11.4**, "PONG"), but its FCFA extraction scored **0/7** vs qwen2.5vl 7/7 → qwen2.5vl stays
+  Route B (Ollama, §3.10 alternate). README + vision_extractor docstring corrected to match.
+
+## Production-readiness — deploy-today pass (2026-06-17)
+- **Cloud $PORT binding (deploy blocker fixed):** Dockerfile CMD was a fixed `--port 8001`
+  (exec-array, no env expansion) → cloud platforms (Railway/Render/Fly inject `$PORT`) would
+  fail health checks. Now `CMD ["sh","-c","exec uvicorn api:app --host 0.0.0.0 --port ${PORT:-8001} --workers 1"]`
+  (exec ⇒ uvicorn is PID 1 for clean SIGTERM; defaults 8001 locally). HEALTHCHECK uses `${PORT:-8001}` too.
+- Added `railway.toml` (DOCKERFILE builder, healthcheckPath=/health, restart policy).
+- Verified `.env`/`*.env` gitignored; no secrets tracked. README updated (multi-currency + Ollama-local wording).
