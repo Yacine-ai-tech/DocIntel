@@ -59,7 +59,11 @@ class SuryaExtractor:
         try:
             self._ensure_models()
             img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-            preds = self._rec([img], det_predictor=self._det)
+            # surya 0.6+ recognition API: full-page OCR (no separate det_predictor kwarg)
+            try:
+                preds = self._rec([img], full_page=True)
+            except TypeError:
+                preds = self._rec([img])  # older signature fallback
             page = preds[0]
             lines = [
                 {"text": ln.text, "bbox": getattr(ln, "bbox", None),
