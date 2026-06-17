@@ -141,3 +141,10 @@ handwriting, EN/FR/DE/NL/ES/IT, EU + West-African **FCFA→XOF** currency, batch
 - Route B qwen2.5vl on **100** CORD receipts (T4, conc 4): **77.0%** (0 errors) — credible larger-N.
 - SROIE world-standard KIE: **95%** zero-shot (committed earlier). llama3.2-vision retry FAILED
   again (mllama) → qwen2.5vl confirmed as Route B.
+
+## Remediation (GPU) — Surya + Marker validated for real (2026-06-17)
+- **Surya** layout-OCR: fixed to the FoundationPredictor API (RecognitionPredictor(FoundationPredictor());
+  multi-signature `det_predictor`/`full_page`/bare fallback). Real run on the AWS invoice: **75 text
+  lines extracted** (err None) — no longer a gated stub.
+- **Marker** (marker-pdf 1.x): real PDF→Markdown run → **1502 chars** of markdown (err None). The §3.10
+  "Marker SOTA" layout route now actually runs.
