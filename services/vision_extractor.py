@@ -3,7 +3,11 @@ Vision-LLM document extractor — 2026 vision-first route.
 
 Routes:
   - Premium: Claude Sonnet 4.6 Vision via LiteLLM (complex layouts, handwriting, mixed langs)
-  - Local: Ollama Llama 3.2 Vision via LiteLLM (local privacy)
+  - Local: Ollama vision via LiteLLM (local privacy, $0/page) — Qwen2.5-VL is the validated
+    default; Llama 3.2 Vision also loads on Ollama 0.11.4 but its KIE quality is poor.
+
+Extracted amount/currency/date fields are normalized deterministically afterwards by
+`services.normalize` (multi-currency, multi-locale) — LLMs are unreliable at locale parsing.
 
 Multi-page documents are supported: pass a list of page images and they are sent to the
 vision model in one request so it can aggregate across pages (totals on a later page,
@@ -21,6 +25,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from core.logger import get_logger
 from services.doc_merge import merge_doc_fields
+from services.normalize import normalize_fields
 
 log = get_logger(__name__)
 
@@ -57,9 +62,10 @@ _RULES = (
     " The document may span MULTIPLE page images — read ALL of them and aggregate "
     "(a field such as the grand total may appear only on a later page; line items may "
     "continue across pages). Transcribe handwritten values too. Normalize every number to "
-    "a machine-readable decimal with a dot (e.g. European '1.234,56' -> 1234.56; West "
-    "African '1 234 567 FCFA' -> 1234567; strip thousands separators, spaces and currency "
-    "symbols). Use ISO-4217 currency codes (USD, EUR, GBP, INR, JPY, XOF, XAF, ...); the "
+    "a machine-readable decimal with a dot (US '1,234.56' -> 1234.56; European '1.234,56' "
+    "-> 1234.56; spaced '1 234 567 FCFA' -> 1234567; strip thousands separators, spaces and "
+    "currency symbols). Use ISO-4217 currency codes (USD, EUR, GBP, JPY, INR, CNY, XOF, XAF, "
+    "...); the "
     "West African CFA franc written 'FCFA'/'CFA'/'F CFA' is XOF (Central African CFA is "
     "XAF). Dates as ISO YYYY-MM-DD. If a field is not present, use null. "
     "Also include a numeric \"_confidence\" between 0 and 1 for the overall extraction. "
@@ -214,7 +220,8 @@ async def extract_via_vision_llm(
     # Small document → a single call so the model sees all pages at once.
     if n_pages <= per_call:
         result = await _extract_one(model, prompt, imgs)
-        if isinstance(result, dict):
+        if isinstance(result, dict) and "error" not in result:
+            normalize_fields(result, doc_type)
             result.setdefault("_confidence", None)
             result["_pages"] = n_pages
         return result
@@ -230,6 +237,7 @@ async def extract_via_vision_llm(
 
     parts = await asyncio.gather(*(_run(c) for c in chunks))
     merged = merge_doc_fields(parts)
+    normalize_fields(merged, doc_type)
     merged.setdefault("_confidence", None)
     merged["_pages"] = n_pages
     merged["_chunks"] = len(chunks)

@@ -131,5 +131,24 @@ Reproduce: `ollama pull qwen2.5vl:7b && LLM_VISION_LOCAL=ollama/qwen2.5vl:7b pyt
   0 errors) — the credible larger-N number (the earlier 85% was N=20). Still beats Route C (28.5%),
   below Route A (92.5%) — the expected premium-vs-local-7B tradeoff, at **$0/page**.
 - **SROIE** (world-standard receipt KIE, zero-shot Route A): **95% overall** — see SROIE_BENCHMARK.md.
-- `llama3.2-vision` confirmed unusable on the available Ollama 0.30.8 (`mllama`) after multiple
-  retries → **qwen2.5vl is the Route B model** (Ollama, STRATEGY §3.10 alternate).
+- `llama3.2-vision` — full investigation (CPU, no GPU billing): the `unknown model
+  architecture: 'mllama'` failure is **Ollama-version-specific** (fails to load on 0.4.7 /
+  0.5.13 / 0.6.8 / 0.30.8; **loads fine on Ollama 0.11.4** — verified "PONG"). But once
+  loaded, its *extraction quality* is the blocker: on the French + FCFA invoice it scored
+  **0/7** vs qwen2.5vl's 7/7. So the conclusion is unchanged but for the honest reason —
+  not "can't load" but "loads (on 0.11.4) yet its KIE output is unusable". **qwen2.5vl is
+  the Route B model** (also Ollama, STRATEGY §3.10 sanctioned alternate).
+
+## Multi-currency / multi-locale normalization (2026-06-17)
+Beyond FCFA, both routes now run a **deterministic post-processing layer**
+(`services/normalize.py`) over LLM output — the hybrid step STRATEGY §3.4 / Day 36 calls for,
+since LLMs are unreliable at locale-specific parsing:
+- **Amounts**: US `1,234.56`, EU `1.234,56`, spaced `1 234 567`, Swiss `1'234.56`,
+  parenthesised negatives → float (rightmost of `.`/`,` is the decimal mark).
+- **Currency → ISO 4217**: `$`/`€`/`£`/`¥`/`₹`/`₦`/`₩`/`฿`/`FCFA`/`RM`/`R$`/`zł`/… and 3-letter
+  codes (USD, EUR, GBP, JPY, INR, CNY, XOF, XAF + ~40 more); a missing `currency` is inferred
+  from symbols seen in the amount strings.
+- **Dates → ISO 8601** via `dateparser` (DD/MM vs MM/DD, French/German/Spanish month names),
+  with a common-format fallback when dateparser is absent.
+- Conservative: unparseable values are left untouched (can only improve LLM output).
+- Locked by `tests/test_normalize.py` (US/EU/JP/IN/UK/CH/FCFA amounts, ISO currencies, dates).

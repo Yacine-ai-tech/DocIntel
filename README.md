@@ -4,7 +4,8 @@
 
 ## What It Does
 
-- **3 extraction routes**: Claude Sonnet 4.6 Vision (premium), Ollama Llama 3.2 Vision (local/private), Tesseract+LLM (fallback)
+- **3 extraction routes**: Claude Sonnet 4.6 Vision (premium), **Ollama local vision** (private/`$0`-per-page — Qwen2.5-VL is the validated default; Llama 3.2 Vision also runs on Ollama 0.11.4), Tesseract+LLM (fallback)
+- **Multi-currency & multi-locale**: amounts in US/EU/spaced/Swiss formats and 45+ currencies (USD, EUR, GBP, JPY, INR, CNY, XOF/FCFA, …) are normalized to ISO 4217 + float; dates to ISO 8601 — a deterministic layer (`services/normalize.py`) on top of the LLM. OCR runs `eng+fra+deu+nld+spa+ita`.
 - **Inputs**: PDF (native or scanned), PNG, JPEG — auto-detected. PDFs are rendered per page; images flow straight through.
 - **Multi-page & large documents**: every page is processed and fields aggregated across pages (a total on a later page, multi-page contracts). **100+ page PDFs** are handled via map-reduce — pages are split into chunks, extracted concurrently, and merged (`MAX_PDF_PAGES` default 200). The OCR route concatenates/chunks full-document text the same way.
 - **Handwriting & mixed languages**: the vision routes read handwritten entries and EN/FR/DE/NL/ES/IT documents; numbers are normalized (EU `1.234,56` → `1234.56`; West-African `1 003 000 FCFA` → `1003000`) and currencies to ISO-4217, including the West-African CFA franc (**FCFA/CFA → XOF**, Central-African → XAF).
