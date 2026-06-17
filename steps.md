@@ -130,3 +130,9 @@ handwriting, EN/FR/DE/NL/ES/IT, EU + West-African **FCFA→XOF** currency, batch
 ## Comprehensive QA pass (2026-06-16)
 - **30 tests pass**. §3.10 verified: vision premium+local, /classify-image, Marker, Surya. Packages n/a.
 - All 6 projects + both packages green; 28/28 STRATEGY §.10 feature claims code-verified.
+
+## Remediation — SROIE world-standard benchmark (2026-06-17)
+- `eval/run_sroie_benchmark.py` + `eval/SROIE_BENCHMARK.md`: Route A on **SROIE** (ICDAR-2019,
+  standard receipt KIE) → **OVERALL 95.0%** (company 95 / date 90 / total 100), N=20, zero-shot.
+  **Exceeds STRATEGY §3.4's 90% target**; near published SOTA (96-98% from fine-tuned models).
+  Found+fixed a misleading date-scoring artifact (ISO vs DD/MM/YYYY → was 0%, truly 90%).
