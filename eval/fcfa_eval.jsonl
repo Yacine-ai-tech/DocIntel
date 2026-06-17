@@ -1,0 +1,1 @@
+{"file": "fcfa_invoice_fr.png", "lang": "fr", "source": "synthetic (FCFA/XOF coverage)", "expected": {"vendor": "TECHNOLOGIE DAKAR", "invoice_number": "2024-0042", "date": "2024-03-15", "currency": "XOF", "subtotal": 850000, "tax": 153000, "total": 1003000}}

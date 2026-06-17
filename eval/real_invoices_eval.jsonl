@@ -1,0 +1,6 @@
+{"file": "AmazonWebServices.png", "lang": "en", "source": "invoice2data (MIT)", "expected": {"vendor": "Amazon Web Services", "invoice_number": "42183017", "date": "2014-08-03", "currency": "USD", "subtotal": 4.11, "tax": 0.0, "total": 4.11}}
+{"file": "NetpresseInvoice.png", "lang": "fr", "source": "invoice2data (MIT)", "expected": {"vendor": "NETPRESSE", "invoice_number": "2022089083", "date": "2022-11-28", "currency": "EUR", "subtotal": 46.68, "tax": 9.34, "total": 56.02}}
+{"file": "QualityHosting.png", "lang": "de", "source": "invoice2data (MIT)", "expected": {"vendor": "QualityHosting", "invoice_number": "30064443", "date": "2014-05-07", "currency": "EUR"}}
+{"file": "free_fiber.png", "lang": "fr", "source": "invoice2data (MIT)", "expected": {"vendor": "Free", "invoice_number": "562044387", "date": "2015-07-02", "currency": "EUR", "subtotal": 24.99, "tax": 5.0, "total": 29.99}}
+{"file": "coolblue1.png", "lang": "nl", "source": "invoice2data (MIT)", "expected": {"vendor": "Coolblue", "invoice_number": "993548900", "date": "2014-04-19", "currency": "EUR", "subtotal": 593.36, "tax": 124.61, "total": 717.97}}
+{"file": "FlipkartInvoice.png", "lang": "en", "source": "invoice2data (MIT)", "expected": {"vendor": "WS Retail", "invoice_number": "BLR_WFLD20151000982590", "date": "2015-10-20", "currency": "INR", "subtotal": 278.61, "tax": 40.39, "total": 319.0}}

@@ -46,7 +46,7 @@ def test_batch_processor_lifecycle():
     assert status["status"] == "pending"
     assert status["total"] == 3
     results = bp.get_results(job_id)
-    assert results == []
+    assert results == [None, None, None]  # index-aligned slots; None = not yet processed
 
 
 def test_llm_extractor_instantiates():
