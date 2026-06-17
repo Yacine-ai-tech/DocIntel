@@ -125,3 +125,11 @@ Reproduce: `ollama pull qwen2.5vl:7b && LLM_VISION_LOCAL=ollama/qwen2.5vl:7b pyt
   `scripts/gpu_activate.py` and released immediately after, to conserve free GPU-hours.
 - The pure-OCR scale pass uses English Tesseract for throughput; multilingual OCR (6 packs) is
   more accurate but slower — see [EVAL_REAL.md](EVAL_REAL.md) for the multilingual accuracy run.
+
+## Update — Route B at larger N + SROIE (2026-06-17, T4 GPU)
+- **Route B (Ollama qwen2.5vl) on 100 CORD receipts**: **77.0% total accuracy** (100/100 processed,
+  0 errors) — the credible larger-N number (the earlier 85% was N=20). Still beats Route C (28.5%),
+  below Route A (92.5%) — the expected premium-vs-local-7B tradeoff, at **$0/page**.
+- **SROIE** (world-standard receipt KIE, zero-shot Route A): **95% overall** — see SROIE_BENCHMARK.md.
+- `llama3.2-vision` confirmed unusable on the available Ollama 0.30.8 (`mllama`) after multiple
+  retries → **qwen2.5vl is the Route B model** (Ollama, STRATEGY §3.10 alternate).
