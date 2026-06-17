@@ -41,3 +41,24 @@ dist/
 
 # Week 0 working notes (not committed)
 STATUS.md
+
+# Eval artifacts (reproducible via `python eval/generate_synthetic.py`)
+eval/synthetic_invoices/
+eval/invoices_eval.jsonl
+eval/results.json
+
+# Real-doc eval artifacts (reproducible via eval/fetch_real_invoices.sh)
+eval/real_invoices/
+
+# Benchmark corpus artifacts (reproducible via eval/build_corpus.py)
+eval/benchmark/
+
+# FCFA French sample (reproducible via eval/make_fcfa_sample.py)
+eval/fcfa_sample/
+
+# Large-doc test PDF (reproducible via eval/make_large_pdf.py)
+eval/large_doc/
+
+# Writing drafts (publish later, not in repo)
+drafts/
+steps.md
