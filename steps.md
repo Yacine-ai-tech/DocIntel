@@ -184,3 +184,10 @@ Trigger: "FCFA is not the only currency — read STRATEGY then implement all it 
   (exec ⇒ uvicorn is PID 1 for clean SIGTERM; defaults 8001 locally). HEALTHCHECK uses `${PORT:-8001}` too.
 - Added `railway.toml` (DOCKERFILE builder, healthcheckPath=/health, restart policy).
 - Verified `.env`/`*.env` gitignored; no secrets tracked. README updated (multi-currency + Ollama-local wording).
+
+## E2E production-Docker validation (2026-06-17, on the Studio)
+Real end-to-end test: `docker build` the production image from a **cold cache**, `docker run` it
+with a **non-default `PORT=9101`** (+ `--env-file .env`), and poll `/health`. Result:
+**build OK → HEALTH 200 ✓** — confirms the image builds (deps + COPY paths resolve), honors the
+platform `$PORT`, and boots cleanly. All 6 projects passed (OVERALL_RESULT=ALL_PASS). Railway/
+Render build the same Dockerfile, so cloud deploy is validated end-to-end.
