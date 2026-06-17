@@ -28,6 +28,13 @@ class Settings:
     LLM_REASONING = os.getenv("LLM_REASONING", "anthropic/claude-sonnet-4-6")
     LLM_VISION_PREMIUM = os.getenv("LLM_VISION_PREMIUM", "anthropic/claude-sonnet-4-6")
     LLM_VISION_LOCAL = os.getenv("LLM_VISION_LOCAL", "ollama/llama3.2-vision")
+    # Cheaper model for the OCR-route text→JSON cleanup (cost-optimized default).
+    LLM_CLEANUP = os.getenv("LLM_CLEANUP", "anthropic/claude-haiku-4-5")
+
+    # Multi-page handling: cap pages per document for cost/safety. Large docs are processed in
+    # page-chunks and merged (map-reduce), so 100+ page PDFs are supported up to this ceiling.
+    MAX_PDF_PAGES = int(os.getenv("MAX_PDF_PAGES", "200"))
+    BATCH_MAX_CONCURRENCY = int(os.getenv("BATCH_MAX_CONCURRENCY", "8"))
 
     GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
     ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")

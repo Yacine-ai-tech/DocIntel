@@ -1,5 +1,5 @@
 """
-OmniIntelOS OCR Service — Specialized FastAPI service for document extraction.
+DocIntel OCR Service — Specialized FastAPI service for document extraction.
 Hardware: CPU-friendly, uses Tesseract-OCR.
 """
 from fastapi import FastAPI, UploadFile, File, HTTPException
@@ -15,7 +15,7 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("ocr-service")
 
-app = FastAPI(title="OmniIntelOS OCR Service", version="1.0.0")
+app = FastAPI(title="DocIntel OCR Service", version="1.0.0")
 
 cors_origins = [
     origin.strip()
