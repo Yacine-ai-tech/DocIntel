@@ -141,7 +141,57 @@ def _image_block(image_bytes: bytes) -> Dict[str, Any]:
     return {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}}
 
 
+_LAST_VISION_WAKE = 0.0
+
+
+def _wake_vision_studio() -> None:
+    """Fire-and-forget wake of the on-demand inference Studio (GPU) for Route B. Rate-limited."""
+    import time as _t, threading
+    global _LAST_VISION_WAKE
+    url = os.getenv("ORCHESTRATOR_URL", "").strip()
+    if not url or (_t.time() - _LAST_VISION_WAKE) < 60:
+        return
+    _LAST_VISION_WAKE = _t.time()
+    def _go():
+        try:
+            import json as _j, urllib.request
+            h = {"Content-Type": "application/json"}
+            tk = os.getenv("ORCH_TOKEN", "").strip()
+            if tk: h["Authorization"] = "Bearer " + tk
+            urllib.request.urlopen(urllib.request.Request(url.rstrip("/") + "/wake",
+                data=_j.dumps({"gpu": True}).encode(), headers=h), timeout=90)
+        except Exception:
+            pass
+    threading.Thread(target=_go, daemon=True).start()
+
+
+def _remote_vision_sync(remote: str, model: str, prompt: str, imgs: List[bytes]) -> Optional[str]:
+    import json as _j, urllib.request
+    b64 = base64.b64encode(_downscale(imgs[0])).decode()  # Route B remote: first page per call
+    h = {"Content-Type": "application/json"}
+    tk = os.getenv("INFERENCE_TOKEN", "").strip()
+    if tk: h["Authorization"] = "Bearer " + tk
+    body = _j.dumps({"image_b64": b64, "prompt": prompt, "model": model.split("/", 1)[-1]}).encode()
+    req = urllib.request.Request(remote.rstrip("/") + "/vision", data=body, headers=h)
+    timeout = float(os.getenv("LIGHTNING_VISION_TIMEOUT", "300"))
+    return _j.loads(urllib.request.urlopen(req, timeout=timeout).read())["content"]
+
+
 async def _vision_call(model: str, prompt: str, imgs: List[bytes]) -> str:
+    # Route B (ollama) → remote Lightning vision backend when configured (the 512MB app tier can't
+    # run Ollama). On failure, wake the on-demand GPU Studio and fall back to local litellm/ollama.
+    if model.startswith("ollama"):
+        remote = os.getenv("LIGHTNING_VISION_URL", "").strip()
+        if remote:
+            try:
+                import asyncio
+                out = await asyncio.to_thread(_remote_vision_sync, remote, model, prompt, imgs)
+                if out:
+                    return out
+            except Exception as e:
+                log.warning("remote vision unavailable (%s) — waking studio + local fallback", e)
+                _wake_vision_studio()
+
     content: List[Dict[str, Any]] = [{"type": "text", "text": prompt}]
     content.extend(_image_block(i) for i in imgs)
     kwargs: Dict[str, Any] = {
