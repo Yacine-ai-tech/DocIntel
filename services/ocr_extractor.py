@@ -90,29 +90,121 @@ def pdf_page_count(pdf_bytes: bytes) -> int:
     return 0
 
 
-def pdf_to_pngs(pdf_bytes: bytes, dpi: int = 150, max_pages: int = 20) -> List[bytes]:
-    """Render **every** page of a PDF to PNG bytes (capped at ``max_pages`` for cost/safety).
+_LAST_RENDER_WAKE = 0.0
 
-    This is what makes the vision routes multi-page: each page becomes one image and all
-    images are sent to the vision LLM in a single request so it can reason across pages
-    (e.g. an invoice whose totals sit on a later page, or a multi-page contract).
-    Returns [] if rendering is unavailable.
+
+def _wake_render_studio() -> None:
+    """Fire-and-forget wake of the on-demand Lightning Studio (CPU is fine for rasterising).
+    Rate-limited so a burst of large uploads doesn't spam the orchestrator."""
+    import time as _t, threading
+    global _LAST_RENDER_WAKE
+    url = _os.getenv("ORCHESTRATOR_URL", "").strip()
+    if not url or (_t.time() - _LAST_RENDER_WAKE) < 60:
+        return
+    _LAST_RENDER_WAKE = _t.time()
+    def _go():
+        try:
+            import json as _j, urllib.request
+            h = {"Content-Type": "application/json", "User-Agent": "DocIntel/1.0 (+https://ysiddo-ai-projects.app)"}
+            tk = _os.getenv("ORCH_TOKEN", "").strip()
+            if tk:
+                h["Authorization"] = "Bearer " + tk
+            urllib.request.urlopen(urllib.request.Request(
+                url.rstrip("/") + "/wake", data=_j.dumps({"gpu": False}).encode(), headers=h), timeout=90)
+        except Exception:
+            pass
+    threading.Thread(target=_go, daemon=True).start()
+
+
+def _remote_render(pdf_bytes: bytes, dpi: int, max_pages: int) -> Optional[List[bytes]]:
+    """Offload PDF rasterisation to the Lightning backend (free 15GB box) for *big* PDFs so the
+    512MB app tier never holds every decoded page in RAM. Only kicks in when LIGHTNING_RENDER_URL
+    is set and the doc exceeds LIGHTNING_RENDER_PAGE_THRESHOLD pages — small docs render locally
+    (no round-trip). Returns the PNG pages, or None to fall back to local rendering."""
+    url = _os.getenv("LIGHTNING_RENDER_URL", "").strip()
+    if not url:
+        return None
+    n = pdf_page_count(pdf_bytes)
+    threshold = int(_os.getenv("LIGHTNING_RENDER_PAGE_THRESHOLD", "8"))
+    if n and n <= threshold:
+        return None  # small/medium docs: the bounded local renderer handles these fine
+    try:
+        import base64, json as _j, urllib.request
+        max_edge = int(_os.getenv("PDF_MAX_EDGE_PX", "1600"))
+        payload = _j.dumps({
+            "pdf_b64": base64.b64encode(pdf_bytes).decode(),
+            "dpi": dpi, "max_pages": max_pages, "max_edge": max_edge,
+        }).encode()
+        h = {"Content-Type": "application/json", "User-Agent": "DocIntel/1.0 (+https://ysiddo-ai-projects.app)"}
+        tk = _os.getenv("INFERENCE_TOKEN", "").strip()
+        if tk:
+            h["Authorization"] = "Bearer " + tk
+        req = urllib.request.Request(url.rstrip("/") + "/render-pdf", data=payload, headers=h)
+        timeout = float(_os.getenv("LIGHTNING_RENDER_TIMEOUT", "180"))
+        resp = _j.loads(urllib.request.urlopen(req, timeout=timeout).read())
+        pages = resp.get("pages_b64") or []
+        if pages:
+            log.info("rendered %d-page PDF on the Lightning backend (off-box)", len(pages))
+            return [base64.b64decode(p) for p in pages]
+        return None
+    except Exception as e:
+        log.warning("remote PDF render unavailable (%s) — waking studio + local fallback", e)
+        _wake_render_studio()
+        return None
+
+
+def pdf_to_pngs(pdf_bytes: bytes, dpi: int = 150, max_pages: int = 20) -> List[bytes]:
+    """Render every page of a PDF to PNG bytes (capped at ``max_pages`` for cost/safety), with
+    **bounded memory** so multi-page PDFs don't OOM a 512MB host.
+
+    This is what makes the vision routes multi-page: each page becomes one image and all images
+    are sent to the vision LLM (chunked) so it can reason across pages (e.g. an invoice whose
+    totals sit on a later page, or a multi-page contract).
+
+    Memory: the old path decoded every page into a PIL image at once (~6.5MB/page → a 24-page PDF
+    held ~150MB and OOM-crashed the free tier). Now poppler rasterises straight to a temp folder
+    (``paths_only``) and we read + downscale one page at a time, so peak RAM is ~one page. Huge
+    PDFs (> LIGHTNING_RENDER_PAGE_THRESHOLD pages) are offloaded to the Lightning backend when
+    ``LIGHTNING_RENDER_URL`` is set. Returns [] if rendering is unavailable.
     """
+    remote = _remote_render(pdf_bytes, dpi=dpi, max_pages=max_pages)
+    if remote is not None:
+        return remote
     if not _PDF2IMAGE:
         log.warning("pdf2image/poppler not installed — cannot render PDF to image")
         return []
+    import tempfile, shutil
+    max_edge = int(_os.getenv("PDF_MAX_EDGE_PX", "1600"))
+    last = max_pages if max_pages and max_pages > 0 else None
+    tmp = tempfile.mkdtemp(prefix="docintel_pdf_")
     try:
-        last = max_pages if max_pages and max_pages > 0 else None
-        pages = pdf2image.convert_from_bytes(pdf_bytes, dpi=dpi, first_page=1, last_page=last)
+        paths = pdf2image.convert_from_bytes(
+            pdf_bytes, dpi=dpi, first_page=1, last_page=last,
+            fmt="png", output_folder=tmp, paths_only=True,
+        )
         out: List[bytes] = []
-        for page in pages:
-            buf = io.BytesIO()
-            page.save(buf, "PNG")
-            out.append(buf.getvalue())
+        for p in paths:
+            try:
+                with Image.open(p) as im:
+                    im = im.convert("RGB")
+                    w, h = im.size
+                    if max_edge and max(w, h) > max_edge:
+                        scale = max_edge / float(max(w, h))
+                        im = im.resize((max(1, int(w * scale)), max(1, int(h * scale))))
+                    buf = io.BytesIO()
+                    im.save(buf, "PNG", optimize=True)
+                    out.append(buf.getvalue())
+            finally:
+                try:
+                    _os.remove(p)
+                except Exception:
+                    pass
         return out
     except Exception as e:
         log.error("PDF→PNG render failed: %s", e)
         return []
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def pdf_first_page_to_png(pdf_bytes: bytes, dpi: int = 150) -> bytes:
