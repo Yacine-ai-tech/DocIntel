@@ -105,7 +105,7 @@ def _wake_render_studio() -> None:
     def _go():
         try:
             import json as _j, urllib.request
-            h = {"Content-Type": "application/json"}
+            h = {"Content-Type": "application/json", "User-Agent": "DocIntel/1.0 (+https://ysiddo-ai-projects.app)"}
             tk = _os.getenv("ORCH_TOKEN", "").strip()
             if tk:
                 h["Authorization"] = "Bearer " + tk
@@ -135,7 +135,7 @@ def _remote_render(pdf_bytes: bytes, dpi: int, max_pages: int) -> Optional[List[
             "pdf_b64": base64.b64encode(pdf_bytes).decode(),
             "dpi": dpi, "max_pages": max_pages, "max_edge": max_edge,
         }).encode()
-        h = {"Content-Type": "application/json"}
+        h = {"Content-Type": "application/json", "User-Agent": "DocIntel/1.0 (+https://ysiddo-ai-projects.app)"}
         tk = _os.getenv("INFERENCE_TOKEN", "").strip()
         if tk:
             h["Authorization"] = "Bearer " + tk
