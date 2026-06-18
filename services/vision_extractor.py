@@ -155,7 +155,7 @@ def _wake_vision_studio() -> None:
     def _go():
         try:
             import json as _j, urllib.request
-            h = {"Content-Type": "application/json"}
+            h = {"Content-Type": "application/json", "User-Agent": "DocIntel/1.0 (+https://ysiddo-ai-projects.app)"}
             tk = os.getenv("ORCH_TOKEN", "").strip()
             if tk: h["Authorization"] = "Bearer " + tk
             urllib.request.urlopen(urllib.request.Request(url.rstrip("/") + "/wake",
@@ -168,7 +168,7 @@ def _wake_vision_studio() -> None:
 def _remote_vision_sync(remote: str, model: str, prompt: str, imgs: List[bytes]) -> Optional[str]:
     import json as _j, urllib.request
     b64 = base64.b64encode(_downscale(imgs[0])).decode()  # Route B remote: first page per call
-    h = {"Content-Type": "application/json"}
+    h = {"Content-Type": "application/json", "User-Agent": "DocIntel/1.0 (+https://ysiddo-ai-projects.app)"}
     tk = os.getenv("INFERENCE_TOKEN", "").strip()
     if tk: h["Authorization"] = "Bearer " + tk
     body = _j.dumps({"image_b64": b64, "prompt": prompt, "model": model.split("/", 1)[-1]}).encode()
