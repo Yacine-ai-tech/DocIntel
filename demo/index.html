@@ -74,7 +74,7 @@ async function process(file) {
   // Show a progressing message instead of a frozen-looking pause.
   const t0 = Date.now();
   const phases = route === 'vision_local'
-    ? ['Processing…', 'Waking the on-demand vision GPU… (Route B, first call can take 1–2 min)', 'Running local vision model…', 'Almost there…']
+    ? ['Processing…', 'Waking the on-demand vision GPU… (Route B: the first call after idle spins up a T4 GPU + loads the model — can take 3–5 min; later calls ~10–15s)', 'Running local vision model on the GPU…', 'Almost there…']
     : ['Processing…', 'Waking the service… (free tier, up to ~45s on the first request)', 'Extracting…', 'Almost there…'];
   let i = 0;
   results.innerHTML = `<div class="meta">${phases[0]}</div>`;
