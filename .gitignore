@@ -62,3 +62,6 @@ eval/large_doc/
 # Writing drafts (publish later, not in repo)
 drafts/
 steps.md
+
+# internal Lightning GPU ops tooling (not part of the public product)
+scripts/gpu_activate.py
