@@ -1,54 +1,55 @@
-# Real-document evaluation (multilingual, complex invoices)
+# Real-Document Evaluation (multilingual, complex invoices)
 
-DocIntel is validated on **real, third-party invoices** — not synthetic fixtures — drawn from
-the [`invoice2data`](https://github.com/invoice-x/invoice2data) test set (MIT-licensed). The
-set is deliberately **multilingual and structurally varied** so the result reflects production
-behaviour, not a single template.
+DocIntel is evaluated on **real, third-party invoices** — not synthetic fixtures — drawn from the
+[`invoice2data`](https://github.com/invoice-x/invoice2data) test set (MIT-licensed). The set is
+deliberately multilingual and structurally varied so the results reflect production behaviour
+rather than a single template.
 
 | File | Lang | Vendor | Currency | Notes |
 |------|------|--------|----------|-------|
 | `AmazonWebServices` | EN | Amazon Web Services | USD | dense line items, tax breakdown |
 | `NetpresseInvoice`  | FR | NETPRESSE           | EUR | French labels (TVA, total TTC) |
-| `QualityHosting`    | DE | QualityHosting      | EUR | German labels; **total on page 2** |
-| `free_fiber`        | FR | Free                | EUR | French telco layout |
+| `QualityHosting`    | DE | QualityHosting      | EUR | German labels; total on page 2 |
+| `free_fiber`        | FR | Free                | EUR | French telecom layout |
 | `coolblue1`         | NL | Coolblue            | EUR | Dutch labels (BTW), large amounts |
 | `FlipkartInvoice`   | EN | WS Retail           | INR | Indian GST invoice, ₹ symbol |
 
-The PDFs/PNGs are gitignored; reproduce them with `bash eval/fetch_real_invoices.sh`
-(needs `curl` + `poppler-utils`). Ground truth lives in `eval/real_invoices_eval.jsonl`.
+The PDFs/PNGs are git-ignored; reproduce them with `bash eval/fetch_real_invoices.sh` (requires
+`curl` and `poppler-utils`). Ground truth is in `eval/real_invoices_eval.jsonl`.
 
-## How scoring works
+## Scoring methodology
 
-`eval/run_real_eval.py` scores **only the fields present in each ground-truth row** (so the
-German invoice, whose total sits on page 2, is fairly scored on its page-1 fields). Matching:
+`eval/run_real_eval.py` scores **only the fields present in each ground-truth record** (so the
+German invoice, whose total is on page 2, is scored fairly on its page-1 fields). Matching:
 
-- **vendor** — lenient substring (case-insensitive)
-- **invoice_number, date** — exact (normalized whitespace)
+- **vendor** — case-insensitive substring
+- **invoice_number, date** — exact (whitespace-normalized)
 - **currency** — symbol/code normalized (`$`↔USD, `€`↔EUR, `₹`↔INR, `£`↔GBP)
 - **subtotal, tax, total** — numeric, within `max(0.02, 1%)`
 
 ## Results
 
-```
+```bash
 python eval/run_real_eval.py --route vision_premium   # Route A — Claude Sonnet 4.6 Vision
 python eval/run_real_eval.py --route ocr_fallback     # Route C — Tesseract + LLM
-python eval/run_real_eval.py --route vision_local      # Route B — Ollama Llama-3.2-Vision (GPU)
+python eval/run_real_eval.py --route vision_local     # Route B — Ollama Qwen2.5-VL (GPU)
 ```
 
 | Route | Engine | Score (present fields) |
 |-------|--------|------------------------|
 | **A — vision_premium** | Claude Sonnet 4.6 Vision | **39/39 = 100%** |
 | **C — ocr_fallback**   | Tesseract (eng+fra+deu+nld) + LLM | **39/39 = 100%** |
-| **B — vision_local**   | Ollama Llama-3.2-Vision | see note below |
+| **B — vision_local**   | Ollama Qwen2.5-VL 7B (NVIDIA T4) | 25/39 = 64.1% (see note) |
 
-Both cloud (A) and fully-local-text (C) routes extract **every present field correctly across
+Both the cloud (A) and fully-local-text (C) routes extract **every present field correctly across
 all four languages** — vendor, invoice number, date, currency, subtotal, tax, total. Route C
 requires the matching Tesseract language packs (`tesseract-ocr-fra/deu/nld`) for non-English
-documents.
+documents. Route B (a local 7B model) trails on the hardest multi-page layouts but excels on
+receipts (see [BENCHMARK.md](BENCHMARK.md)).
 
 ### French + West-African CFA franc (FCFA → XOF)
 
-A French invoice priced in FCFA (UEMOA-style, 18% TVA, space-grouped amounts like
+A French invoice priced in FCFA (UEMOA convention, 18% TVA, space-grouped amounts such as
 `1 003 000 FCFA`) — reproducible via `python eval/make_fcfa_sample.py`, ground truth in
 `eval/fcfa_eval.jsonl`:
 
@@ -62,8 +63,9 @@ OCR_LANGS=fra+eng python eval/run_real_eval.py --dataset eval/fcfa_eval.jsonl --
 |-------|--------|-------|
 | **A — vision_premium** | Claude Sonnet 4.6 Vision | **7/7 = 100%** |
 | **C — ocr_fallback (fra+eng)** | Tesseract + LLM | **7/7 = 100%** |
+| **B — vision_local** | Ollama Qwen2.5-VL 7B (NVIDIA T4) | **7/7 = 100%** |
 
-Both routes read the French labels, transcribe the space-grouped amounts to plain decimals
+All three routes read the French labels, transcribe the space-grouped amounts to plain decimals
 (`1 003 000` → `1003000`), and normalize the currency to **XOF**.
 
 ### `/classify-image` (vision-first object classification)
@@ -73,16 +75,16 @@ Both routes read the French labels, transcribe the space-grouped amounts to plai
 | `AmazonWebServices.png` | invoice | 0.99 |
 | `FlipkartInvoice.png`   | invoice | 0.98 |
 
-### Route B (Ollama Llama-3.2-Vision)
+### Route B — local vision model
 
-Route B is the **local/private** path: no data leaves the host. Llama-3.2-Vision is impractical
-on CPU, so it is benchmarked on a Lightning GPU (T4) attached on-demand via
-`scripts/gpu_activate.py` and released immediately after to conserve free GPU-hours. The route
-mechanism (LiteLLM `ollama/` vision routing → schema-conformant JSON) is wired and verified;
-GPU accuracy numbers are recorded here when the on-demand run completes.
+Route B keeps all computation on the host (no data leaves the box). The 7B model is impractical on
+CPU, so it is evaluated on an **NVIDIA T4 GPU** attached on demand and released after the run. The
+validated model is **Ollama Qwen2.5-VL** (see the model note in [BENCHMARK.md](BENCHMARK.md); the
+route is model-agnostic via `LLM_VISION_LOCAL`).
 
-## Why this matters
+## Significance
 
-The pitch is *vision-first, multilingual, local-or-cloud document AI.* These numbers back that
-claim on **real customer-style invoices in four languages**, with two independent routes
-(premium cloud + offline OCR) both at 100% on the fields each document actually carries.
+These results substantiate the core claim — *vision-first, multilingual, local-or-cloud document
+extraction* — on **real customer-style invoices in four languages**, with two independent routes
+(premium cloud and offline OCR) each reaching 100% on the fields every document carries, and a
+private local route that is competitive on receipts at zero per-page cost.
