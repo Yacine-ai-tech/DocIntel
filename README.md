@@ -3,6 +3,8 @@
 [![CI](https://github.com/Yacine-ai-tech/DocIntel/actions/workflows/ci.yml/badge.svg)](https://github.com/Yacine-ai-tech/DocIntel/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **Vision-first document AI. Drop a PDF or image, get structured JSON in under 2 seconds. Local or cloud.**
+> 🔗 **Live demo:** https://docintel.ysiddo-ai-projects.app/demo  ·  drag-drop a PDF/image.
+> On-demand backend (first request ~30–60 s to wake). Route B local vision spins up a GPU on demand (~4–5 min cold).
 
 ## What It Does
 
