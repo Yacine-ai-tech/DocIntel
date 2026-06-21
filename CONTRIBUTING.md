@@ -1,26 +1,29 @@
 # Contributing to DocIntel
 
-Thanks for your interest! This is part of a 6-project portfolio by Yacine Seybou Siddo.
+Document intelligence — vision + OCR extraction.
 
-## Development setup
-```bash
-git clone https://github.com/Yacine-ai-tech/DocIntel.git && cd DocIntel
-cp .env.example .env            # fill in keys (never commit .env)
-pip install -r requirements.txt
-pytest                          # run the test suite
-uvicorn api:app --reload --port 8001                        # run locally
-```
-Or with Docker: `docker compose -f docker-compose.dev.yml up --build`.
+Thanks for your interest in contributing. This project follows a lightweight but
+disciplined workflow so that history stays clean and every change is traceable.
 
 ## Workflow
-- Branch off **`develop`** (the active branch); open PRs against `develop`.
-- `master` is the released/default branch — it tracks `develop` once CI is green.
-- Keep changes focused; match the surrounding code style.
-- **Add/keep tests passing** — CI (GitHub Actions, `.github/workflows/ci.yml`) runs `pytest` on every push/PR and must be green.
-- Never commit secrets (`.env`, keys). `.env.example` documents the required variables.
 
-## Reporting issues
-Open a GitHub issue with steps to reproduce, expected vs actual behavior, and environment details.
+1. **Open an issue** describing the problem or proposal (use the templates).
+2. **Create a feature branch** off `master`: `feat/...`, `fix/...`, `docs/...`, `refactor/...`.
+3. **Implement** the change with tests where applicable.
+4. **Open a pull request** that references the issue (`Closes #NN`).
+5. **Review** — address comments; keep the diff focused.
+6. **Merge** once checks pass, then the issue closes automatically.
 
-## License
-By contributing you agree your contributions are licensed under the project's [MIT License](LICENSE).
+## Commit style
+
+Conventional commits: `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`, `ci:`.
+
+## Quality bar
+
+- Code is formatted and passes the existing test suite.
+- Public behavior changes are documented in the README.
+- PRs stay small and single-purpose.
+
+## Local setup
+
+See the [README](README.md) for installation and how to run the service locally.
