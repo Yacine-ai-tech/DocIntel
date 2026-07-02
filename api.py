@@ -81,31 +81,45 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
         model = settings.LLM_VISION_PREMIUM if route == "vision_premium" else settings.LLM_VISION_LOCAL
         images = pdf_to_pngs(data, max_pages=settings.MAX_PDF_PAGES) if pdf else [data]
         fields = None
+        woke = False
         if images:
             try:
                 fields = await extract_via_vision_llm(images, model=model, doc_type=doc_type)
                 if isinstance(fields, dict) and fields.get("error"):
                     raise RuntimeError(str(fields["error"]))
             except Exception as e:
-                # Graceful degradation: the local vision model (Route B = Ollama on the inference
-                # Studio) may be unreachable, and premium vision may be rate-limited. Fall back to
-                # OCR + LLM cleanup so the user gets a structured result, not a raw API error.
                 log.warning("vision route %s failed (%s) — falling back to OCR extraction", route, e)
                 fields = None
+                if route == "vision_local":
+                    # Route B runs on an on-demand Studio. Trigger a wake (non-blocking) so the
+                    # NEXT request can use vision; this request degrades to OCR immediately.
+                    try:
+                        from services.lightning_studio import trigger_wake_async
+                        woke = trigger_wake_async()
+                    except Exception:
+                        woke = False
         if fields is None:
             text = extract_text_from_pdf(data, max_pages=settings.MAX_PDF_PAGES) if pdf \
                 else extract_text_from_image(data)
+            if route == "vision_local":
+                note = ("The local-vision inference Studio was asleep — I've started it (usually ready "
+                        "in ~1-2 min). Extracted via OCR for now; re-run Route B shortly for full local "
+                        "vision.") if woke else ("Local vision (Route B) was unavailable and the Studio "
+                        "could not be woken (LIGHTNING creds missing/invalid). Extracted via OCR instead.")
+            else:
+                note = "Vision route was unavailable; extracted via OCR fallback."
             if text:
                 fields = await extractor.extract(text, doc_type=doc_type)
                 if isinstance(fields, dict):
                     fields.setdefault("_fallback_from", route)
-                    fields.setdefault("_note", "Vision route was unavailable; extracted via OCR fallback.")
+                    fields.setdefault("_note", note)
+                    if route == "vision_local":
+                        fields.setdefault("_studio_waking", woke)
             else:
                 fields = {"error": "extraction_unavailable",
-                          "note": ("The selected vision route was unavailable and OCR recovered no text. "
-                                   "For local vision (Route B) ensure the inference Studio is running, or "
-                                   "use Vision (premium) / a clearer scan."),
-                          "_fallback_from": route}
+                          "note": note + " OCR also recovered no text — try a clearer scan.",
+                          "_fallback_from": route,
+                          **({"_studio_waking": woke} if route == "vision_local" else {})}
     elif route == "ocr_fallback":
         text = extract_text_from_pdf(data, max_pages=settings.MAX_PDF_PAGES) if pdf \
             else extract_text_from_image(data)
