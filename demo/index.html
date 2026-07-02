@@ -1,117 +1,133 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>DocIntel Demo</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="theme-color" content="#070b16" />
+<title>DocIntel — Vision-first Document AI</title>
+<meta name="description" content="DocIntel — vision-first document intelligence: classify, extract structured fields and tables from PDFs and images." />
 <style>
-body { background: #0f172a; color: #f1f5f9; font: 14px/1.5 system-ui, sans-serif; margin: 0; padding: 32px; }
-h1 { font-weight: 600; margin: 0 0 4px; }
-.sub { color: #94a3b8; margin-bottom: 24px; }
-.drop { border: 2px dashed #475569; border-radius: 12px; padding: 64px; text-align: center; cursor: pointer; transition: 0.15s; }
-.drop.hover { border-color: #6366f1; background: #1e293b; }
-.controls { margin: 16px 0; display: flex; gap: 16px; flex-wrap: wrap; }
-select, button { background: #1e293b; color: #f1f5f9; border: 1px solid #475569; border-radius: 6px; padding: 8px 12px; font-size: 13px; }
-button { cursor: pointer; background: #6366f1; border-color: #6366f1; }
-button:disabled { opacity: 0.5; cursor: wait; }
-.results { margin-top: 24px; }
-.badge { display: inline-block; background: #1e293b; border: 1px solid #6366f1; color: #a5b4fc; padding: 4px 12px; border-radius: 20px; font-size: 12px; margin-right: 8px; }
-pre { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 16px; overflow: auto; max-height: 600px; }
-.meta { color: #94a3b8; font-size: 12px; margin: 8px 0; }
+  :root{--bg:#070b16;--bg2:#0a1020;--surface:#0f1628;--border:rgba(125,155,215,.16);--border2:rgba(125,155,215,.28);
+    --text:#eaf1ff;--text2:#9fb0d0;--text3:#5f6f8e;--primary:#38bdf8;--cyan:#22d3ee;--ok:#2dd4bf;--bad:#fb7185;--warn:#fbbf24;
+    --grad:linear-gradient(120deg,#4f46e5 0%,#2563eb 45%,#22d3ee 100%);--gradline:linear-gradient(120deg,rgba(99,102,241,.5),rgba(34,211,238,.5));
+    --mono:'JetBrains Mono',ui-monospace,Menlo,monospace;--r:14px;--sh:0 12px 32px rgba(2,6,18,.55);--ig:inset 0 1px 0 rgba(150,190,255,.06),inset 0 0 26px rgba(34,211,238,.035)}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:Inter,system-ui,-apple-system,'Segoe UI',sans-serif;color:var(--text);line-height:1.55;min-height:100vh;
+    background:radial-gradient(1100px 620px at 6% -12%,rgba(79,70,229,.16),transparent 60%),radial-gradient(960px 600px at 102% 2%,rgba(34,211,238,.11),transparent 55%),var(--bg);-webkit-font-smoothing:antialiased}
+  a{color:var(--primary);text-decoration:none}
+  .wrap{max-width:1080px;margin:0 auto;padding:34px 22px 60px}
+  header{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  .mark{filter:drop-shadow(0 4px 14px rgba(34,211,238,.45))}
+  .brand{font-family:'Space Grotesk',Inter,sans-serif;font-weight:700;font-size:1.7rem;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent;letter-spacing:-.02em}
+  .sub{color:var(--text3);font-size:.72rem;text-transform:uppercase;letter-spacing:.14em}
+  .spacer{flex:1}
+  .badge{display:inline-flex;align-items:center;gap:7px;padding:5px 12px;border:1px solid var(--border2);border-radius:999px;font-size:.78rem;color:var(--text2)}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--text3)}.dot.ok{background:var(--ok);box-shadow:0 0 0 3px rgba(45,212,191,.18)}.dot.bad{background:var(--bad)}
+  .lead{color:var(--text2);font-size:1.02rem;margin:14px 0 26px;max-width:660px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:18px}
+  .card{position:relative;background:linear-gradient(180deg,var(--surface),#0d1424) padding-box,var(--gradline) border-box;border:1px solid transparent;border-radius:var(--r);padding:20px 22px;box-shadow:var(--sh),var(--ig)}
+  .card.hero{grid-column:1/-1}
+  .card::after{content:'';position:absolute;top:-1px;right:-1px;width:22px;height:22px;pointer-events:none;border-top:2px solid var(--cyan);border-right:2px solid var(--cyan);border-top-right-radius:var(--r);opacity:.32;-webkit-mask:linear-gradient(225deg,#000 0 42%,transparent 42%);mask:linear-gradient(225deg,#000 0 42%,transparent 42%)}
+  .card h2{font-family:'Space Grotesk',Inter,sans-serif;font-size:1.05rem;display:flex;align-items:center;gap:9px;margin-bottom:6px}
+  .card h2 .i{color:var(--cyan)}
+  .hint{color:var(--text3);font-size:.82rem;margin-bottom:14px}
+  label{display:block;font-size:.78rem;font-weight:600;color:var(--text2);margin:10px 0 6px}
+  input,select{width:100%;padding:10px 13px;background:var(--bg2);border:1px solid var(--border2);border-radius:10px;color:var(--text);font-size:.9rem;font-family:inherit}
+  input:focus,select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(56,189,248,.16)}
+  .row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1;min-width:150px}
+  button{display:inline-flex;align-items:center;justify-content:center;gap:8px;margin-top:14px;padding:10px 18px;border:0;border-radius:10px;background:var(--grad);color:#04121f;font-weight:700;font-size:.88rem;cursor:pointer;box-shadow:0 4px 14px rgba(45,140,235,.35);transition:.15s}
+  button:hover{filter:brightness(1.08);transform:translateY(-1px)}button:disabled{opacity:.55;cursor:not-allowed;transform:none}
+  .chips{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+  .chip{display:inline-flex;flex-direction:column;gap:2px;padding:9px 14px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;min-width:110px}
+  .chip .k{font-size:.64rem;text-transform:uppercase;letter-spacing:.08em;color:var(--text3)}
+  .chip .v{font-family:var(--mono);font-size:1.05rem;color:var(--text);font-weight:600}
+  .chip .v.big{color:var(--cyan)}
+  .out{margin-top:14px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:13px;font-family:var(--mono);font-size:.78rem;color:var(--text2);white-space:pre-wrap;max-height:340px;overflow:auto;display:none}
+  .out.show{display:block}
+  footer{margin-top:40px;color:var(--text3);font-size:.8rem;text-align:center}
+  .spin{width:14px;height:14px;border:2px solid rgba(4,18,31,.4);border-top-color:#04121f;border-radius:50%;display:inline-block;animation:s .7s linear infinite}@keyframes s{to{transform:rotate(360deg)}}
 </style>
 </head>
 <body>
-<h1>DocIntel</h1>
-<div class="sub">Vision-first document AI. Drop a PDF or image.</div>
+<div class="wrap">
+  <header>
+    <svg class="mark" width="40" height="40" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+      <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6366f1"/><stop offset=".5" stop-color="#2563eb"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs>
+      <path d="M20 3.4 33.3 11V26L20 33.6 6.7 26V11Z" stroke="url(#g)" stroke-width="2.2" stroke-linejoin="round"/>
+      <path d="M20 3.4V18M20 18 6.7 11M20 18l13.3-7" stroke="url(#g)" stroke-width="1.3" opacity=".45"/>
+      <path d="M20 27V13.4M14.4 19 20 13.4 25.6 19" stroke="url(#g)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <div><div class="brand">DocIntel</div><div class="sub">Vision-first Document AI</div></div>
+    <div class="spacer"></div>
+    <span class="badge"><span class="dot" id="hdot"></span><span id="hstat">checking…</span></span>
+  </header>
+  <p class="lead">Upload a PDF or image and DocIntel auto-classifies it, routes it (vision-premium / vision-local /
+    OCR-fallback), and extracts structured fields and tables — end to end.</p>
 
-<div class="controls">
-  <label>Route:
-    <select id="route">
-      <option value="vision_premium">vision_premium (Claude Vision)</option>
-      <option value="vision_local">vision_local (Ollama)</option>
-      <option value="ocr_fallback">ocr_fallback (Tesseract + LLM)</option>
-    </select>
-  </label>
-  <label>Doc type:
-    <select id="doctype">
-      <option value="invoice">invoice</option>
-      <option value="contract">contract</option>
-      <option value="receipt">receipt</option>
-      <option value="financial_report">financial_report</option>
-      <option value="auction_listing">auction_listing</option>
-      <option value="default">default</option>
-    </select>
-  </label>
+  <div class="grid">
+    <section class="card hero">
+      <h2><span class="i">📄</span> Process a document</h2>
+      <p class="hint">Upload → auto-classify → extract structured JSON. Multi-page PDFs handled end-to-end.</p>
+      <div class="row">
+        <div><label for="pFile">Document (PDF / PNG / JPG)</label><input id="pFile" type="file" accept=".pdf,image/*" /></div>
+        <div><label for="pRoute">Route</label><select id="pRoute"><option value="vision_premium">Vision (premium)</option><option value="ocr_fallback">OCR fallback</option><option value="vision_local">Vision (local)</option></select></div>
+      </div>
+      <button id="pBtn" onclick="doProcess()">Process document</button>
+      <div class="chips" id="pChips" style="display:none">
+        <div class="chip"><span class="k">Doc type</span><span class="v big" id="cType">—</span></div>
+        <div class="chip"><span class="k">Route</span><span class="v" id="cRoute">—</span></div>
+        <div class="chip"><span class="k">Confidence</span><span class="v" id="cConf">—</span></div>
+        <div class="chip"><span class="k">Pages</span><span class="v" id="cPages">—</span></div>
+        <div class="chip"><span class="k">Time</span><span class="v" id="cTime">—</span></div>
+      </div>
+      <div class="out" id="pOut"></div>
+    </section>
+
+    <section class="card">
+      <h2><span class="i">🏷️</span> Classify</h2>
+      <p class="hint">Fast content-based doc-type detection (invoice, contract, receipt, report…).</p>
+      <label for="cFile">Document</label><input id="cFile" type="file" accept=".pdf,image/*" />
+      <button id="cBtn" onclick="doClassify()">Classify</button>
+      <div class="out" id="cOut"></div>
+    </section>
+
+    <section class="card">
+      <h2><span class="i">▦</span> Extract tables</h2>
+      <p class="hint">Detect and extract tables from a PDF (pdfplumber).</p>
+      <label for="tFile">PDF file</label><input id="tFile" type="file" accept=".pdf" />
+      <button id="tBtn" onclick="doTables()">Extract tables</button>
+      <div class="out" id="tOut"></div>
+    </section>
+  </div>
+
+  <footer>DocIntel · <a href="/docs">API docs</a> · <a href="/health">health</a> · part of the OmniIntel portfolio</footer>
 </div>
-
-<div id="drop" class="drop">
-  Drop a PDF/image here, or click to select<br>
-  <input type="file" id="file" style="display:none" accept="image/*,application/pdf">
-</div>
-
-<div id="results" class="results"></div>
-
 <script>
-const drop = document.getElementById('drop');
-const fileInput = document.getElementById('file');
-const results = document.getElementById('results');
+const $=id=>document.getElementById(id);
+document.querySelectorAll('button').forEach(b=>b.dataset.label=b.textContent);
+function busy(btn,on,l){btn.disabled=on;btn.innerHTML=on?'<span class="spin"></span> '+(l||'Working…'):btn.dataset.label}
+function show(el,t){el.textContent=typeof t==='string'?t:JSON.stringify(t,null,2);el.classList.add('show')}
+(async()=>{try{const r=await fetch('/health');const j=await r.json();$('hdot').className='dot '+(r.ok?'ok':'bad');$('hstat').textContent=r.ok?('online · v'+(j.version||'')):'offline'}catch{$('hdot').className='dot bad';$('hstat').textContent='offline'}})();
 
-drop.addEventListener('click', () => fileInput.click());
-drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('hover'); });
-drop.addEventListener('dragleave', () => drop.classList.remove('hover'));
-drop.addEventListener('drop', async e => {
-  e.preventDefault();
-  drop.classList.remove('hover');
-  if (e.dataTransfer.files.length) await process(e.dataTransfer.files[0]);
-});
-fileInput.addEventListener('change', async e => {
-  if (e.target.files.length) await process(e.target.files[0]);
-});
+async function doProcess(){const b=$('pBtn'),f=$('pFile').files[0];if(!f){show($('pOut'),'Choose a document first.');return}
+  busy(b,true,'Processing…');$('pChips').style.display='none';
+  try{const fd=new FormData();fd.append('file',f);fd.append('route',$('pRoute').value);fd.append('doc_type','auto');
+    const r=await fetch('/process',{method:'POST',body:fd});const j=await r.json();
+    $('cType').textContent=j.doc_type||'—';$('cRoute').textContent=j.route||'—';
+    $('cConf').textContent=j.confidence!=null?(Math.round(j.confidence*100)+'%'):'—';
+    $('cPages').textContent=j.page_count??'—';$('cTime').textContent=j.processing_time_ms!=null?(Math.round(j.processing_time_ms)+' ms'):'—';
+    $('pChips').style.display='flex';show($('pOut'),j.fields||j);}
+  catch(e){show($('pOut'),'Request failed: '+e)}finally{busy(b,false)}}
 
-async function process(file) {
-  const route = document.getElementById('route').value;
-  const docType = document.getElementById('doctype').value;
-  // Graceful warming UX: free tier can cold-start (~45s), and Route B wakes a GPU studio (longer).
-  // Show a progressing message instead of a frozen-looking pause.
-  const t0 = Date.now();
-  const phases = route === 'vision_local'
-    ? ['Processing…', 'Waking the on-demand vision GPU… (Route B: the first call after idle spins up a T4 GPU + loads the model — can take 3–5 min; later calls ~10–15s)', 'Running local vision model on the GPU…', 'Almost there…']
-    : ['Processing…', 'Waking the service… (free tier, up to ~45s on the first request)', 'Extracting…', 'Almost there…'];
-  let i = 0;
-  results.innerHTML = `<div class="meta">${phases[0]}</div>`;
-  const timer = setInterval(() => {
-    i = Math.min(i + 1, phases.length - 1);
-    const s = Math.round((Date.now() - t0) / 1000);
-    results.innerHTML = `<div class="meta">${phases[i]} <span style="opacity:.6">(${s}s)</span></div>`;
-  }, 8000);
+async function doClassify(){const b=$('cBtn'),f=$('cFile').files[0];if(!f){show($('cOut'),'Choose a document first.');return}
+  busy(b,true,'Classifying…');
+  try{const fd=new FormData();fd.append('file',f);const r=await fetch('/classify',{method:'POST',body:fd});show($('cOut'),await r.json())}
+  catch(e){show($('cOut'),'Request failed: '+e)}finally{busy(b,false)}}
 
-  const fd = new FormData();
-  fd.append('file', file);
-  fd.append('route', route);
-  fd.append('doc_type', docType);
-
-  try {
-    const r = await fetch('/extract', { method: 'POST', body: fd });
-    const data = await r.json();
-    clearInterval(timer);
-    render(data);
-  } catch (err) {
-    clearInterval(timer);
-    results.innerHTML = `<pre>Error: ${err}\n\n(If this was the first request, the free-tier service may have been waking up — try again.)</pre>`;
-  }
-}
-
-function render(data) {
-  const ms = data.processing_time_ms ?? '?';
-  results.innerHTML = `
-    <div>
-      <span class="badge">${data.doc_type || 'unknown'}</span>
-      <span class="badge">${data.route}</span>
-      <span class="badge">${ms} ms</span>
-    </div>
-    <div class="meta">Extracted fields:</div>
-    <pre>${JSON.stringify(data.fields, null, 2)}</pre>
-  `;
-}
+async function doTables(){const b=$('tBtn'),f=$('tFile').files[0];if(!f){show($('tOut'),'Choose a PDF first.');return}
+  busy(b,true,'Extracting…');
+  try{const fd=new FormData();fd.append('file',f);const r=await fetch('/extract-tables',{method:'POST',body:fd});show($('tOut'),await r.json())}
+  catch(e){show($('tOut'),'Request failed: '+e)}finally{busy(b,false)}}
 </script>
 </body>
 </html>
