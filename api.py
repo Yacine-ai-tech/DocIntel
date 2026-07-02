@@ -160,19 +160,25 @@ async def classify(file: UploadFile = File(...)) -> ProcessResponse:
             confidence = conf
     except Exception as e:
         log.warning("content classify failed, falling back to filename: %s", e)
-    # 2) Filename heuristic — used when content gave nothing or a weak 'default'.
-    if not doc_type or doc_type == "default":
-        name = (file.filename or "").lower()
-        if any(k in name for k in ("invoice", "inv")):
-            doc_type, confidence = "invoice", 0.85
-        elif any(k in name for k in ("contract", "agreement")):
-            doc_type, confidence = "contract", 0.8
-        elif any(k in name for k in ("receipt",)):
-            doc_type, confidence = "receipt", 0.8
-        elif any(k in name for k in ("report", "statement")):
-            doc_type, confidence = "financial_report", 0.7
-        elif not doc_type:
-            doc_type, confidence = "default", 0.5
+    # 2) Filename heuristic — a strong, cheap signal. Compute it, then combine.
+    name = (file.filename or "").lower()
+    fname_type: Optional[str] = None
+    fname_conf: Optional[float] = None
+    if any(k in name for k in ("invoice", "inv")):
+        fname_type, fname_conf = "invoice", 0.85
+    elif any(k in name for k in ("contract", "agreement")):
+        fname_type, fname_conf = "contract", 0.8
+    elif any(k in name for k in ("receipt",)):
+        fname_type, fname_conf = "receipt", 0.8
+    elif any(k in name for k in ("report", "statement")):
+        fname_type, fname_conf = "financial_report", 0.7
+    # Prefer a confident filename match when the content signal is missing, 'default',
+    # or low-confidence (the text heuristic is weak on scanned/short docs).
+    weak_content = (not doc_type) or (doc_type == "default") or ((confidence or 0.0) < 0.6)
+    if weak_content and fname_type:
+        doc_type, confidence = fname_type, fname_conf
+    elif not doc_type:
+        doc_type, confidence = "default", 0.5
     return ProcessResponse(doc_type=doc_type, route="classify", confidence=confidence)
 
 
