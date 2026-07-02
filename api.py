@@ -79,14 +79,33 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
 
     if route in ("vision_premium", "vision_local"):
         model = settings.LLM_VISION_PREMIUM if route == "vision_premium" else settings.LLM_VISION_LOCAL
-        if pdf:
-            images = pdf_to_pngs(data, max_pages=settings.MAX_PDF_PAGES)
-            if not images:
-                return {"fields": {"error": "pdf_render_failed (install poppler/pdf2image)"},
-                        "page_count": page_count}
-        else:
-            images = [data]
-        fields = await extract_via_vision_llm(images, model=model, doc_type=doc_type)
+        images = pdf_to_pngs(data, max_pages=settings.MAX_PDF_PAGES) if pdf else [data]
+        fields = None
+        if images:
+            try:
+                fields = await extract_via_vision_llm(images, model=model, doc_type=doc_type)
+                if isinstance(fields, dict) and fields.get("error"):
+                    raise RuntimeError(str(fields["error"]))
+            except Exception as e:
+                # Graceful degradation: the local vision model (Route B = Ollama on the inference
+                # Studio) may be unreachable, and premium vision may be rate-limited. Fall back to
+                # OCR + LLM cleanup so the user gets a structured result, not a raw API error.
+                log.warning("vision route %s failed (%s) — falling back to OCR extraction", route, e)
+                fields = None
+        if fields is None:
+            text = extract_text_from_pdf(data, max_pages=settings.MAX_PDF_PAGES) if pdf \
+                else extract_text_from_image(data)
+            if text:
+                fields = await extractor.extract(text, doc_type=doc_type)
+                if isinstance(fields, dict):
+                    fields.setdefault("_fallback_from", route)
+                    fields.setdefault("_note", "Vision route was unavailable; extracted via OCR fallback.")
+            else:
+                fields = {"error": "extraction_unavailable",
+                          "note": ("The selected vision route was unavailable and OCR recovered no text. "
+                                   "For local vision (Route B) ensure the inference Studio is running, or "
+                                   "use Vision (premium) / a clearer scan."),
+                          "_fallback_from": route}
     elif route == "ocr_fallback":
         text = extract_text_from_pdf(data, max_pages=settings.MAX_PDF_PAGES) if pdf \
             else extract_text_from_image(data)
