@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -108,6 +109,14 @@ def _confidence_of(fields: Any) -> Optional[float]:
 
 # ─────────────────────────────────────────────────────────────────────────────
 
+@app.get("/", include_in_schema=False)
+async def dashboard():
+    """Serve the accessible DocIntel dashboard at the root."""
+    import os
+    path = os.path.join(os.path.dirname(__file__), "demo", "index.html")
+    return FileResponse(path) if os.path.exists(path) else {"service": "docintel", "docs": "/docs"}
+
+
 @app.get("/health")
 async def health() -> Dict[str, Any]:
     return {"status": "ok", "service": "docintel", "version": "0.1.0"}
@@ -115,18 +124,36 @@ async def health() -> Dict[str, Any]:
 
 @app.post("/classify", response_model=ProcessResponse)
 async def classify(file: UploadFile = File(...)) -> ProcessResponse:
-    """Fast doc-type classification (filename-based heuristic + extension)."""
-    name = (file.filename or "").lower()
-    if any(k in name for k in ("invoice", "inv")):
-        doc_type, confidence = "invoice", 0.85
-    elif any(k in name for k in ("contract", "agreement")):
-        doc_type, confidence = "contract", 0.8
-    elif any(k in name for k in ("receipt",)):
-        doc_type, confidence = "receipt", 0.8
-    elif any(k in name for k in ("report", "statement")):
-        doc_type, confidence = "financial_report", 0.7
-    else:
-        doc_type, confidence = "default", 0.5
+    """Fast doc-type classification — content-based (a text sample + the same classifier
+    ``/process`` uses), falling back to a filename heuristic when content is inconclusive."""
+    data = await file.read()
+    doc_type: Optional[str] = None
+    confidence: Optional[float] = None
+    # 1) Content-based classification (matches /process behaviour).
+    try:
+        from services.ocr_extractor import (
+            DocumentClassifier, extract_text_from_image, extract_text_from_pdf, is_pdf,
+        )
+        sample = extract_text_from_pdf(data, max_pages=2) if is_pdf(data) else extract_text_from_image(data)
+        if sample and sample.strip():
+            detected, conf = DocumentClassifier.classify_document(sample)
+            doc_type = {"report": "financial_report", "general": "default"}.get(detected, detected)
+            confidence = conf
+    except Exception as e:
+        log.warning("content classify failed, falling back to filename: %s", e)
+    # 2) Filename heuristic — used when content gave nothing or a weak 'default'.
+    if not doc_type or doc_type == "default":
+        name = (file.filename or "").lower()
+        if any(k in name for k in ("invoice", "inv")):
+            doc_type, confidence = "invoice", 0.85
+        elif any(k in name for k in ("contract", "agreement")):
+            doc_type, confidence = "contract", 0.8
+        elif any(k in name for k in ("receipt",)):
+            doc_type, confidence = "receipt", 0.8
+        elif any(k in name for k in ("report", "statement")):
+            doc_type, confidence = "financial_report", 0.7
+        elif not doc_type:
+            doc_type, confidence = "default", 0.5
     return ProcessResponse(doc_type=doc_type, route="classify", confidence=confidence)
 
 
