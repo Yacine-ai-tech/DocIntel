@@ -70,6 +70,14 @@
       <p class="hint">Upload → auto-classify → extract structured JSON. Multi-page PDFs handled end-to-end.</p>
       <div class="row">
         <div><label for="pFile">Document (PDF / PNG / JPG)</label><input id="pFile" type="file" accept=".pdf,image/*" /></div>
+        <div><label for="pType">Document type</label><select id="pType">
+          <option value="auto">Auto-detect</option>
+          <option value="invoice">Invoice</option>
+          <option value="receipt">Receipt</option>
+          <option value="contract">Contract</option>
+          <option value="financial_report">Financial report</option>
+          <option value="default">Other / default</option>
+        </select></div>
         <div><label for="pRoute">Route</label><select id="pRoute"><option value="vision_premium">Vision (premium)</option><option value="ocr_fallback">OCR fallback</option><option value="vision_local">Vision (local)</option></select></div>
       </div>
       <button id="pBtn" onclick="doProcess()">Process document</button>
@@ -111,7 +119,7 @@ function show(el,t){el.textContent=typeof t==='string'?t:JSON.stringify(t,null,2
 
 async function doProcess(){const b=$('pBtn'),f=$('pFile').files[0];if(!f){show($('pOut'),'Choose a document first.');return}
   busy(b,true,'Processing…');$('pChips').style.display='none';
-  try{const fd=new FormData();fd.append('file',f);fd.append('route',$('pRoute').value);fd.append('doc_type','auto');
+  try{const fd=new FormData();fd.append('file',f);fd.append('route',$('pRoute').value);fd.append('doc_type',$('pType').value);
     const r=await fetch('/process',{method:'POST',body:fd});const j=await r.json();
     $('cType').textContent=j.doc_type||'—';$('cRoute').textContent=j.route||'—';
     $('cConf').textContent=j.confidence!=null?(Math.round(j.confidence*100)+'%'):'—';
