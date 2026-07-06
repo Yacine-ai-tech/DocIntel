@@ -223,7 +223,7 @@ export default function Workspace() {
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <Chip tone="accent" title="document type">{result.doc_type ?? "unknown"}</Chip>
               <Chip title="route actually used">
-                <GitBranch size={11} /> {fallbackFrom ? `${fallbackFrom} → OCR fallback` : result.route}
+                <GitBranch size={11} /> {fallbackFrom ? `OCR fallback (from ${fallbackFrom})` : result.route}
               </Chip>
               {result.page_count != null && <Chip>{result.page_count} page{result.page_count === 1 ? "" : "s"}</Chip>}
               {typeof metaFields._tables_detected === "number" && (
