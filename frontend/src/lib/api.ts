@@ -113,3 +113,33 @@ export function fieldsToCSV(fields: Record<string, unknown>): string {
   const esc = (s: string) => `"${s.replace(/"/g, '""')}"`;
   return ["field,value", ...rows.map(([k, v]) => `${esc(k)},${esc(typeof v === "object" ? JSON.stringify(v) : String(v ?? ""))}`)].join("\n");
 }
+
+/* ---------- client preferences (Settings page) ---------- */
+export type Prefs = { route: string; docType: string; view: "cards" | "json" };
+const PREFS_KEY = "docintel.prefs";
+export function readPrefs(): Prefs {
+  try { return { route: "vision_premium", docType: "auto", view: "cards", ...JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}") }; }
+  catch { return { route: "vision_premium", docType: "auto", view: "cards" }; }
+}
+export function savePrefs(p: Partial<Prefs>) {
+  localStorage.setItem(PREFS_KEY, JSON.stringify({ ...readPrefs(), ...p }));
+}
+
+/* ---------- session document library (Documents page) ---------- */
+export type StoredDoc = {
+  ts: number;
+  name: string;
+  size: number;
+  result: ProcessResponse;
+};
+const DOCS_KEY = "docintel.documents";
+export function saveDocument(d: StoredDoc) {
+  const list: StoredDoc[] = JSON.parse(localStorage.getItem(DOCS_KEY) ?? "[]");
+  list.unshift(d);
+  try { localStorage.setItem(DOCS_KEY, JSON.stringify(list.slice(0, 20))); }
+  catch { localStorage.setItem(DOCS_KEY, JSON.stringify(list.slice(0, 5))); }
+}
+export function readDocuments(): StoredDoc[] {
+  try { return JSON.parse(localStorage.getItem(DOCS_KEY) ?? "[]"); } catch { return []; }
+}
+export function clearDocuments() { localStorage.removeItem(DOCS_KEY); }
