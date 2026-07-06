@@ -9,7 +9,8 @@ import { Button, Card, Chip, ConfidenceBadge, EmptyState } from "../kit/primitiv
 import { PipelineFlow } from "../kit/PipelineFlow";
 import { ExecutionStages, Label, Segmented, Select } from "../kit/misc";
 import { JSONViewer } from "../kit/JSONViewer";
-import { api, downloadBlob, fieldsToCSV, logActivity, ProcessResponse } from "../lib/api";
+import { api, downloadBlob, fieldsToCSV, logActivity, ProcessResponse, readPrefs, saveDocument } from "../lib/api";
+import { SplitPane } from "../kit/SplitPane";
 
 const ROUTES = [
   { value: "vision_premium", label: "Claude Vision", hint: "Best accuracy · cloud · multilingual" },
@@ -34,13 +35,14 @@ type Phase = "idle" | "working" | "done" | "error";
 export default function Workspace() {
   const [file, setFile] = useState<File | null>(null);
   const [previewURL, setPreviewURL] = useState<string | null>(null);
-  const [route, setRoute] = useState("vision_premium");
-  const [docType, setDocType] = useState("auto");
+  const prefs = readPrefs();
+  const [route, setRoute] = useState(prefs.route);
+  const [docType, setDocType] = useState(prefs.docType);
   const [phase, setPhase] = useState<Phase>("idle");
   const [stage, setStage] = useState(0);
   const [result, setResult] = useState<ProcessResponse | null>(null);
   const [errMsg, setErrMsg] = useState("");
-  const [showJSON, setShowJSON] = useState(false);
+  const [showJSON, setShowJSON] = useState(prefs.view === "json");
   const [edited, setEdited] = useState<Record<string, string>>({});
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -77,6 +79,7 @@ export default function Workspace() {
       setStage(STAGES.length - 1);
       setResult(res);
       setPhase(res.error || res.fields?.error ? "error" : "done");
+      saveDocument({ ts: Date.now(), name: file.name, size: file.size, result: res });
       logActivity({
         kind: "process",
         title: file.name,
@@ -253,8 +256,9 @@ export default function Workspace() {
               </div>
             )}
 
-            <div className="grid gap-4 lg:grid-cols-2">
-              <Card title="Document">
+            <SplitPane
+              storageKey="docintel.results"
+              left={<Card title="Document">
                 {previewURL && file?.type.startsWith("image/") ? (
                   <img src={previewURL} alt={file.name} className="max-h-[520px] w-full rounded-lg object-contain" />
                 ) : previewURL && file?.type === "application/pdf" ? (
@@ -264,9 +268,8 @@ export default function Workspace() {
                 ) : (
                   <EmptyState icon={FileText} title="No preview" />
                 )}
-              </Card>
-
-              <Card title={showJSON ? "Structured output" : "Extracted fields"}>
+              </Card>}
+              right={<Card title={showJSON ? "Structured output" : "Extracted fields"}>
                 {showJSON ? (
                   <JSONViewer data={result} maxHeight={520} />
                 ) : fields.length === 0 ? (
@@ -283,8 +286,8 @@ export default function Workspace() {
                     ))}
                   </div>
                 )}
-              </Card>
-            </div>
+              </Card>}
+            />
           </motion.div>
         )}
       </AnimatePresence>
