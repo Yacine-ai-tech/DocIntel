@@ -144,9 +144,13 @@ def _confidence_of(fields: Any) -> Optional[float]:
 
 @app.get("/", include_in_schema=False)
 async def dashboard():
-    """Serve the accessible DocIntel dashboard at the root."""
+    """Serve the DocIntel UI at the root — the built SPA when present, else the legacy demo."""
     import os
-    path = os.path.join(os.path.dirname(__file__), "demo", "index.html")
+    root = os.path.dirname(__file__)
+    spa = os.path.join(root, "frontend", "dist", "index.html")
+    if os.path.exists(spa):
+        return FileResponse(spa)
+    path = os.path.join(root, "demo", "index.html")
     return FileResponse(path) if os.path.exists(path) else {"service": "docintel", "docs": "/docs"}
 
 
@@ -367,3 +371,20 @@ async def batch_results(job_id: str) -> Dict[str, Any]:
     if results is None:
         raise HTTPException(status_code=404, detail="job_not_found")
     return {"job_id": job_id, "results": results}
+
+
+# ─── SPA serving (registered last so every API route above wins) ─────────────
+# The redesigned frontend (frontend/dist) is served same-origin; unknown GET paths
+# fall back to index.html for client-side routing.
+import os as _os
+
+_DIST = _os.path.join(_os.path.dirname(__file__), "frontend", "dist")
+if _os.path.isdir(_os.path.join(_DIST, "assets")):
+    app.mount("/assets", StaticFiles(directory=_os.path.join(_DIST, "assets")), name="spa_assets")
+
+    @app.get("/{spa_path:path}", include_in_schema=False)
+    async def spa_fallback(spa_path: str):
+        candidate = _os.path.join(_DIST, spa_path)
+        if spa_path and _os.path.isfile(candidate):
+            return FileResponse(candidate)
+        return FileResponse(_os.path.join(_DIST, "index.html"))
