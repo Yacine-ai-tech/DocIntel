@@ -21,7 +21,7 @@ const MODELS = [
     model: "ollama/qwen2.5vl:7b",
     isDefault: false,
     traits: ["Private", "Zero API cost", "GPU-accelerated", "On-demand host"],
-    note: "Fully private path on a GPU host (T4). 77% on receipts — far above OCR — and 100% on the French/FCFA sample. When the host is asleep, the API transparently falls back to OCR and says so in the response.",
+    note: "Fully private path on a GPU host (T4). 77% on receipts — far above OCR — and 100% on the French/FCFA sample. When the host is asleep, the API falls back to OCR and reports the fallback in the response.",
   },
   {
     icon: ScanText,
