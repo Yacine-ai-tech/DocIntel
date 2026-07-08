@@ -173,7 +173,7 @@ def _remote_vision_sync(remote: str, model: str, prompt: str, imgs: List[bytes])
     if tk: h["Authorization"] = "Bearer " + tk
     body = _j.dumps({"image_b64": b64, "prompt": prompt, "model": model.split("/", 1)[-1]}).encode()
     req = urllib.request.Request(remote.rstrip("/") + "/vision", data=body, headers=h)
-    timeout = float(os.getenv("LIGHTNING_VISION_TIMEOUT", "300"))
+    timeout = float(os.getenv("LIGHTNING_VISION_TIMEOUT", "45"))
     return _j.loads(urllib.request.urlopen(req, timeout=timeout).read())["content"]
 
 
