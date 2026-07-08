@@ -35,17 +35,31 @@ export type BatchResults = {
 
 const BASE = "";
 
-async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(BASE + path, init);
-  if (!res.ok) {
-    let detail = res.statusText;
-    try {
-      const body = await res.json();
-      detail = body.detail ?? JSON.stringify(body);
-    } catch { /* keep statusText */ }
-    throw new Error(`${res.status}: ${detail}`);
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+async function req<T>(path: string, init?: RequestInit, retryCount = 0): Promise<T> {
+  try {
+    const res = await fetch(path, init);
+    if (!res.ok) {
+      if (res.status >= 500 && retryCount < 5) {
+        await delay(2000 * (retryCount + 1));
+        return req<T>(path, init, retryCount + 1);
+      }
+      let detail = res.statusText;
+      try {
+        const body = await res.json();
+        detail = body.detail ?? JSON.stringify(body);
+      } catch { /* keep statusText */ }
+      throw new ApiError(res.status, detail);
+    }
+    return res.json() as Promise<T>;
+  } catch (err: any) {
+    if ((err instanceof TypeError || err.message === 'Failed to fetch') && retryCount < 5) {
+      await delay(2000 * (retryCount + 1));
+      return req<T>(path, init, retryCount + 1);
+    }
+    throw err;
   }
-  return res.json() as Promise<T>;
 }
 
 export const api = {
