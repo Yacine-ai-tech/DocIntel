@@ -42,7 +42,7 @@ def test_docintel_batch_processing():
         "job_id": "job_99812",
         "files": ["s3://dummy-bucket/doc1.pdf", "s3://dummy-bucket/doc2.pdf"]
     }
-    response = client.post("/batch", json=payload)
+    response = client.post("/batch/upload", json=payload)
     assert response.status_code in (200, 202, 404, 422)
 
 def test_docintel_health():
