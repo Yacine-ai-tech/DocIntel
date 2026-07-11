@@ -19,7 +19,7 @@ app = FastAPI(title="DocIntel OCR Service", version="1.0.0")
 
 cors_origins = [
     origin.strip()
-    for origin in os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:5173").split(",")
+    for origin in os.getenv("CORS_ALLOWED_ORIGINS", "*").split(",")
     if origin.strip()
 ]
 

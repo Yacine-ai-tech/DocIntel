@@ -65,3 +65,8 @@ steps.md
 
 # internal Lightning GPU ops tooling (not part of the public product)
 scripts/gpu_activate.py
+
+# Redesigned SPA: the built bundle IS deployed (Render Docker copies the repo; no Node build stage)
+frontend/node_modules/
+!frontend/dist/
+!frontend/dist/**

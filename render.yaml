@@ -1,0 +1,19 @@
+# Render Blueprint — disaster-recovery / one-click redeploy. Builds from ./Dockerfile (honors $PORT),
+# health-checks /health. No secrets here: every key is `sync: false` (set values in the dashboard).
+# Route A (Claude vision) + ocr_fallback (Tesseract, installed in the image) work on Render free.
+# Route B (local Ollama vision) needs a GPU and stays on the Lightning Studio — not on Render.
+services:
+  - type: web
+    name: docintel
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    plan: free
+    autoDeploy: false
+    envVars:
+      - key: ANTHROPIC_API_KEY     # Route A — vision_premium (Claude Sonnet)
+        sync: false
+      - key: GROQ_API_KEY          # ocr_fallback LLM structuring
+        sync: false
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
