@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -78,14 +79,47 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
 
     if route in ("vision_premium", "vision_local"):
         model = settings.LLM_VISION_PREMIUM if route == "vision_premium" else settings.LLM_VISION_LOCAL
-        if pdf:
-            images = pdf_to_pngs(data, max_pages=settings.MAX_PDF_PAGES)
-            if not images:
-                return {"fields": {"error": "pdf_render_failed (install poppler/pdf2image)"},
-                        "page_count": page_count}
-        else:
-            images = [data]
-        fields = await extract_via_vision_llm(images, model=model, doc_type=doc_type)
+        images = pdf_to_pngs(data, max_pages=settings.MAX_PDF_PAGES) if pdf else [data]
+        fields = None
+        woke = False
+        if images:
+            try:
+                fields = await extract_via_vision_llm(images, model=model, doc_type=doc_type)
+                if isinstance(fields, dict) and fields.get("error"):
+                    raise RuntimeError(str(fields["error"]))
+            except Exception as e:
+                log.warning("vision route %s failed (%s) — falling back to OCR extraction", route, e)
+                fields = None
+                if route == "vision_local":
+                    # Route B runs on an on-demand Studio. Trigger a wake (non-blocking) so the
+                    # NEXT request can use vision; this request degrades to OCR immediately.
+                    try:
+                        from services.lightning_studio import trigger_wake_async
+                        woke = trigger_wake_async()
+                    except Exception:
+                        woke = False
+        if fields is None:
+            text = extract_text_from_pdf(data, max_pages=settings.MAX_PDF_PAGES) if pdf \
+                else extract_text_from_image(data)
+            if route == "vision_local":
+                note = ("The local-vision inference Studio was asleep — I've started it (usually ready "
+                        "in ~1-2 min). Extracted via OCR for now; re-run Route B shortly for full local "
+                        "vision.") if woke else ("Local vision (Route B) was unavailable and the Studio "
+                        "could not be woken (LIGHTNING creds missing/invalid). Extracted via OCR instead.")
+            else:
+                note = "Vision route was unavailable; extracted via OCR fallback."
+            if text:
+                fields = await extractor.extract(text, doc_type=doc_type)
+                if isinstance(fields, dict):
+                    fields.setdefault("_fallback_from", route)
+                    fields.setdefault("_note", note)
+                    if route == "vision_local":
+                        fields.setdefault("_studio_waking", woke)
+            else:
+                fields = {"error": "extraction_unavailable",
+                          "note": note + " OCR also recovered no text — try a clearer scan.",
+                          "_fallback_from": route,
+                          **({"_studio_waking": woke} if route == "vision_local" else {})}
     elif route == "ocr_fallback":
         text = extract_text_from_pdf(data, max_pages=settings.MAX_PDF_PAGES) if pdf \
             else extract_text_from_image(data)
@@ -108,6 +142,18 @@ def _confidence_of(fields: Any) -> Optional[float]:
 
 # ─────────────────────────────────────────────────────────────────────────────
 
+@app.get("/", include_in_schema=False)
+async def dashboard():
+    """Serve the DocIntel UI at the root — the built SPA when present, else the legacy demo."""
+    import os
+    root = os.path.dirname(__file__)
+    spa = os.path.join(root, "frontend", "dist", "index.html")
+    if os.path.exists(spa):
+        return FileResponse(spa)
+    path = os.path.join(root, "demo", "index.html")
+    return FileResponse(path) if os.path.exists(path) else {"service": "docintel", "docs": "/docs"}
+
+
 @app.get("/health")
 async def health() -> Dict[str, Any]:
     return {"status": "ok", "service": "docintel", "version": "0.1.0"}
@@ -115,17 +161,41 @@ async def health() -> Dict[str, Any]:
 
 @app.post("/classify", response_model=ProcessResponse)
 async def classify(file: UploadFile = File(...)) -> ProcessResponse:
-    """Fast doc-type classification (filename-based heuristic + extension)."""
+    """Fast doc-type classification — content-based (a text sample + the same classifier
+    ``/process`` uses), falling back to a filename heuristic when content is inconclusive."""
+    data = await file.read()
+    doc_type: Optional[str] = None
+    confidence: Optional[float] = None
+    # 1) Content-based classification (matches /process behaviour).
+    try:
+        from services.ocr_extractor import (
+            DocumentClassifier, extract_text_from_image, extract_text_from_pdf, is_pdf,
+        )
+        sample = extract_text_from_pdf(data, max_pages=2) if is_pdf(data) else extract_text_from_image(data)
+        if sample and sample.strip():
+            detected, conf = DocumentClassifier.classify_document(sample)
+            doc_type = {"report": "financial_report", "general": "default"}.get(detected, detected)
+            confidence = conf
+    except Exception as e:
+        log.warning("content classify failed, falling back to filename: %s", e)
+    # 2) Filename heuristic — a strong, cheap signal. Compute it, then combine.
     name = (file.filename or "").lower()
+    fname_type: Optional[str] = None
+    fname_conf: Optional[float] = None
     if any(k in name for k in ("invoice", "inv")):
-        doc_type, confidence = "invoice", 0.85
+        fname_type, fname_conf = "invoice", 0.85
     elif any(k in name for k in ("contract", "agreement")):
-        doc_type, confidence = "contract", 0.8
+        fname_type, fname_conf = "contract", 0.8
     elif any(k in name for k in ("receipt",)):
-        doc_type, confidence = "receipt", 0.8
+        fname_type, fname_conf = "receipt", 0.8
     elif any(k in name for k in ("report", "statement")):
-        doc_type, confidence = "financial_report", 0.7
-    else:
+        fname_type, fname_conf = "financial_report", 0.7
+    # Prefer a confident filename match when the content signal is missing, 'default',
+    # or low-confidence (the text heuristic is weak on scanned/short docs).
+    weak_content = (not doc_type) or (doc_type == "default") or ((confidence or 0.0) < 0.6)
+    if weak_content and fname_type:
+        doc_type, confidence = fname_type, fname_conf
+    elif not doc_type:
         doc_type, confidence = "default", 0.5
     return ProcessResponse(doc_type=doc_type, route="classify", confidence=confidence)
 
@@ -301,3 +371,20 @@ async def batch_results(job_id: str) -> Dict[str, Any]:
     if results is None:
         raise HTTPException(status_code=404, detail="job_not_found")
     return {"job_id": job_id, "results": results}
+
+
+# ─── SPA serving (registered last so every API route above wins) ─────────────
+# The redesigned frontend (frontend/dist) is served same-origin; unknown GET paths
+# fall back to index.html for client-side routing.
+import os as _os
+
+_DIST = _os.path.join(_os.path.dirname(__file__), "frontend", "dist")
+if _os.path.isdir(_os.path.join(_DIST, "assets")):
+    app.mount("/assets", StaticFiles(directory=_os.path.join(_DIST, "assets")), name="spa_assets")
+
+    @app.get("/{spa_path:path}", include_in_schema=False)
+    async def spa_fallback(spa_path: str):
+        candidate = _os.path.join(_DIST, spa_path)
+        if spa_path and _os.path.isfile(candidate):
+            return FileResponse(candidate)
+        return FileResponse(_os.path.join(_DIST, "index.html"))

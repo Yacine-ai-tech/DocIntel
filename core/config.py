@@ -46,7 +46,7 @@ class Settings:
     OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
     CORS_ALLOWED_ORIGINS = [
-        o.strip() for o in os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:8001").split(",")
+        o.strip() for o in os.getenv("CORS_ALLOWED_ORIGINS", "*").split(",")
         if o.strip()
     ]
 
