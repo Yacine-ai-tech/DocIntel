@@ -193,6 +193,33 @@ async def _vision_call(model: str, prompt: str, imgs: List[bytes]) -> str:
                 log.warning("remote vision unavailable (%s) — waking studio + local fallback", e)
                 _wake_vision_studio()
                 
+                # HF Vision Fallback (Qwen)
+                hf_token = os.getenv("HF_TOKEN", "").strip()
+                if hf_token:
+                    try:
+                        import urllib.request
+                        import json as _json
+                        import base64
+                        b64 = base64.b64encode(_downscale(imgs[0])).decode()
+                        hf_model = os.getenv("HF_VISION_MODEL", "Qwen/Qwen2-VL-7B-Instruct")
+                        url = f"https://api-inference.huggingface.co/models/{hf_model}/v1/chat/completions"
+                        h = {"Authorization": f"Bearer {hf_token}", "Content-Type": "application/json"}
+                        body = _json.dumps({
+                            "model": hf_model,
+                            "messages": [
+                                {"role": "user", "content": [
+                                    {"type": "text", "text": prompt},
+                                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}}
+                                ]}
+                            ],
+                            "max_tokens": 1024
+                        }).encode()
+                        req = urllib.request.Request(url, data=body, headers=h)
+                        res = _json.loads(urllib.request.urlopen(req, timeout=45).read())
+                        return res["choices"][0]["message"]["content"]
+                    except Exception as hf_err:
+                        log.warning("HF vision fallback failed: %s", hf_err)
+
                 # Groq Vision Fallback
                 groq_token = os.getenv("GROQ_API_KEY", "").strip()
                 if groq_token:
