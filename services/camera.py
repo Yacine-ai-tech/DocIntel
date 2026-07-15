@@ -12,7 +12,6 @@ from typing import Any, Dict, Optional, List
 from datetime import datetime, timedelta
 
 from core.config import settings
-from core.i18n import I18N, t
 from core.logger import get_logger
 
 log = get_logger(__name__)
@@ -108,7 +107,9 @@ class MobilePairing:
         if not _QR:
             return None
         import io
-        url = f"http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}/api/v1/camera/upload?token={token}"
+        import os
+        frontend_url = os.getenv("FRONTEND_URL", f"http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}")
+        url = f"{frontend_url}/camera/mobile?token={token}"
         img = qrcode.make(url)
         buf = io.BytesIO()
         img.save(buf, format="PNG")
