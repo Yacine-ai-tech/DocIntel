@@ -161,6 +161,7 @@ def _wake_vision_studio() -> None:
             urllib.request.urlopen(urllib.request.Request(url.rstrip("/") + "/wake",
                 data=_j.dumps({"gpu": True}).encode(), headers=h), timeout=90)
         except Exception:
+            import logging; logging.error('Unhandled exception', exc_info=True)
             pass
     threading.Thread(target=_go, daemon=True).start()
 
