@@ -112,6 +112,7 @@ def _wake_render_studio() -> None:
             urllib.request.urlopen(urllib.request.Request(
                 url.rstrip("/") + "/wake", data=_j.dumps({"gpu": False}).encode(), headers=h), timeout=90)
         except Exception:
+            import logging; logging.error('Unhandled exception', exc_info=True)
             pass
     threading.Thread(target=_go, daemon=True).start()
 
@@ -198,6 +199,7 @@ def pdf_to_pngs(pdf_bytes: bytes, dpi: int = 150, max_pages: int = 20) -> List[b
                 try:
                     _os.remove(p)
                 except Exception:
+                    import logging; logging.error('Unhandled exception', exc_info=True)
                     pass
         return out
     except Exception as e:
@@ -358,6 +360,7 @@ class FormFieldDetector:
                             if not field_names or field_name in field_names:
                                 values[field_name] = field_data.get("value")
                     except Exception:
+                        import logging; logging.error('Unhandled exception', exc_info=True)
                         pass
 
                 # Fallback: extract text from all regions

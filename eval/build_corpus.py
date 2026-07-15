@@ -57,6 +57,7 @@ def add_cord(rows, limit):
         try:
             ds = load_dataset("naver-clova-ix/cord-v2", split=split)
         except Exception as e:
+            import logging; logging.error(f'Error: {e}', exc_info=True)
             print(f"  cord[{split}] load failed: {e}")
             continue
         for i, ex in enumerate(ds):
@@ -108,6 +109,7 @@ def add_invoice2data(rows):
                          "all_pages": [f"images/invoice2data/{name}_p{p}.png" for p in range(len(pages))]})
             added += 1
         except Exception as e:
+            import logging; logging.error(f'Error: {e}', exc_info=True)
             print(f"  invoice2data {name} failed: {e}")
     print(f"  invoice2data invoices added: {added} (multi-page where applicable)")
     return added
@@ -121,6 +123,7 @@ def add_funsd(rows, limit):
         try:
             ds = load_dataset(repo, split="test")
         except Exception as e:
+            import logging; logging.error(f'Error: {e}', exc_info=True)
             print(f"  funsd[{repo}] load failed: {e}")
             continue
         for i, ex in enumerate(ds):
