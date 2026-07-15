@@ -160,6 +160,61 @@ def _confidence_of(fields: Any) -> Optional[float]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Marker-PDF Route A 
+# ─────────────────────────────────────────────────────────────────────────────
+
+from services.marker_extractor import MarkerExtractor
+_marker = MarkerExtractor()
+
+@app.post("/extract/marker")
+async def extract_marker(file: UploadFile = File(...)):
+    """Route A explicit: Convert PDF to Markdown via Marker."""
+    import tempfile
+    import os
+    suffix = ".pdf" if file.filename.lower().endswith(".pdf") else ""
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        data = await file.read()
+        tmp.write(data)
+        tmp_path = tmp.name
+    try:
+        res = _marker.convert(tmp_path)
+    finally:
+        os.remove(tmp_path)
+    return res
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Camera QR / Mobile Uploads
+# ─────────────────────────────────────────────────────────────────────────────
+
+from services.camera import CameraManager
+_camera = CameraManager()
+
+@app.post("/camera/pair")
+async def camera_pair(user: str = Form("demo_user"), device: str = Form("Mobile")):
+    """Generate a pairing token and QR base64 for mobile uploads."""
+    return _camera.pair_mobile(user, device)
+
+@app.get("/camera/qr/{token}")
+async def camera_qr_image(token: str):
+    """Return raw QR code image bytes for a token."""
+    qr_bytes = _camera.pairing.qr_bytes(token)
+    if not qr_bytes:
+        raise HTTPException(404, "Token not found or QR failed")
+    from fastapi.responses import Response
+    return Response(content=qr_bytes, media_type="image/png")
+
+@app.post("/camera/upload")
+async def camera_upload(token: str = Form(...), file: UploadFile = File(...), doc_type: str = Form("default")):
+    """Mobile device uploads photo; processes via vision local route."""
+    session = _camera.validate_mobile(token)
+    if not session:
+        raise HTTPException(403, "Invalid or expired token")
+    data = await file.read()
+    _camera.record_mobile_upload(token)
+    # Automatically route to vision
+    return await _run_route(data, route="vision_local", doc_type=doc_type)
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 @app.get("/", include_in_schema=False)
 async def dashboard():
