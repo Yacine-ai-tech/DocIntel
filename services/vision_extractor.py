@@ -193,18 +193,19 @@ async def _vision_call(model: str, prompt: str, imgs: List[bytes]) -> str:
                 log.warning("remote vision unavailable (%s) — waking studio + local fallback", e)
                 _wake_vision_studio()
                 
-                hf_token = os.getenv("HF_TOKEN", "").strip()
-                if hf_token:
+                # Groq Vision Fallback
+                groq_token = os.getenv("GROQ_API_KEY", "").strip()
+                if groq_token:
                     try:
                         import urllib.request
                         import json as _json
                         import base64
                         b64 = base64.b64encode(_downscale(imgs[0])).decode()
-                        hf_model = os.getenv("HF_VISION_MODEL", "Qwen/Qwen2-VL-7B-Instruct")
-                        url = f"https://api-inference.huggingface.co/models/{hf_model}/v1/chat/completions"
-                        h = {"Authorization": f"Bearer {hf_token}", "Content-Type": "application/json"}
+                        groq_model = "llama-3.2-11b-vision-preview"
+                        url = "https://api.groq.com/openai/v1/chat/completions"
+                        h = {"Authorization": f"Bearer {groq_token}", "Content-Type": "application/json"}
                         body = _json.dumps({
-                            "model": hf_model,
+                            "model": groq_model,
                             "messages": [
                                 {"role": "user", "content": [
                                     {"type": "text", "text": prompt},
@@ -216,8 +217,8 @@ async def _vision_call(model: str, prompt: str, imgs: List[bytes]) -> str:
                         req = urllib.request.Request(url, data=body, headers=h)
                         res = _json.loads(urllib.request.urlopen(req, timeout=45).read())
                         return res["choices"][0]["message"]["content"]
-                    except Exception as hf_err:
-                        log.warning("HF vision fallback also failed: %s", hf_err)
+                    except Exception as groq_err:
+                        log.warning("Groq vision fallback also failed: %s", groq_err)
 
     content: List[Dict[str, Any]] = [{"type": "text", "text": prompt}]
     content.extend(_image_block(i) for i in imgs)
