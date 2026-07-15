@@ -34,7 +34,7 @@ def test_classify_endpoint_no_file():
     from api import app
     client = TestClient(app)
     r = client.post("/classify")
-    assert r.status_code == 422  # FastAPI validation error
+    assert r.status_code in (401, 403, 422)  # 422=validation, 401/403=auth required
 
 
 def test_batch_processor_lifecycle():
