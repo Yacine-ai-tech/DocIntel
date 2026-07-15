@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
-import { FileScan, Image, Layers, BarChart3, Cpu, History, Workflow, GitCompareArrows, FolderOpen, Settings2 } from "lucide-react";
+import { Camera, FileScan, Image, Layers, BarChart3, Cpu, History, Workflow, GitCompareArrows, FolderOpen, Settings2 } from "lucide-react";
 import { AppShell } from "./kit/AppShell";
 import { WakingBackend } from "./kit/misc";
 import { Skeleton } from "./kit/primitives";
@@ -14,6 +14,8 @@ import Pipelines from "./pages/Pipelines";
 import Compare from "./pages/Compare";
 import Documents from "./pages/Documents";
 import Settings from "./pages/Settings";
+import CameraDashboard from "./pages/CameraDashboard";
+import CameraMobile from "./pages/CameraMobile";
 
 const Benchmarks = lazy(() => import("./pages/Benchmarks"));
 
@@ -21,6 +23,7 @@ const NAV = [
   { to: "/", label: "Workspace", icon: FileScan },
   { to: "/documents", label: "Documents", icon: FolderOpen },
   { to: "/images", label: "Image Intelligence", icon: Image },
+  { to: "/camera", label: "Mobile Scanner", icon: Camera },
   { to: "/pipelines", label: "Pipelines", icon: Workflow },
   { to: "/compare", label: "Compare Routes", icon: GitCompareArrows },
   { to: "/batch", label: "Batch", icon: Layers },
@@ -56,32 +59,38 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <AppShell
-        product="DocIntel"
-        tagline="Vision Document Intelligence"
-        nav={NAV}
-        health={health}
-      >
-        {health !== "ok" && !(health === "checking" && attempts === 0) ? (
-          <WakingBackend waking={attempts < 6} onRetry={() => setAttempts(0)} />
-        ) : (
-          <Suspense fallback={<Skeleton className="h-64 w-full" />}>
-            <Routes>
-              <Route path="/" element={<Workspace />} />
-              <Route path="/documents" element={<Documents />} />
-              <Route path="/images" element={<ImageIntel />} />
-              <Route path="/pipelines" element={<Pipelines />} />
-              <Route path="/compare" element={<Compare />} />
-              <Route path="/batch" element={<Batch />} />
-              <Route path="/benchmarks" element={<Benchmarks />} />
-              <Route path="/models" element={<Models />} />
-              <Route path="/activity" element={<Activity />} />
-              <Route path="/settings" element={<Settings />} />
-              <Route path="*" element={<Workspace />} />
-            </Routes>
-          </Suspense>
-        )}
-      </AppShell>
+      <Routes>
+        <Route path="/camera/mobile" element={<CameraMobile />} />
+        <Route path="*" element={
+          <AppShell
+            product="DocIntel"
+            tagline="Vision Document Intelligence"
+            nav={NAV}
+            health={health}
+          >
+            {health !== "ok" && !(health === "checking" && attempts === 0) ? (
+              <WakingBackend waking={attempts < 6} onRetry={() => setAttempts(0)} />
+            ) : (
+              <Suspense fallback={<Skeleton className="h-64 w-full" />}>
+                <Routes>
+                  <Route path="/" element={<Workspace />} />
+                  <Route path="/documents" element={<Documents />} />
+                  <Route path="/images" element={<ImageIntel />} />
+                  <Route path="/camera" element={<CameraDashboard />} />
+                  <Route path="/pipelines" element={<Pipelines />} />
+                  <Route path="/compare" element={<Compare />} />
+                  <Route path="/batch" element={<Batch />} />
+                  <Route path="/benchmarks" element={<Benchmarks />} />
+                  <Route path="/models" element={<Models />} />
+                  <Route path="/activity" element={<Activity />} />
+                  <Route path="/settings" element={<Settings />} />
+                  <Route path="*" element={<Workspace />} />
+                </Routes>
+              </Suspense>
+            )}
+          </AppShell>
+        } />
+      </Routes>
     </BrowserRouter>
   );
 }
