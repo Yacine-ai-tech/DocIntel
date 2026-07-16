@@ -4,7 +4,8 @@
 
 **Vision-first document AI. Drop a PDF or image, get structured JSON in under 2 seconds. Local or cloud.**
 > 🔗 **Live demo:** https://docintel.ysiddo-ai-projects.app/demo  ·  drag-drop a PDF/image.
-> On-demand backend (first request ~30–60 s to wake). Route B local vision spins up a GPU on demand (~4–5 min cold).
+> On-demand backend (first request ~30–60 s to wake).
+> Self-hosting: see [SELF_HOSTING.md](SELF_HOSTING.md). Route B local vision spins up a GPU on demand (~4–5 min cold).
 
 ## What It Does
 
@@ -108,3 +109,10 @@ This project collects anonymous, GDPR-compliant startup pings to help the author
 
 <!-- Scarf Analytics Pixel -->
 <img referrerpolicy="no-referrer-when-downgrade" src="https://static.scarf.sh/a.png?x-pxid=396dad0f-9a66-42a2-9f71-827842a6f255" />
+
+## Licensing
+This project is licensed under the [AGPL-3.0 License](LICENSE).
+
+**Commercial Use:** If you wish to use this software commercially without releasing your own source code, please see [COMMERCIAL.md](COMMERCIAL.md) to obtain a commercial license.
+
+**Telemetry:** See [TELEMETRY.md](TELEMETRY.md) for our privacy-first data practices.
