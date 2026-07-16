@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { Code2, lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Camera, FileScan, Image, Layers, BarChart3, Cpu, History, Workflow, GitCompareArrows, FolderOpen, Settings2 } from "lucide-react";
 import { AppShell } from "./kit/AppShell";
@@ -16,6 +16,7 @@ import Documents from "./pages/Documents";
 import Settings from "./pages/Settings";
 import CameraDashboard from "./pages/CameraDashboard";
 import CameraMobile from "./pages/CameraMobile";
+import ApiDocs from "./pages/ApiDocs";
 
 const Benchmarks = lazy(() => import("./pages/Benchmarks"));
 
@@ -31,6 +32,7 @@ const NAV = [
   { to: "/models", label: "Vision Models", icon: Cpu },
   { to: "/activity", label: "Activity", icon: History },
   { to: "/settings", label: "Settings", icon: Settings2 },
+  { to: "/api-docs", label: "API Docs", icon: Code2 },
 ];
 
 export default function App() {
@@ -84,6 +86,7 @@ export default function App() {
                   <Route path="/models" element={<Models />} />
                   <Route path="/activity" element={<Activity />} />
                   <Route path="/settings" element={<Settings />} />
+                  <Route path="/api-docs" element={<ApiDocs />} />
                   <Route path="*" element={<Workspace />} />
                 </Routes>
               </Suspense>
