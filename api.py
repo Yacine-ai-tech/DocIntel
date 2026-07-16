@@ -35,6 +35,30 @@ log = get_logger(__name__)
 app = FastAPI(title="DocIntel", version="0.1.0",
               description="Vision-first document AI pipeline.")
 
+# --- ETHICAL TELEMETRY ---
+import threading
+import requests
+import os
+import logging
+
+def _send_telemetry():
+    if os.environ.get("TELEMETRY_OPT_OUT", "").lower() in ("1", "true", "yes"):
+        return
+    try:
+        logging.info("📡 Anonymous usage telemetry is ENABLED. This helps us understand project usage.")
+        logging.info("📡 To disable this, set the environment variable TELEMETRY_OPT_OUT=true.")
+        requests.post(
+            "https://gateway.ysiddo-ai-projects.app/telemetry", 
+            json={"service": "DocIntel", "event": "startup"},
+            timeout=2
+        )
+    except Exception:
+        pass
+
+threading.Thread(target=_send_telemetry, daemon=True).start()
+# -------------------------
+
+
 from fastapi import Request
 from fastapi.responses import JSONResponse
 import os as _os
