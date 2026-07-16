@@ -145,6 +145,7 @@ class LLMExtractor:
         if len(text) <= _MAX_TEXT_CHARS:
             result = await self._extract_one(text, doc_type)
             if isinstance(result, dict) and "error" not in result:
+                self._apply_regex_fallback(text, result, doc_type)
                 normalize_fields(result, doc_type)
             return result
 
@@ -163,6 +164,22 @@ class LLMExtractor:
         log.info("large document text: %d chars → %d LLM chunks", len(text), len(chunks))
         parts = await asyncio.gather(*(self._extract_one(c, doc_type) for c in chunks))
         merged = merge_doc_fields(parts)
+        self._apply_regex_fallback(text, merged, doc_type)
         normalize_fields(merged, doc_type)
         merged["_chunks"] = len(chunks)
         return merged
+        
+    def _apply_regex_fallback(self, text: str, result: Dict[str, Any], doc_type: str) -> None:
+        """Fallback to regex extraction for numerical totals if LLM returned null."""
+        if doc_type in ("invoice", "receipt") and not result.get("total"):
+            m = re.search(r'(?i)(?:total|amount due|ttc)[\s:]*([$€£]?[ \t]*\d+(?:[.,]\d+){0,2})', text)
+            if m:
+                val_str = m.group(1).replace("$", "").replace("€", "").replace("£", "").replace(" ", "")
+                if "," in val_str and "." not in val_str:
+                    val_str = val_str.replace(",", ".")
+                val_str = val_str.replace(",", "")
+                try:
+                    result["total"] = float(val_str)
+                    result["_regex_fallback"] = True
+                except ValueError:
+                    pass

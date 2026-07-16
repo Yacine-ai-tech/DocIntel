@@ -62,6 +62,7 @@ def _gt(ex):
             if isinstance(p, dict):
                 return p
         except Exception:
+            import logging; logging.error('Unhandled exception', exc_info=True)
             pass
     for key in ("entities", "key", "labels"):
         d = ex.get(key)

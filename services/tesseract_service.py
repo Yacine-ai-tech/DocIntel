@@ -17,6 +17,25 @@ logger = logging.getLogger("ocr-service")
 
 app = FastAPI(title="DocIntel OCR Service", version="1.0.0")
 
+from fastapi import Request
+from fastapi.responses import JSONResponse
+import os as _os
+
+@app.middleware("http")
+async def verify_internal_token(request: Request, call_next):
+    # Allow health checks and public auth routes
+    if request.url.path in ["/health", "/docs", "/openapi.json", "/api/redoc"] or request.url.path.startswith("/api/v1/auth/"):
+        return await call_next(request)
+        
+    token = request.headers.get("X-OmniIntel-Internal-Token")
+    expected_token = _os.environ.get("OMNIINTEL_INTERNAL_TOKEN", "default-dev-token")
+    
+    if token != expected_token and _os.environ.get("REQUIRE_INTERNAL_TOKEN", "true").lower() == "true":
+        return JSONResponse(status_code=403, content={"detail": "Missing or invalid X-OmniIntel-Internal-Token"})
+        
+    return await call_next(request)
+
+
 cors_origins = [
     origin.strip()
     for origin in os.getenv("CORS_ALLOWED_ORIGINS", "*").split(",")

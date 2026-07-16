@@ -1,0 +1,22 @@
+name: Deploy to Render
+
+# Repo recreation dropped the GitHub→Render push webhook, so this workflow
+# restores auto-deploy: every push to main/master triggers a Render deploy via the API.
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Render deploy
+        run: |
+          code=$(curl -fsS -o /tmp/resp.json -w "%{http_code}" \
+            -X POST "https://api.render.com/v1/services/${{ secrets.RENDER_SERVICE_ID }}/deploys" \
+            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{"clearCache":"do_not_clear"}') || { echo "deploy trigger failed"; exit 1; }
+          echo "Render responded HTTP $code"
+          python3 -c "import json;d=json.load(open('/tmp/resp.json'));print('deploy id:',d.get('id'))" || true
