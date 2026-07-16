@@ -49,9 +49,17 @@ _OCR_LANGS = _os.getenv("OCR_LANGS", "eng+fra+deu+nld+spa+ita")
 
 
 def extract_text_from_image(image_bytes: bytes, lang: Optional[str] = None) -> str:
-    """Route C (Tesseract): plain OCR of an image's text. ``lang`` is a Tesseract language
-    string like "eng+fra"; defaults to ``OCR_LANGS``. Returns '' when Tesseract isn't
-    available or finds no text — the caller decides how to degrade."""
+    """Route C (Surya/Tesseract): layout-aware OCR using Surya with Tesseract as fallback.
+    Returns '' when neither is available or finds no text — the caller decides how to degrade.
+    """
+    try:
+        from services.surya_extractor import SuryaExtractor
+        surya_res = SuryaExtractor(langs=[lang] if lang else None).extract(image_bytes)
+        if surya_res.get("text"):
+            return surya_res["text"]
+    except Exception as e:
+        log.warning("Surya OCR skipped/failed: %s", e)
+
     if not _TESSERACT:
         log.warning("pytesseract/Tesseract not installed — OCR route unavailable")
         return ""
