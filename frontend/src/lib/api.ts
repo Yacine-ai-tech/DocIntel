@@ -33,13 +33,13 @@ export type BatchResults = {
   results: { filename: string; fields: Record<string, unknown> | null; confidence: number | null; page_count: number | null }[];
 };
 
-const BASE = "";
+const BASE = import.meta.env.VITE_API_BASE_URL || "";
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 async function req<T>(path: string, init?: RequestInit, retryCount = 0): Promise<T> {
   try {
-    const res = await fetch(path, init);
+    const res = await fetch(BASE + path, init);
     if (!res.ok) {
       if (res.status >= 500 && retryCount < 5) {
         await delay(2000 * (retryCount + 1));
