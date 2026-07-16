@@ -13,13 +13,13 @@ on:
 env:
   PYTHON_VERSION: "3.12"
   NODE_VERSION:   "20"
-  INTELAI_URL:     ${{ secrets.INTELAI_URL    || 'https://intelai-xxxx.onrender.com' }}
-  DOCINTEL_URL:    ${{ secrets.DOCINTEL_URL   || 'https://docintel-xxxx.onrender.com' }}
-  VOICEFLOW_URL:   ${{ secrets.VOICEFLOW_URL  || 'https://voiceflow-xxxx.onrender.com' }}
-  RAGEVAL_URL:     ${{ secrets.RAGEVAL_URL    || 'https://rageval-xxxx.onrender.com' }}
-  AGENTKIT_URL:    ${{ secrets.AGENTKIT_URL   || 'https://agentkit-xxxx.onrender.com' }}
-  STREAMPULSE_URL: ${{ secrets.STREAMPULSE_URL|| 'https://streampulse-xxxx.onrender.com' }}
-  OMNIINTEL_INTERNAL_TOKEN: ${{ secrets.OMNIINTEL_INTERNAL_TOKEN || 'omniintel-prod-internal-2026' }}
+  INTELAI_URL:     ${{ secrets.INTELAI_URL    || '' }}
+  DOCINTEL_URL:    ${{ secrets.DOCINTEL_URL   || '' }}
+  VOICEFLOW_URL:   ${{ secrets.VOICEFLOW_URL  || '' }}
+  RAGEVAL_URL:     ${{ secrets.RAGEVAL_URL    || '' }}
+  AGENTKIT_URL:    ${{ secrets.AGENTKIT_URL   || '' }}
+  STREAMPULSE_URL: ${{ secrets.STREAMPULSE_URL|| '' }}
+  OMNIINTEL_INTERNAL_TOKEN: ${{ secrets.OMNIINTEL_INTERNAL_TOKEN  }}
 
 jobs:
 
