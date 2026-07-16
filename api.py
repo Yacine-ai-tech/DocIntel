@@ -448,18 +448,3 @@ async def batch_results(job_id: str) -> Dict[str, Any]:
     return {"job_id": job_id, "results": results}
 
 
-# ─── SPA serving (registered last so every API route above wins) ─────────────
-# The redesigned frontend (frontend/dist) is served same-origin; unknown GET paths
-# fall back to index.html for client-side routing.
-import os as _os
-
-_DIST = _os.path.join(_os.path.dirname(__file__), "frontend", "dist")
-if _os.path.isdir(_os.path.join(_DIST, "assets")):
-    app.mount("/assets", StaticFiles(directory=_os.path.join(_DIST, "assets")), name="spa_assets")
-
-    @app.get("/{spa_path:path}", include_in_schema=False)
-    async def spa_fallback(spa_path: str):
-        candidate = _os.path.join(_DIST, spa_path)
-        if spa_path and _os.path.isfile(candidate):
-            return FileResponse(candidate)
-        return FileResponse(_os.path.join(_DIST, "index.html"))
