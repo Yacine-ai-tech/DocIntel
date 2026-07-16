@@ -35,6 +35,49 @@ log = get_logger(__name__)
 app = FastAPI(title="DocIntel", version="0.1.0",
               description="Vision-first document AI pipeline.")
 
+# --- ETHICAL TELEMETRY ---
+import threading
+import requests
+import os
+import logging
+
+def _send_telemetry():
+    if os.environ.get("TELEMETRY_OPT_OUT", "").lower() in ("1", "true", "yes"):
+        return
+    try:
+        logging.info("📡 Anonymous usage telemetry is ENABLED. This helps us understand project usage.")
+        logging.info("📡 To disable this, set the environment variable TELEMETRY_OPT_OUT=true.")
+        requests.post(
+            "https://gateway.ysiddo-ai-projects.app/telemetry", 
+            json={"service": "DocIntel", "event": "startup"},
+            timeout=2
+        )
+    except Exception:
+        pass
+
+threading.Thread(target=_send_telemetry, daemon=True).start()
+# -------------------------
+
+
+from fastapi import Request
+from fastapi.responses import JSONResponse
+import os as _os
+
+@app.middleware("http")
+async def verify_internal_token(request: Request, call_next):
+    # Allow health checks and public auth routes
+    if request.url.path in ["/health", "/docs", "/openapi.json", "/api/redoc"] or request.url.path.startswith("/api/v1/auth/"):
+        return await call_next(request)
+        
+    token = request.headers.get("X-OmniIntel-Internal-Token")
+    expected_token = _os.environ.get("OMNIINTEL_INTERNAL_TOKEN", "default-dev-token")
+    
+    if token != expected_token and _os.environ.get("REQUIRE_INTERNAL_TOKEN", "true").lower() == "true":
+        return JSONResponse(status_code=403, content={"detail": "Missing or invalid X-OmniIntel-Internal-Token"})
+        
+    return await call_next(request)
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ALLOWED_ORIGINS or ["*"],
@@ -139,6 +182,61 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
 def _confidence_of(fields: Any) -> Optional[float]:
     return fields.get("_confidence") if isinstance(fields, dict) else None
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Marker-PDF Route A 
+# ─────────────────────────────────────────────────────────────────────────────
+
+from services.marker_extractor import MarkerExtractor
+_marker = MarkerExtractor()
+
+@app.post("/extract/marker")
+async def extract_marker(file: UploadFile = File(...)):
+    """Route A explicit: Convert PDF to Markdown via Marker."""
+    import tempfile
+    import os
+    suffix = ".pdf" if file.filename.lower().endswith(".pdf") else ""
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        data = await file.read()
+        tmp.write(data)
+        tmp_path = tmp.name
+    try:
+        res = _marker.convert(tmp_path)
+    finally:
+        os.remove(tmp_path)
+    return res
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Camera QR / Mobile Uploads
+# ─────────────────────────────────────────────────────────────────────────────
+
+from services.camera import CameraManager
+_camera = CameraManager()
+
+@app.post("/camera/pair")
+async def camera_pair(user: str = Form("demo_user"), device: str = Form("Mobile")):
+    """Generate a pairing token and QR base64 for mobile uploads."""
+    return _camera.pair_mobile(user, device)
+
+@app.get("/camera/qr/{token}")
+async def camera_qr_image(token: str):
+    """Return raw QR code image bytes for a token."""
+    qr_bytes = _camera.pairing.qr_bytes(token)
+    if not qr_bytes:
+        raise HTTPException(404, "Token not found or QR failed")
+    from fastapi.responses import Response
+    return Response(content=qr_bytes, media_type="image/png")
+
+@app.post("/camera/upload")
+async def camera_upload(token: str = Form(...), file: UploadFile = File(...), doc_type: str = Form("default")):
+    """Mobile device uploads photo; processes via vision local route."""
+    session = _camera.validate_mobile(token)
+    if not session:
+        raise HTTPException(403, "Invalid or expired token")
+    data = await file.read()
+    _camera.record_mobile_upload(token)
+    # Automatically route to vision
+    return await _run_route(data, route="vision_local", doc_type=doc_type)
 
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -281,6 +379,7 @@ async def process(
                 tcount = sum(len(p.extract_tables() or []) for p in pdf.pages)
             fields.setdefault("_tables_detected", tcount)
         except Exception:
+            import logging; logging.error('Unhandled exception', exc_info=True)
             pass
 
     return ProcessResponse(
@@ -373,18 +472,3 @@ async def batch_results(job_id: str) -> Dict[str, Any]:
     return {"job_id": job_id, "results": results}
 
 
-# ─── SPA serving (registered last so every API route above wins) ─────────────
-# The redesigned frontend (frontend/dist) is served same-origin; unknown GET paths
-# fall back to index.html for client-side routing.
-import os as _os
-
-_DIST = _os.path.join(_os.path.dirname(__file__), "frontend", "dist")
-if _os.path.isdir(_os.path.join(_DIST, "assets")):
-    app.mount("/assets", StaticFiles(directory=_os.path.join(_DIST, "assets")), name="spa_assets")
-
-    @app.get("/{spa_path:path}", include_in_schema=False)
-    async def spa_fallback(spa_path: str):
-        candidate = _os.path.join(_DIST, spa_path)
-        if spa_path and _os.path.isfile(candidate):
-            return FileResponse(candidate)
-        return FileResponse(_os.path.join(_DIST, "index.html"))

@@ -49,9 +49,17 @@ _OCR_LANGS = _os.getenv("OCR_LANGS", "eng+fra+deu+nld+spa+ita")
 
 
 def extract_text_from_image(image_bytes: bytes, lang: Optional[str] = None) -> str:
-    """Route C (Tesseract): plain OCR of an image's text. ``lang`` is a Tesseract language
-    string like "eng+fra"; defaults to ``OCR_LANGS``. Returns '' when Tesseract isn't
-    available or finds no text — the caller decides how to degrade."""
+    """Route C (Surya/Tesseract): layout-aware OCR using Surya with Tesseract as fallback.
+    Returns '' when neither is available or finds no text — the caller decides how to degrade.
+    """
+    try:
+        from services.surya_extractor import SuryaExtractor
+        surya_res = SuryaExtractor(langs=[lang] if lang else None).extract(image_bytes)
+        if surya_res.get("text"):
+            return surya_res["text"]
+    except Exception as e:
+        log.warning("Surya OCR skipped/failed: %s", e)
+
     if not _TESSERACT:
         log.warning("pytesseract/Tesseract not installed — OCR route unavailable")
         return ""
@@ -112,6 +120,7 @@ def _wake_render_studio() -> None:
             urllib.request.urlopen(urllib.request.Request(
                 url.rstrip("/") + "/wake", data=_j.dumps({"gpu": False}).encode(), headers=h), timeout=90)
         except Exception:
+            import logging; logging.error('Unhandled exception', exc_info=True)
             pass
     threading.Thread(target=_go, daemon=True).start()
 
@@ -198,6 +207,7 @@ def pdf_to_pngs(pdf_bytes: bytes, dpi: int = 150, max_pages: int = 20) -> List[b
                 try:
                     _os.remove(p)
                 except Exception:
+                    import logging; logging.error('Unhandled exception', exc_info=True)
                     pass
         return out
     except Exception as e:
@@ -358,6 +368,7 @@ class FormFieldDetector:
                             if not field_names or field_name in field_names:
                                 values[field_name] = field_data.get("value")
                     except Exception:
+                        import logging; logging.error('Unhandled exception', exc_info=True)
                         pass
 
                 # Fallback: extract text from all regions
