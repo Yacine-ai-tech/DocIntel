@@ -107,4 +107,4 @@ This project collects anonymous, GDPR-compliant startup pings to help the author
 
 
 <!-- Scarf Analytics Pixel -->
-<img referrerpolicy="no-referrer-when-downgrade" src="https://static.scarf.sh/a.png?x-pxid=docintel-yacine-ai-projects" />
+<img referrerpolicy="no-referrer-when-downgrade" src="https://static.scarf.sh/a.png?x-pxid=396dad0f-9a66-42a2-9f71-827842a6f255" />
