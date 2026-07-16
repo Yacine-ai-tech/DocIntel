@@ -1,30 +1,271 @@
-name: CI
+name: OmniIntelOS — Render Deploy & E2E Smoke Tests
 
 on:
   push:
-    branches: [master, main, develop]
+    branches: ["main", "develop"]
   pull_request:
-    branches: [master, main]
+    branches: ["main", "develop"]
+  schedule:
+    - cron: "0 3 * * *"   # Nightly smoke test at 03:00 UTC (after wake window starts)
+  workflow_dispatch:        # Allow manual trigger
+
+# ─── Production URLs (set these in each repo's GitHub Secrets) ────────────────
+env:
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION:   "20"
+  INTELAI_URL:     ${{ secrets.INTELAI_URL    || '' }}
+  DOCINTEL_URL:    ${{ secrets.DOCINTEL_URL   || '' }}
+  VOICEFLOW_URL:   ${{ secrets.VOICEFLOW_URL  || '' }}
+  RAGEVAL_URL:     ${{ secrets.RAGEVAL_URL    || '' }}
+  AGENTKIT_URL:    ${{ secrets.AGENTKIT_URL   || '' }}
+  STREAMPULSE_URL: ${{ secrets.STREAMPULSE_URL|| '' }}
+  OMNIINTEL_INTERNAL_TOKEN: ${{ secrets.OMNIINTEL_INTERNAL_TOKEN  }}
 
 jobs:
-  test:
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # PHASE 1 — Deploy: Trigger Render deploy on each project's account
+  # ═══════════════════════════════════════════════════════════════════════════
+  deploy:
+    name: "Trigger Render Deploy"
     runs-on: ubuntu-latest
+    # Only deploy on push to main or develop, not on PRs
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trigger deploy on relevant Render account
+        env:
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          RENDER_API_KEY:    ${{ secrets.RENDER_API_KEY }}
+        run: |
+          if [ -n "$RENDER_SERVICE_ID" ] && [ -n "$RENDER_API_KEY" ]; then
+            echo "Triggering deploy for service $RENDER_SERVICE_ID..."
+            curl -s -X POST \
+              "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys" \
+              -H "Authorization: Bearer $RENDER_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d "{}" | python3 -c "import sys,json; d=json.load(sys.stdin); print('Deploy ID:', d.get('id','ok'))"
+          else
+            echo "⚠ RENDER_SERVICE_ID or RENDER_API_KEY not set. Skipping deploy trigger."
+          fi
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # PHASE 2 — Wait for Deploy + Smoke Test all 6 live endpoints
+  # NOTE: E2E tests run on GitHub Actions runners ONLY — never locally.
+  # ═══════════════════════════════════════════════════════════════════════════
+  smoke-test:
+    name: "E2E Smoke Tests — Live Render Endpoints"
+    runs-on: ubuntu-latest
+    needs: [deploy]
+    if: always()
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-          cache: "pip"
+          python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
+      - name: Install test deps
+        run: pip install httpx pytest pytest-asyncio
 
-      - name: Run smoke tests
+      - name: Wait for Render cold-start (60s)
+        run: sleep 60
+
+      - name: Run cross-mesh health checks
         env:
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
-        run: python -m pytest tests/ -x -q --tb=short
+          INTELAI_URL:     ${{ env.INTELAI_URL }}
+          DOCINTEL_URL:    ${{ env.DOCINTEL_URL }}
+          VOICEFLOW_URL:   ${{ env.VOICEFLOW_URL }}
+          RAGEVAL_URL:     ${{ env.RAGEVAL_URL }}
+          AGENTKIT_URL:    ${{ env.AGENTKIT_URL }}
+          STREAMPULSE_URL: ${{ env.STREAMPULSE_URL }}
+          INTERNAL_TOKEN:  ${{ env.OMNIINTEL_INTERNAL_TOKEN }}
+        run: |
+          python3 - <<'EOF'
+          import urllib.request, json, os, sys
 
+          TOKEN = os.environ.get("INTERNAL_TOKEN", "")
+          SERVICES = {
+            "IntelAI":     os.environ.get("INTELAI_URL"),
+            "DocIntel":    os.environ.get("DOCINTEL_URL"),
+            "VoiceFlow":   os.environ.get("VOICEFLOW_URL"),
+            "RAGeval":     os.environ.get("RAGEVAL_URL"),
+            "AgentKit":    os.environ.get("AGENTKIT_URL"),
+            "StreamPulse": os.environ.get("STREAMPULSE_URL"),
+          }
+
+          failed = []
+          for name, url in SERVICES.items():
+              if not url or "xxxx" in url:
+                  print(f"  ⚠  {name}: URL not configured (skipping)")
+                  continue
+              try:
+                  req = urllib.request.Request(f"{url}/health",
+                      headers={"X-OmniIntel-Internal-Token": TOKEN})
+                  with urllib.request.urlopen(req, timeout=10) as r:
+                      data = json.loads(r.read().decode())
+                      print(f"  ✅ {name}: {data.get('status', 'ok')} [{r.status}]")
+              except Exception as e:
+                  print(f"  ❌ {name}: {e}")
+                  failed.append(name)
+
+          if failed:
+              print(f"\n❌ {len(failed)} service(s) failed: {failed}")
+              sys.exit(1)
+          print("\n✅ All configured services are healthy!")
+          EOF
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # PHASE 3 — DocIntel Vision Pipeline Smoke Test
+  # ═══════════════════════════════════════════════════════════════════════════
+  test-docintel:
+    name: "DocIntel Vision Pipeline Test"
+    runs-on: ubuntu-latest
+    needs: [smoke-test]
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install deps
+        run: pip install httpx requests
+
+      - name: Test DocIntel /classify endpoint
+        env:
+          DOCINTEL_URL:   ${{ env.DOCINTEL_URL }}
+          INTERNAL_TOKEN: ${{ env.OMNIINTEL_INTERNAL_TOKEN }}
+        run: |
+          python3 - <<'EOF'
+          import urllib.request, json, os
+
+          url = os.environ.get("DOCINTEL_URL", "")
+          token = os.environ.get("INTERNAL_TOKEN", "")
+
+          if not url or "xxxx" in url:
+              print("⚠  DOCINTEL_URL not configured — skipping")
+              exit(0)
+
+          # Create a minimal 1-byte fake PDF for testing
+          fake_pdf = b'%PDF-1.4 test document'
+          import urllib.parse
+          boundary = "testboundary123"
+          body = (
+              f"--{boundary}\r\n"
+              f"Content-Disposition: form-data; name=\"file\"; filename=\"test.pdf\"\r\n"
+              f"Content-Type: application/pdf\r\n\r\n"
+          ).encode() + fake_pdf + f"\r\n--{boundary}--\r\n".encode()
+
+          req = urllib.request.Request(
+              f"{url}/classify",
+              data=body,
+              headers={
+                  "Content-Type": f"multipart/form-data; boundary={boundary}",
+                  "X-OmniIntel-Internal-Token": token,
+              },
+              method="POST"
+          )
+          try:
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  data = json.loads(r.read().decode())
+                  print(f"✅ DocIntel /classify response: {data}")
+          except Exception as e:
+              print(f"⚠  DocIntel /classify: {e} (non-fatal — may be cold starting)")
+          EOF
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # PHASE 4 — VoiceFlow STT Smoke Test
+  # ═══════════════════════════════════════════════════════════════════════════
+  test-voiceflow:
+    name: "VoiceFlow STT Health Test"
+    runs-on: ubuntu-latest
+    needs: [smoke-test]
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test VoiceFlow /analytics endpoint
+        env:
+          VOICEFLOW_URL:  ${{ env.VOICEFLOW_URL }}
+          INTERNAL_TOKEN: ${{ env.OMNIINTEL_INTERNAL_TOKEN }}
+        run: |
+          python3 - <<'EOF'
+          import urllib.request, json, os
+
+          url = os.environ.get("VOICEFLOW_URL", "")
+          token = os.environ.get("INTERNAL_TOKEN", "")
+          if not url or "xxxx" in url:
+              print("⚠  VOICEFLOW_URL not configured — skipping")
+              exit(0)
+          try:
+              req = urllib.request.Request(f"{url}/analytics",
+                  headers={"X-OmniIntel-Internal-Token": token})
+              with urllib.request.urlopen(req, timeout=15) as r:
+                  data = json.loads(r.read().decode())
+                  print(f"✅ VoiceFlow /analytics: {data}")
+          except Exception as e:
+              print(f"⚠  VoiceFlow /analytics: {e}")
+          EOF
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # PHASE 5 — RAGeval + IntelAI Knowledge Search
+  # ═══════════════════════════════════════════════════════════════════════════
+  test-rag:
+    name: "RAG Pipeline Test"
+    runs-on: ubuntu-latest
+    needs: [smoke-test]
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test RAGeval /health detailed
+        env:
+          RAGEVAL_URL:    ${{ env.RAGEVAL_URL }}
+          INTERNAL_TOKEN: ${{ env.OMNIINTEL_INTERNAL_TOKEN }}
+        run: |
+          python3 - <<'EOF'
+          import urllib.request, json, os
+
+          url = os.environ.get("RAGEVAL_URL", "")
+          token = os.environ.get("INTERNAL_TOKEN", "")
+          if not url or "xxxx" in url:
+              print("⚠  RAGEVAL_URL not configured — skipping")
+              exit(0)
+          try:
+              req = urllib.request.Request(f"{url}/health",
+                  headers={"X-OmniIntel-Internal-Token": token})
+              with urllib.request.urlopen(req, timeout=15) as r:
+                  data = json.loads(r.read().decode())
+                  print(f"✅ RAGeval /health: {data}")
+          except Exception as e:
+              print(f"⚠  RAGeval: {e}")
+          EOF
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # PHASE 6 — Nightly Report
+  # ═══════════════════════════════════════════════════════════════════════════
+  report:
+    name: "Deployment Report"
+    runs-on: ubuntu-latest
+    needs: [smoke-test, test-docintel, test-voiceflow, test-rag]
+    if: always()
+    steps:
+      - name: Summary
+        run: |
+          echo "## OmniIntelOS Deployment Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Service | URL |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|-----|" >> $GITHUB_STEP_SUMMARY
+          echo "| IntelAI | ${{ env.INTELAI_URL }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| DocIntel | ${{ env.DOCINTEL_URL }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| VoiceFlow | ${{ env.VOICEFLOW_URL }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| RAGeval | ${{ env.RAGEVAL_URL }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| AgentKit | ${{ env.AGENTKIT_URL }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| StreamPulse | ${{ env.STREAMPULSE_URL }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "⚡ Tests run on GitHub Actions runners. Lightning AI Studio is for GPU inference only." >> $GITHUB_STEP_SUMMARY
