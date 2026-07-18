@@ -4,7 +4,7 @@ name: Deploy to Render
 # restores auto-deploy: every push to main/master triggers a Render deploy via the API.
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, develop]
   workflow_dispatch: {}
 
 jobs:
