@@ -295,9 +295,9 @@ jobs:
           INTERNAL_TOKEN: ${{ secrets.OMNIINTEL_INTERNAL_TOKEN }}
         run: |
           if [ -f "tests/test_exhaustive_api.py" ]; then
-            python -m pytest tests/test_exhaustive_api.py
+            python -m pytest tests/test_exhaustive_api.py -o addopts=""
           elif [ -f "tests/test_e2e.py" ]; then
-            python -m pytest tests/test_e2e.py
+            python -m pytest tests/test_e2e.py -o addopts=""
           else
             echo "No integration tests found."
           fi
