@@ -19,4 +19,4 @@ jobs:
             -H "Content-Type: application/json" \
             -d '{"clearCache":"do_not_clear"}') || { echo "deploy trigger failed"; exit 1; }
           echo "Render responded HTTP $code"
-          python3 -c "import json;d=json.load(open('/tmp/resp.json'));print('deploy id:',d.get('id'))" || true
+          cat /tmp/resp.json
