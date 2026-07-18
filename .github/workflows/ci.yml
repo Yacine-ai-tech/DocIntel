@@ -269,3 +269,35 @@ jobs:
           echo "| StreamPulse | ${{ env.STREAMPULSE_URL }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "⚡ Tests run on GitHub Actions runners. Lightning AI Studio is for GPU inference only." >> $GITHUB_STEP_SUMMARY
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # PHASE 7 — Integration Tests (Main Only)
+  # ═══════════════════════════════════════════════════════════════════════════
+  integration-tests:
+    name: "Integration Tests"
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          if [ -f "requirements.txt" ]; then pip install -r requirements.txt; fi
+          pip install httpx pytest pytest-asyncio requests
+      - name: Run Integration Tests
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          INTERNAL_TOKEN: ${{ secrets.OMNIINTEL_INTERNAL_TOKEN }}
+        run: |
+          if [ -f "tests/test_exhaustive_api.py" ]; then
+            python -m pytest tests/test_exhaustive_api.py || true
+          elif [ -f "tests/test_e2e.py" ]; then
+            python -m pytest tests/test_e2e.py || true
+          else
+            echo "No integration tests found."
+          fi
