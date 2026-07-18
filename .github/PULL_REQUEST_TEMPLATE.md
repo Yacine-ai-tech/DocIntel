@@ -1,17 +1,14 @@
-### Summary
+## Description
+Briefly describe the changes in this PR.
 
-<!-- What does this PR change and why? -->
+## Type of change
+- [ ] Bug fix
+- [ ] New feature
+- [ ] Documentation update
 
-### Changes
+## Testing
+Please describe the tests you ran to verify your changes.
 
--
--
-
-### Testing
-
-- [ ] Unit tests pass
-- [ ] Manual verification done
-
-### Related issue
-
-Closes #
+## Dual-License Compliance
+- [ ] I understand this project is dual-licensed under the AGPL-3.0.
+- [ ] I agree that my contributions will be licensed under the AGPL-3.0.
