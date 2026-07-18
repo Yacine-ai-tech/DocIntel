@@ -1,3 +1,42 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ── 2026 Premium UX/UI Enhancements ───────────────────────── */
+/* 1. Haptic Visual Feedback (Scale down on click) */
+.btn:active, .sidebar-link:active, .sidebar-cta:active, .login-quick-btn:active {
+  transform: scale(0.96) !important;
+  transition: transform 0.1s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+.card.clickable:active, .kpi-card.clickable:active, .hero-stat.clickable:active {
+  transform: translateY(1px) scale(0.985) !important;
+  transition: transform 0.1s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+/* 2. Spring-based Micro-animations */
+.btn, .sidebar-link, .sidebar-cta, .card.clickable, .kpi-card.clickable, .hero-stat.clickable {
+  transition: all 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.1) !important;
+}
+
+/* 3. Accessibility & Focus Rings (2026 Standards) */
+*:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+.btn:focus-visible, .form-input:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--primary-soft), 0 0 0 1px var(--primary) inset !important;
+}
+
+/* 4. Ultra-Glassmorphism (Saturate + Heavy Blur) */
+.topbar, .drawer, .login-container {
+  backdrop-filter: blur(24px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
+}
+
+/* 5. Cross-browser Scrollbar Support */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-2) transparent;
+}
