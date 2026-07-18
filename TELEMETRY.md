@@ -1,15 +1,8 @@
-# Telemetry & Privacy Policy
+# Telemetry Policy
 
-This project strictly follows 2026 open-source privacy best practices. We believe in complete transparency regarding what data is collected and why.
+As per our 2026 open-source best practices, this repository adheres to the following telemetry standards:
 
-### 1. Repository Analytics (Scarf.sh)
-We embed a Scarf.sh tracking pixel in our `README.md` to monitor repository traffic and package downloads. 
-- **Privacy Guarantee:** Strict IP anonymization is enabled. No personal data is tracked.
-- **Opt-out:** You can freely remove the pixel link from the README in your own fork.
-
-### 2. Edge Infrastructure & API Security
-Our live demonstration APIs are protected by a global Edge Web Application Firewall (WAF).
-- **Purpose:** The WAF captures standard, anonymized HTTP metadata (such as routing headers) exclusively to enforce strict rate-limiting, prevent abuse, and block DDoS attacks against our inference servers.
-- **Privacy Guarantee:** We **NEVER** log, intercept, or transmit your private inputs, LLM prompts, or Personally Identifiable Information (PII). The edge layer is entirely blind to payload contents. 
-
-Your data remains your own.
+1. **Scarf.sh Tracking**: We use a `scarf.sh` tracking pixel on our READMEs to count views and downloads. Strict IP anonymization is enabled.
+2. **Cloudflare Telemetry**: Our Cloudflare Workers track API usage for security (rate-limiting) and anonymized routing analytics.
+3. **No PII Transmission**: No Personally Identifiable Information (PII) or user prompts are ever transmitted, logged, or sent to central servers.
+4. **Opt-Out**: Users can easily opt out by removing the Scarf pixel from their local forks of the README.
