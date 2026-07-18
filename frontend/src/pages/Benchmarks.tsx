@@ -74,41 +74,45 @@ export default function Benchmarks() {
 
       <Card title="Field accuracy by route" className="mt-5">
         <div className="h-[340px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={ROUTE_COMPARISON} margin={{ top: 18, right: 8, left: -18, bottom: 0 }} barGap={4}>
-              <CartesianGrid stroke="var(--grid-line)" vertical={false} />
-              <XAxis
-                dataKey="set"
-                tick={{ fill: "var(--text-muted)", fontSize: 11 }}
-                axisLine={{ stroke: "var(--border)" }}
-                tickLine={false}
-                interval={0}
-              />
-              <YAxis
-                unit="%"
-                domain={[0, 100]}
-                tick={{ fill: "var(--text-muted)", fontSize: 11 }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <Tooltip
-                cursor={{ fill: "rgba(255,255,255,.03)" }}
-                contentStyle={{
-                  background: "var(--surface-2)",
-                  border: "1px solid var(--border-strong)",
-                  borderRadius: 12,
-                  color: "var(--text)",
-                  fontSize: 12,
-                }}
-                formatter={(v: number) => [`${v}%`]}
-              />
-              {BARS.map((b) => (
-                <Bar key={b.key} dataKey={b.key} fill={b.color} radius={[6, 6, 0, 0]} maxBarSize={44} isAnimationActive={false}>
-                  <LabelList dataKey={b.key} position="top" formatter={(v: number) => `${v}%`} style={{ fill: "var(--text-2)", fontSize: 10 }} />
-                </Bar>
-              ))}
-            </BarChart>
-          </ResponsiveContainer>
+          {!Array.isArray(ROUTE_COMPARISON) || ROUTE_COMPARISON.length === 0 ? (
+             <div className="text-sm text-muted">No benchmark data.</div>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={ROUTE_COMPARISON} margin={{ top: 18, right: 8, left: -18, bottom: 0 }} barGap={4}>
+                <CartesianGrid stroke="var(--grid-line)" vertical={false} />
+                <XAxis
+                  dataKey="set"
+                  tick={{ fill: "var(--text-muted)", fontSize: 11 }}
+                  axisLine={{ stroke: "var(--border)" }}
+                  tickLine={false}
+                  interval={0}
+                />
+                <YAxis
+                  unit="%"
+                  domain={[0, 100]}
+                  tick={{ fill: "var(--text-muted)", fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <Tooltip
+                  cursor={{ fill: "rgba(255,255,255,.03)" }}
+                  contentStyle={{
+                    background: "var(--surface-2)",
+                    border: "1px solid var(--border-strong)",
+                    borderRadius: 12,
+                    color: "var(--text)",
+                    fontSize: 12,
+                  }}
+                  formatter={(v: number) => [`${v}%`]}
+                />
+                {BARS.map((b) => (
+                  <Bar key={b.key} dataKey={b.key} fill={b.color} radius={[6, 6, 0, 0]} maxBarSize={44} isAnimationActive={false}>
+                    <LabelList dataKey={b.key} position="top" formatter={(v: number) => `${v}%`} style={{ fill: "var(--text-2)", fontSize: 10 }} />
+                  </Bar>
+                ))}
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </div>
         <p className="mt-3 text-xs leading-5 text-muted">
           Receipts are the central finding: premium vision reads crumpled thermal-paper photos at 92.5%
