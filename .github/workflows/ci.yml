@@ -2,9 +2,9 @@ name: OmniIntelOS — Render Deploy & E2E Smoke Tests
 
 on:
   push:
-    branches: ["main", "develop"]
+    branches: ["main", "master", "develop"]
   pull_request:
-    branches: ["main", "develop"]
+    branches: ["main", "master", "develop"]
   schedule:
     - cron: "0 3 * * *"   # Nightly smoke test at 03:00 UTC (after wake window starts)
   workflow_dispatch:        # Allow manual trigger
