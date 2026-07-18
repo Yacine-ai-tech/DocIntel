@@ -19,5 +19,10 @@ export default defineConfig({
   },
   build: {
     chunkSizeWarningLimit: 900,
+    rollupOptions: {
+      output: {
+        manualChunks: { charts: ["recharts"], motion: ["framer-motion"] },
+      },
+    },
   },
 });
