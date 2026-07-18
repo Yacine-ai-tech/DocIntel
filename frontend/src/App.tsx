@@ -1,6 +1,6 @@
-import { Code2, lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
-import { Camera, FileScan, Image, Layers, BarChart3, Cpu, History, Workflow, GitCompareArrows, FolderOpen, Settings2 } from "lucide-react";
+import { Camera, FileScan, Image, Layers, BarChart3, Cpu, History, Workflow, GitCompareArrows, FolderOpen, Settings2 , Code2 } from "lucide-react";
 import { AppShell } from "./kit/AppShell";
 import { WakingBackend } from "./kit/misc";
 import { Skeleton } from "./kit/primitives";
