@@ -90,6 +90,13 @@ try:
 except RuntimeError:
     log.warning("demo/ directory not found — /demo will not be served")
 
+try:
+    _assets_dir = _os.path.join(_os.path.dirname(__file__), "frontend", "dist", "assets")
+    if _os.path.exists(_assets_dir):
+        app.mount("/assets", StaticFiles(directory=_assets_dir), name="assets")
+except Exception as e:
+    log.warning("assets mount failed: %s", e)
+
 batch = BatchProcessor(max_concurrency=settings.BATCH_MAX_CONCURRENCY)
 # Route C text→JSON cleanup uses the cheaper model by default (cost-optimized).
 extractor = LLMExtractor(model=settings.LLM_CLEANUP)
