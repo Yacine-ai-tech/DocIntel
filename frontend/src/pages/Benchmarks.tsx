@@ -1,6 +1,5 @@
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList,
-} from "recharts";
+import * as Recharts from "recharts";
+const { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList, } = Recharts;
 import { PageHeader } from "../kit/AppShell";
 import { Card, StatTile } from "../kit/primitives";
 import { FileCheck2, Globe2, Landmark, ScanLine } from "lucide-react";
