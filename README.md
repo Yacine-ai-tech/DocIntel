@@ -6,7 +6,7 @@
 [![CI](https://github.com/Yacine-ai-tech/DocIntel/actions/workflows/ci.yml/badge.svg)](https://github.com/Yacine-ai-tech/DocIntel/actions/workflows/ci.yml) [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 
 **Vision-first document AI. Drop a PDF or image, get structured JSON in under 2 seconds. Local or cloud.**
-> 🔗 **Live demo:** https://docintel.ysiddo-ai-projects.app/demo  ·  drag-drop a PDF/image.
+> 🔗 **Live dashboard:** https://docintel.ysiddo-ai-projects.app/  ·  drag-drop a PDF/image.
 > On-demand backend (first request ~30–60 s to wake).
 > Self-hosting: see [SELF_HOSTING.md](SELF_HOSTING.md). Route B local vision spins up a GPU on demand (~4–5 min cold).
 
@@ -22,7 +22,7 @@
 - **`/classify-image` endpoint**: vision-first object classification for auction/inventory aggregation
 - **Batch at scale**: bounded-concurrency async jobs that process hundreds/thousands of files with per-file error isolation
 - **`/process`**: one-shot upload → auto-classify → multi-page extract → JSON
-- **Drag-and-drop demo** at `/demo`
+- **Full web dashboard** at `/`
 
 ## Quick Start
 
@@ -33,7 +33,7 @@ cp .env.example .env  # fill in API keys
 uvicorn api:app --port 8001
 ```
 
-Open http://localhost:8001/demo
+Open http://localhost:8001/
 
 ## Endpoints
 
@@ -93,7 +93,7 @@ multi-page and handwriting) is reproducible via `python eval/build_corpus.py` an
 
 ## License
 
-MIT
+AGPL-3.0
 
 ## ⚖️ License & Enterprise Use (Dual-License)
 

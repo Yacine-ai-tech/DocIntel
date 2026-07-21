@@ -39,17 +39,33 @@ app = FastAPI(title="DocIntel", version="0.1.0",
 import threading
 import requests
 import os
-import logging
+import time
+import uuid
 
 def _send_telemetry():
     if os.environ.get("TELEMETRY_OPT_OUT", "").lower() in ("1", "true", "yes"):
         return
+    
+    lock_file = "/tmp/.ysiddo_telemetry.lock"
     try:
-        logging.info("📡 Anonymous usage telemetry is ENABLED. This helps us understand project usage.")
-        logging.info("📡 To disable this, set the environment variable TELEMETRY_OPT_OUT=true.")
+        if os.path.exists(lock_file):
+            if time.time() - os.path.getmtime(lock_file) < 21600:
+                return
+        with open(lock_file, "w") as f:
+            f.write(str(time.time()))
+    except Exception:
+        pass
+
+    try:
+        if "log" in globals():
+            globals()["log"].info("📡 Anonymous telemetry ENABLED (set TELEMETRY_OPT_OUT=true to disable).")
+        else:
+            import logging
+            logging.info("📡 Anonymous telemetry ENABLED (set TELEMETRY_OPT_OUT=true to disable).")
+            
         requests.post(
             "https://gateway.ysiddo-ai-projects.app/telemetry", 
-            json={"service": "DocIntel", "event": "startup"},
+            json={"service": "DocIntel", "event": "startup", "instance_id": str(uuid.getnode())[:8]},
             timeout=2
         )
     except Exception:
@@ -85,10 +101,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-try:
-    app.mount("/demo", StaticFiles(directory="demo", html=True), name="demo")
-except RuntimeError:
-    log.warning("demo/ directory not found — /demo will not be served")
+
 
 try:
     _assets_dir = _os.path.join(_os.path.dirname(__file__), "frontend", "dist", "assets")
@@ -255,8 +268,7 @@ async def dashboard():
     spa = os.path.join(root, "frontend", "dist", "index.html")
     if os.path.exists(spa):
         return FileResponse(spa)
-    path = os.path.join(root, "demo", "index.html")
-    return FileResponse(path) if os.path.exists(path) else {"service": "docintel", "docs": "/docs"}
+    return {"service": "docintel", "docs": "/docs"}
 
 
 @app.get("/health")
