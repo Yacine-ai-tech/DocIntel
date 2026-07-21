@@ -17,3 +17,7 @@ services:
         sync: false
       - key: CORS_ALLOWED_ORIGINS
         sync: false
+      - key: OMNIINTEL_INTERNAL_TOKEN  # REQUIRED: must match gateway
+        value: omniintel-prod-internal-2026
+      - key: REQUIRE_INTERNAL_TOKEN
+        value: "true"
