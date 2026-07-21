@@ -1,4 +1,4 @@
-name: OmniIntelOS — Render Deploy & E2E Smoke Tests
+name: ysiddo-ai-projects_vol1 — Render Deploy & E2E Smoke Tests
 
 on:
   push:
@@ -257,7 +257,7 @@ jobs:
     steps:
       - name: Summary
         run: |
-          echo "## OmniIntelOS Deployment Report" >> $GITHUB_STEP_SUMMARY
+          echo "## ysiddo-ai-projects_vol1 Deployment Report" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Service | URL |" >> $GITHUB_STEP_SUMMARY
           echo "|---------|-----|" >> $GITHUB_STEP_SUMMARY
