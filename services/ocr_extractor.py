@@ -90,13 +90,13 @@ def pdf_page_count(pdf_bytes: bytes) -> int:
             with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
                 return len(pdf.pages)
         except Exception as e:
-            log.error("pdf_page_count (pdfplumber) failed: %s", e)
+            log.warning("pdf_page_count (pdfplumber) failed (possibly corrupted PDF): %s", e)
     if _PDF2IMAGE:
         try:
             from pdf2image.pdf2image import pdfinfo_from_bytes
             return int(pdfinfo_from_bytes(pdf_bytes).get("Pages", 0))
         except Exception as e:
-            log.error("pdf_page_count (pdfinfo) failed: %s", e)
+            log.warning("pdf_page_count (pdfinfo) failed (possibly corrupted PDF): %s", e)
     return 0
 
 
@@ -215,7 +215,7 @@ def pdf_to_pngs(pdf_bytes: bytes, dpi: int = 150, max_pages: int = 20) -> List[b
                     pass
         return out
     except Exception as e:
-        log.error("PDF→PNG render failed: %s", e)
+        log.warning("PDF→PNG render failed (possibly corrupted PDF): %s", e)
         return []
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -243,7 +243,7 @@ def extract_text_from_pdf(pdf_bytes: bytes, max_pages: int = 50, ocr_dpi: int = 
                 for page in pdf.pages[:max_pages]:
                     parts.append(page.extract_text() or "")
         except Exception as e:
-            log.error("extract_text_from_pdf (pdfplumber) failed: %s", e)
+            log.warning("extract_text_from_pdf (pdfplumber) failed (possibly corrupted PDF): %s", e)
     native = "\n\f\n".join(parts).strip()
     if native:
         return native
