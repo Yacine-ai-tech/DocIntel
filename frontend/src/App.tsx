@@ -1,3 +1,5 @@
+import BenchmarkPage from './pages/BenchmarkPage';
+import ApiDocsPage from './pages/ApiDocsPage';
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Camera, FileScan, Image, Layers, BarChart3, Cpu, History, Workflow, GitCompareArrows, FolderOpen, Settings2 , Code2 } from "lucide-react";
@@ -88,12 +90,16 @@ export default function App() {
                   <Route path="/settings" element={<Settings />} />
                   <Route path="/api-docs" element={<ApiDocs />} />
                   <Route path="*" element={<Workspace />} />
-                </Routes>
+                      <Route path="/benchmark" element={<BenchmarkPage />} />
+      <Route path="/api-docs" element={<ApiDocsPage />} />
+</Routes>
               </Suspense>
             )}
           </AppShell>
         } />
-      </Routes>
+            <Route path="/benchmark" element={<BenchmarkPage />} />
+      <Route path="/api-docs" element={<ApiDocsPage />} />
+</Routes>
     </BrowserRouter>
   );
 }
