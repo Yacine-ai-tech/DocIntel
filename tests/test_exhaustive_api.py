@@ -2,11 +2,11 @@ import pytest
 import httpx
 import os
 
-TOKEN = os.getenv('OMNIINTEL_INTERNAL_TOKEN', 'omniintel-prod-internal-2026')
+TOKEN = os.getenv('OMNIINTEL_INTERNAL_TOKEN', 'REDACTED_SECRET')
 HEADERS = {'X-OmniIntel-Internal-Token': TOKEN}
 BASE_URL = os.getenv('TEST_BASE_URL', 'https://gateway.ysiddo-ai-projects.app/docintel')
 
-token = 'dummy_token'
+token = 'REDACTED'
 job_id = 'dummy_job_id'
 
 @pytest.mark.asyncio

@@ -15,7 +15,7 @@ const AUTH_URL = process.env.INTELAI_API_URL   || '/';
 
 async function getAuthToken(request: any): Promise<string> {
   const resp = await request.post(`${AUTH_URL}/api/login`, {
-    data: { username: 'admin', password: 'fLNtwDH2VaQLbO' }
+    data: { username: 'admin', password = 'REDACTED' }
   }).catch(() => null);
   if (resp && resp.ok()) {
     const body = await resp.json();
@@ -300,9 +300,7 @@ test.describe('Phase 4.3 — Deep Interactivity', () => {
 
   test('Multi-stage complex pipeline orchestration mock', async ({ page }) => {
     // Mock the pipeline execution API
-    await page.route('**/api/pipelines/execute', async route => {
-      await route.fulfill({ json: { status: 'success', stages_completed: 3 }, status: 200 });
-    });
+    
 
     await loginUI(page);
     await page.goto(`${BASE_URL}/pipelines`);
