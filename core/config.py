@@ -52,3 +52,24 @@ class Settings:
 
 
 settings = Settings()
+
+
+# --- OPENAI TO GEMINI FALLBACK LOGIC ---
+def _apply_gemini_fallback():
+    openai_key = getattr(settings, "OPENAI_API_KEY", "") or os.getenv("OPENAI_API_KEY", "")
+    gemini_key = getattr(settings, "GEMINI_API_KEY", "") or os.getenv("GEMINI_API_KEY", "")
+    
+    if not openai_key and gemini_key:
+        def fallback(model_str):
+            if model_str and ("openai" in model_str.lower() or "gpt-" in model_str.lower()):
+                return "gemini/gemini-1.5-flash"
+            return model_str
+            
+        for attr in dir(settings):
+            if attr.startswith("LLM_") and isinstance(getattr(settings, attr), str):
+                setattr(settings, attr, fallback(getattr(settings, attr)))
+        
+        if hasattr(settings, "JUDGE_MODELS") and isinstance(settings.JUDGE_MODELS, list):
+            settings.JUDGE_MODELS = [fallback(m) for m in settings.JUDGE_MODELS]
+
+_apply_gemini_fallback()
