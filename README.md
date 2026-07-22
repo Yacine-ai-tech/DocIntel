@@ -12,7 +12,7 @@
 
 ## What It Does
 
-- **3 extraction routes**: Claude Sonnet 4.6 Vision (premium), **Ollama local vision via Lightning Studio / Hugging Face ZeroGPU** (private/`$0`-per-page — Qwen2.5-VL is the validated default; Llama 3.2 Vision also runs on Ollama 0.11.4), Tesseract+LLM (fallback)
+- **3 extraction routes**: Claude Sonnet 4.6 Vision (premium), **Ollama local vision** (private/`$0`-per-page — `.env` default: `llama3.2-vision`; production-validated: `qwen2.5-VL:7b` on NVIDIA T4 GPU, see `eval/BENCHMARK.md`), Tesseract+LLM (fallback)
 - **Multi-currency & multi-locale**: amounts in US/EU/spaced/Swiss formats and 45+ currencies (USD, EUR, GBP, JPY, INR, CNY, XOF/FCFA, …) are normalized to ISO 4217 + float; dates to ISO 8601 — a deterministic layer (`services/normalize.py`) on top of the LLM. OCR runs `eng+fra+deu+nld+spa+ita`.
 - **Inputs**: PDF (native or scanned), PNG, JPEG — auto-detected. PDFs are rendered per page; images flow straight through.
 - **Multi-page & large documents**: every page is processed and fields aggregated across pages (a total on a later page, multi-page contracts). **100+ page PDFs** are handled via map-reduce — pages are split into chunks, extracted concurrently, and merged (`MAX_PDF_PAGES` default 200). The OCR route concatenates/chunks full-document text the same way.
@@ -86,10 +86,29 @@ returns invoice 0.98–0.99. Reproduce with `bash eval/fetch_real_invoices.sh` t
 
 ## Benchmark
 
-A 500+ document, multi-type, multilingual benchmark (receipts, invoices, forms; including
+A **550-document**, multi-type, multilingual benchmark (receipts, invoices, forms; including
 multi-page and handwriting) is reproducible via `python eval/build_corpus.py` and scored with
-`python eval/run_benchmark.py`. See [eval/BENCHMARK.md](eval/BENCHMARK.md) for results
-(accuracy on the ground-truth subset + throughput/robustness at scale).
+`python eval/run_benchmark.py`. See [eval/BENCHMARK.md](eval/BENCHMARK.md) for full results.
+
+| Route | Model | Test set | Accuracy |
+|-------|-------|----------|----------|
+| A — vision_premium | Claude Sonnet 4.6 Vision | multilingual invoices (multi-page) | **100%** |
+| A — vision_premium | Claude Sonnet 4.6 Vision | phone-photo receipts (CORD, 40 docs) | **92.5%** |
+| A — vision_premium | Claude Sonnet 4.6 Vision | SROIE world-standard invoices | **95%** |
+| B — vision_local | Ollama qwen2.5-VL 7B (NVIDIA T4) | CORD phone-photo receipts (100 docs) | **77%** |
+| B — vision_local | Ollama qwen2.5-VL 7B (NVIDIA T4) | French + FCFA (XOF) sample | **100%** |
+| C — ocr_fallback | Tesseract + Claude Haiku | clean invoices | **100%** |
+| C — ocr_fallback | Tesseract + Claude Haiku | CORD phone-photo receipts | **28.5%** |
+
+**Robustness:** All 550 documents processed — 550/550 success rate with per-file error isolation.
+
+## Tests
+
+62 test functions across smoke, API, extraction, batch, and benchmark scripts:
+
+```bash
+pytest tests/ -q
+```
 
 ## License
 
