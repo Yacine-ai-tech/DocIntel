@@ -41,30 +41,30 @@ const ENDPOINTS = [
 ];
 
 const SNIPPETS = {
-  curl: (ep) =>
+  curl: (ep: any) =>
     ep.body && !ep.body.startsWith("multipart")
       ? `curl -X ${ep.method} "${BASE_URL}${ep.path}" \\\n  -H "Content-Type: application/json" \\\n  -d '${ep.body}'`
       : ep.body
       ? `curl -X POST "${BASE_URL}${ep.path}" \\\n  -F "file=@document.pdf"`
       : `curl "${BASE_URL}${ep.path}"`,
-  python: (ep) =>
+  python: (ep: any) =>
     ep.body && !ep.body.startsWith("multipart")
       ? `import requests\n\nresp = requests.${ep.method.toLowerCase()}(\n  "${BASE_URL}${ep.path}",\n  json=...  # see request body\n)\nprint(resp.json())`
       : ep.body
       ? `import requests\n\nwith open("file.pdf","rb") as f:\n  resp = requests.post("${BASE_URL}${ep.path}",files={"file":f})\nprint(resp.json())`
       : `import requests\n\nresp = requests.get("${BASE_URL}${ep.path}")\nprint(resp.json())`,
-  node: (ep) =>
+  node: (ep: any) =>
     ep.body && !ep.body.startsWith("multipart")
       ? `const res = await fetch("${BASE_URL}${ep.path}", {\n  method: "${ep.method}",\n  headers: { "Content-Type": "application/json" },\n  body: JSON.stringify(/* see body */)\n});\nconst data = await res.json();`
       : `const res = await fetch("${BASE_URL}${ep.path}");\nconst data = await res.json();\nconsole.log(data);`,
 };
 
-function CopyBtn({ text }) {
+function CopyBtn({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   return <button onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500); }} style={{ background:"none",border:"none",cursor:"pointer",color:copied?"#4ade80":"#94a3b8",padding:"4px" }}>{copied ? <Check size={14} /> : <Copy size={14} />}</button>;
 }
 
-function CodeBlock({ code }) {
+function CodeBlock({ code }: { code: string }) {
   return <div style={{ position:"relative",background:"rgba(0,0,0,0.4)",borderRadius:8,padding:"14px 40px 14px 14px",fontFamily:"monospace",fontSize:"0.78rem",color:"#e2e8f0",whiteSpace:"pre-wrap",wordBreak:"break-all",lineHeight:1.6 }}>
     <div style={{ position:"absolute",top:8,right:8 }}><CopyBtn text={code} /></div>
     {code}
@@ -121,7 +121,7 @@ export default function ApiDocs() {
               <span style={{ fontSize:"0.75rem",color:"#64748b",marginRight:4 }}>Language:</span>
               {["curl","python","node"].map(l => <button key={l} onClick={()=>setLang(l)} style={{ padding:"4px 12px",borderRadius:6,border:"1px solid",borderColor:lang===l?"#7c3aed":"rgba(255,255,255,0.1)",background:lang===l?"rgba(124,58,237,0.2)":"transparent",color:lang===l?"#c4b5fd":"#94a3b8",cursor:"pointer",fontSize:"0.78rem",fontWeight:600 }}>{l}</button>)}
             </div>
-            <CodeBlock code={SNIPPETS[lang](ep)} />
+            <CodeBlock code={(SNIPPETS as any)[lang](ep)} />
           </div>
           <div><div style={{ fontSize:"0.75rem",color:"#64748b",marginBottom:6,display:"flex",alignItems:"center",gap:6 }}><Check size={13} color="#4ade80" /> Sample response</div><CodeBlock code={ep.response} /></div>
         </div>
