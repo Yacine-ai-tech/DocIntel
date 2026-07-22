@@ -5,7 +5,7 @@ from api.server import app
 import os
 
 client = TestClient(app)
-HEADERS = {"X-OmniIntel-Internal-Token": os.getenv("OMNIINTEL_INTERNAL_TOKEN", "omniintel-prod-internal-2026")}
+HEADERS = {"X-OmniIntel-Internal-Token": os.getenv("OMNIINTEL_INTERNAL_TOKEN", "REDACTED_SECRET")}
 
 @pytest.mark.asyncio
 async def test_e2e_docintel_upload_and_index():
