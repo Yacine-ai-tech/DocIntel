@@ -83,6 +83,8 @@ def is_pdf(data: bytes) -> bool:
 
 def pdf_page_count(pdf_bytes: bytes) -> int:
     """Number of pages in a PDF (0 if it can't be read)."""
+    if not is_pdf(pdf_bytes):
+        return 0
     if _PDFPLUMBER:
         try:
             with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
@@ -176,6 +178,8 @@ def pdf_to_pngs(pdf_bytes: bytes, dpi: int = 150, max_pages: int = 20) -> List[b
     PDFs (> LIGHTNING_RENDER_PAGE_THRESHOLD pages) are offloaded to the Lightning backend when
     ``LIGHTNING_RENDER_URL`` is set. Returns [] if rendering is unavailable.
     """
+    if not is_pdf(pdf_bytes):
+        return []
     remote = _remote_render(pdf_bytes, dpi=dpi, max_pages=max_pages)
     if remote is not None:
         return remote
@@ -228,6 +232,10 @@ def extract_text_from_pdf(pdf_bytes: bytes, max_pages: int = 50, ocr_dpi: int = 
     pages; for scanned PDFs with no embedded text it falls back to rendering each page and
     running Tesseract. Pages are separated by a form-feed marker so the LLM sees boundaries.
     """
+    if not is_pdf(pdf_bytes):
+        log.warning("extract_text_from_pdf called with non-PDF bytes")
+        return extract_text_from_image(pdf_bytes) if _TESSERACT else ""
+
     parts: List[str] = []
     if _PDFPLUMBER:
         try:
