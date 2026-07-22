@@ -90,20 +90,16 @@ export default function App() {
                   <Route path="/models" element={<Models />} />
                   <Route path="/activity" element={<Activity />} />
                   <Route path="/settings" element={<Settings />} />
-                  <Route path="/api-docs" element={<ApiDocs />} />
+                  <Route path="/api-docs" element={<ApiDocsPage />} />
+                  <Route path="/benchmark" element={<BenchmarkPage />} />
+                  <Route path="/user-guide" element={<UserGuidePage />} />
                   <Route path="*" element={<Workspace />} />
-                      <Route path="/benchmark" element={<BenchmarkPage />} />
-      <Route path="/api-docs" element={<ApiDocsPage />} />
-      <Route path="/user-guide" element={<UserGuidePage />} />
-</Routes>
+                </Routes>
               </Suspense>
             )}
           </AppShell>
         } />
-            <Route path="/benchmark" element={<BenchmarkPage />} />
-      <Route path="/api-docs" element={<ApiDocsPage />} />
-      <Route path="/user-guide" element={<UserGuidePage />} />
-</Routes>
+      </Routes>
     </BrowserRouter>
   );
 }

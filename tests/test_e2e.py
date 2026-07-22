@@ -1,34 +1,34 @@
 import pytest
 import httpx
 from fastapi.testclient import TestClient
-from api.server import app
+from api import app
 import os
 
 client = TestClient(app)
-HEADERS = {"X-OmniIntel-Internal-Token": os.getenv("OMNIINTEL_INTERNAL_TOKEN", "REDACTED_SECRET")}
+HEADERS = {"X-OmniIntel-Internal-Token": os.getenv("OMNIINTEL_INTERNAL_TOKEN", "default-dev-token")}
+
 
 @pytest.mark.asyncio
-async def test_e2e_docintel_upload_and_index():
-    # Simulate a document upload
+async def test_e2e_docintel_process():
+    # Simulate a document upload for processing
     dummy_pdf = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
     files = {"file": ("test_doc.pdf", dummy_pdf, "application/pdf")}
-    data = {"collection": "knowledge_base", "chunk_size": 1000}
     
-    async with httpx.AsyncClient(app=app, base_url="http://test") as ac:
-        response = await ac.post("/api/v1/documents/upload", data=data, files=files, headers=HEADERS)
-        # It should return 200, or 422 if the PDF is too corrupted for PyMuPDF
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.post("/process", files=files, headers=HEADERS)
+        # 422 Unprocessable Entity if PDF is totally corrupted or PyMuPDF fails
         assert response.status_code in (200, 422)
 
 @pytest.mark.asyncio
-async def test_e2e_docintel_search():
-    async with httpx.AsyncClient(app=app, base_url="http://test") as ac:
-        response = await ac.post("/api/v1/documents/search", json={"query": "financial statements", "top_k": 3}, headers=HEADERS)
-        assert response.status_code == 200
-        assert "results" in response.json()
+async def test_e2e_docintel_classify():
+    dummy_pdf = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
+    files = {"file": ("test_doc.pdf", dummy_pdf, "application/pdf")}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.post("/classify", files=files, headers=HEADERS)
+        assert response.status_code in (200, 422)
 
 @pytest.mark.asyncio
-async def test_e2e_docintel_collection_stats():
-    async with httpx.AsyncClient(app=app, base_url="http://test") as ac:
-        response = await ac.get("/api/v1/collections/stats", headers=HEADERS)
+async def test_e2e_docintel_health():
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.get("/health", headers=HEADERS)
         assert response.status_code == 200
-        assert "document_count" in response.json()

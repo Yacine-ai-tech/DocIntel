@@ -16,13 +16,17 @@
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js').catch(() => {});
+          navigator.serviceWorker.getRegistrations().then(function(registrations) {
+          for(let registration of registrations) {
+            registration.unregister();
+          }
+        });
         });
       }
     </script>
 
-    <script type="module" crossorigin src="/assets/index-D5avxpOV.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-CNvpGLul.css">
+    <script type="module" crossorigin src="/assets/index-VGQLI7RF.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-e_07VbEF.css">
   </head>
   <body>
     <div id="root"></div>
