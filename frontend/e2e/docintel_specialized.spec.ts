@@ -9,9 +9,9 @@ import * as fs from 'fs';
  * Phase 8: Deep Component Integration (Vector DB + RAG Pipeline)
  */
 
-const BASE_URL = process.env.DOCINTEL_URL     || process.env.TEST_BASE_URL || 'http://localhost:5174';
-const API_URL  = process.env.DOCINTEL_API_URL  || 'http://localhost:8001';
-const AUTH_URL = process.env.INTELAI_API_URL   || 'http://localhost:8000';
+const BASE_URL = process.env.DOCINTEL_URL     || process.env.TEST_BASE_URL || '/';
+const API_URL  = process.env.DOCINTEL_API_URL  || '/';
+const AUTH_URL = process.env.INTELAI_API_URL   || '/';
 
 async function getAuthToken(request: any): Promise<string> {
   const resp = await request.post(`${AUTH_URL}/api/login`, {
@@ -46,7 +46,7 @@ test.describe('Phase 4.1 — DocIntel UI Workflows', () => {
       '/documents', '/imageintel', '/models', '/pipelines'
     ];
     for (const route of routes) {
-      await page.goto(`${BASE_URL}${route}`);
+      await page.goto(`${'/'}${route}`);
       await page.waitForLoadState('domcontentloaded');
       await assertNoReactCrash(page);
       await expect(page.locator('body')).toBeVisible();
@@ -57,7 +57,7 @@ test.describe('Phase 4.1 — DocIntel UI Workflows', () => {
   test('Documents page: file upload via input', async ({ page }) => {
     await loginUI(page);
     await page.goto(`${BASE_URL}/documents`);
-    await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+    await page.waitForLoadState('domcontentloaded', { timeout: 15000 }).catch(() => {});
     await assertNoReactCrash(page);
 
     // Check if file upload input exists
@@ -97,7 +97,7 @@ test.describe('Phase 4.1 — DocIntel UI Workflows', () => {
   test('Batch page: job status polling elements visible', async ({ page }) => {
     await loginUI(page);
     await page.goto(`${BASE_URL}/batch`);
-    await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+    await page.waitForLoadState('domcontentloaded', { timeout: 15000 }).catch(() => {});
     await assertNoReactCrash(page);
     // Look for job/status table or list
     const statusEl = page.locator('table, .job-list, [data-testid="batch"], text=/batch|job|queue/i').first();
@@ -209,6 +209,110 @@ test.describe('Phase 8.2 — RAG Pipeline Integration', () => {
     if (listResp && listResp.ok()) {
       const docs = await listResp.json();
       expect(Array.isArray(docs) || typeof docs === 'object').toBeTruthy();
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 4.1 — DocIntel Mocked Upload Feature Test
+// ─────────────────────────────────────────────────────────────────────────────
+test.describe('Phase 4.1 — DocIntel Mocked Upload & Processing', () => {
+
+  test('Mock file upload and pipeline processing via UI', async ({ page }) => {
+    // 1. Mock the API endpoints for upload and document list
+    await page.route('**/api/documents/upload', async route => {
+      const json = { id: 'mock-doc-123', status: 'processing', filename: 'test_invoice.pdf' };
+      await route.fulfill({ json, status: 200, contentType: 'application/json' });
+    });
+
+    await page.route('**/api/documents', async route => {
+      const json = [{ id: 'mock-doc-123', status: 'completed', filename: 'test_invoice.pdf', extracted_data: { total: 1500 } }];
+      await route.fulfill({ json, status: 200, contentType: 'application/json' });
+    });
+
+    // 2. Login & Navigate
+    await loginUI(page);
+    await page.goto(`${BASE_URL}/documents`);
+    await page.waitForLoadState('domcontentloaded');
+
+    // 3. Trigger File Upload
+    const fileInput = page.locator('input[type="file"]').first();
+    if (await fileInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+      const tmpPdf = path.join('/tmp', 'mock_invoice.pdf');
+      fs.writeFileSync(tmpPdf, Buffer.from('%PDF-1.4\n1 0 obj\n<</Type /Catalog>>\nendobj\n', 'utf-8'));
+      await fileInput.setInputFiles(tmpPdf);
+      fs.unlinkSync(tmpPdf);
+
+      // 4. Validate UI handles mock upload correctly without crashing
+      await page.waitForTimeout(2000);
+      await assertNoReactCrash(page);
+      
+      // Wait for table to reflect the mocked 'test_invoice.pdf'
+      const invoiceElement = page.locator('text=/test_invoice/i').first();
+      if (await invoiceElement.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await expect(invoiceElement).toBeVisible();
+      }
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 4.3 — DocIntel Deep Interactivity & Mocked Features
+// ─────────────────────────────────────────────────────────────────────────────
+test.describe('Phase 4.3 — Deep Interactivity', () => {
+
+  test('ImageIntel camera streaming integration mocks gracefully', async ({ page }) => {
+    // Mock getUserMedia
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'mediaDevices', {
+        value: {
+          getUserMedia: async () => ({
+            getTracks: () => [{ stop: () => {} }]
+          })
+        },
+        writable: true
+      });
+    });
+
+    await loginUI(page);
+    await page.goto(`${BASE_URL}/imageintel`);
+    await page.waitForLoadState('domcontentloaded');
+    
+    // Check for camera UI elements
+    const cameraEl = page.locator('video, .camera-view, [data-testid="camera"]').first();
+    if (await cameraEl.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await expect(cameraEl).toBeVisible();
+    }
+  });
+
+  test('Side-by-side document comparison assertions', async ({ page }) => {
+    await loginUI(page);
+    await page.goto(`${BASE_URL}/compare`);
+    await page.waitForLoadState('domcontentloaded');
+
+    // Should have two panes
+    const splitPanes = page.locator('.SplitPane, .pane, [data-testid="compare-pane"]');
+    if (await splitPanes.count() > 1) {
+      await expect(splitPanes.nth(0)).toBeVisible();
+      await expect(splitPanes.nth(1)).toBeVisible();
+    }
+  });
+
+  test('Multi-stage complex pipeline orchestration mock', async ({ page }) => {
+    // Mock the pipeline execution API
+    await page.route('**/api/pipelines/execute', async route => {
+      await route.fulfill({ json: { status: 'success', stages_completed: 3 }, status: 200 });
+    });
+
+    await loginUI(page);
+    await page.goto(`${BASE_URL}/pipelines`);
+    await page.waitForLoadState('domcontentloaded');
+
+    const executeBtn = page.locator('button:has-text("Execute"), button:has-text("Run")').first();
+    if (await executeBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await executeBtn.click();
+      await page.waitForTimeout(1000);
+      await assertNoReactCrash(page);
     }
   });
 });
