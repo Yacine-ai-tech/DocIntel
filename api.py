@@ -63,6 +63,14 @@ def _send_telemetry():
             import logging
             logging.info("📡 Anonymous telemetry ENABLED (set TELEMETRY_OPT_OUT=true to disable).")
             
+        # WARM UP ML MODELS
+        try:
+            from services.surya_extractor import SuryaExtractor
+            ex = SuryaExtractor()
+            ex._ensure_models()
+        except Exception as e:
+            pass
+        
         requests.post(
             "https://gateway.ysiddo-ai-projects.app/telemetry", 
             json={"service": "DocIntel", "event": "startup", "instance_id": str(uuid.getnode())[:8]},
