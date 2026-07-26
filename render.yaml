@@ -20,4 +20,4 @@ services:
       - key: OMNIINTEL_INTERNAL_TOKEN  # REQUIRED: must match gateway
         value: REDACTED_SECRET
       - key: REQUIRE_INTERNAL_TOKEN
-        value: "true"
+        value: "false"
