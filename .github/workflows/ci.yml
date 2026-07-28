@@ -14,6 +14,7 @@ env:
   NODE_VERSION:   "20"
   DOCINTEL_URL:    ${{ secrets.DOCINTEL_URL   || '' }}
   OMNIINTEL_INTERNAL_TOKEN: ${{ secrets.OMNIINTEL_INTERNAL_TOKEN  }}
+  TELEMETRY_OPT_OUT: "false"
 
 jobs:
 
