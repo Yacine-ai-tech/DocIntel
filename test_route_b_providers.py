@@ -99,7 +99,7 @@ class RouteBTester:
                     headers=headers
                 )
                 
-                if response.status_code in [200, 422]:  # 422 might be expected without file
+                if response.status_code in [200, 422]:  # 422 might be expected without file upload
                     route_results["route_a"] = {
                         "status": response.status_code,
                         "success": True,
@@ -152,6 +152,8 @@ class RouteBTester:
             }
             print(f"    ✗ Route C test failed: {e}")
         
+        # Store route results in main results
+        self.results.update(route_results)
         return route_results
     
     def generate_report(self) -> str:
@@ -166,11 +168,11 @@ class RouteBTester:
         report.append("Route A (vision_premium) and Route C (ocr_fallback) Tests:")
         report.append("-" * 60)
         
-        route_a = self.results.get("route_a", {}).get("success", False)
-        route_c = self.results.get("route_c", {}).get("success", False)
+        route_a_accessible = self.results.get("route_a", {}).get("success", False)
+        route_c_accessible = self.results.get("route_c", {}).get("success", False)
         
-        report.append(f"  Route A (vision_premium): {'✓ Success' if route_a else '✗ Failed'}")
-        report.append(f"  Route C (ocr_fallback): {'✓ Success' if route_c else '✗ Failed'}")
+        report.append(f"  Route A (vision_premium): {'✓ Accessible' if route_a_accessible else '✗ Not accessible'}")
+        report.append(f"  Route C (ocr_fallback): {'✓ Accessible' if route_c_accessible else '✗ Not accessible'}")
         report.append("")
         
         # Provider tests
@@ -194,8 +196,13 @@ class RouteBTester:
         
         report.append("=" * 60)
         report.append(f"Summary: {healthy_count}/{provider_count} providers have healthy service")
-        report.append(f"Route A: {'✓ Success' if route_a else '✗ Failed'}")
-        report.append(f"Route C: {'✓ Success' if route_c else '✗ Failed'}")
+        
+        # Route success based on endpoint accessibility (200 or 422 means accessible)
+        route_a_accessible = self.results.get("route_a", {}).get("success", False)
+        route_c_accessible = self.results.get("route_c", {}).get("success", False)
+        
+        report.append(f"Route A (vision_premium): {'✓ Accessible' if route_a_accessible else '✗ Not accessible'}")
+        report.append(f"Route C (ocr_fallback): {'✓ Accessible' if route_c_accessible else '✗ Not accessible'}")
         report.append("")
         report.append("Note: Full provider testing requires service restarts with")
         report.append("      different VISION_PROVIDER environment variables.")
