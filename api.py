@@ -442,7 +442,11 @@ async def extract(
     Route B providers (set via VISION_PROVIDER env var):
       - hf: Hugging Face inference API (similar to local vision model)
       - groq: Groq API with fast vision models (similar to local vision model)
-      - vision_local: Local Ollama/vLLM inference (Lightning AI Studio or self-hosted)
+      - vision_local: Local Ollama inference (only Llama 3.2 Vision or Qwen 2.5-VL per strategy.md)
+    
+    Local Vision Models (per strategy.md):
+      - Llama 3.2 Vision 11B (default) - better for complex layouts
+      - Qwen 2.5-VL 7B - lighter option for smaller GPUs
     
     All Route B providers automatically fallback to Route C on failure with detailed logging.
     """
