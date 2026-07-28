@@ -179,25 +179,46 @@ def _remote_vision_sync(remote: str, model: str, prompt: str, imgs: List[bytes])
 
 
 async def _vision_call(model: str, prompt: str, imgs: List[bytes]) -> str:
-    if model.startswith("ollama"):
-        provider = os.getenv("VISION_PROVIDER", "groq").lower()
+    # VISION_PROVIDER: hf|groq|vision_local|vision_premium
+    provider = os.getenv("VISION_PROVIDER", "vision_premium").lower()
 
-        async def _try_lightning():
-            remote = os.getenv("LIGHTNING_VISION_URL", "").strip()
-            if not remote: return None
-            import asyncio
-            return await asyncio.to_thread(_remote_vision_sync, remote, model, prompt, imgs)
+    async def _try_lightning():
+        remote = os.getenv("LIGHTNING_VISION_URL", "").strip()
+        if not remote: return None
+        import asyncio
+        return await asyncio.to_thread(_remote_vision_sync, remote, model, prompt, imgs)
 
-        async def _try_groq():
-            groq_token = os.getenv("GROQ_API_KEY", "").strip()
-            if not groq_token: return None
-            import urllib.request, json as _json, base64
-            b64 = base64.b64encode(_downscale(imgs[0])).decode()
-            groq_model = "llama-3.2-11b-vision-preview"
-            url = "https://api.groq.com/openai/v1/chat/completions"
-            h = {"Authorization": f"Bearer {groq_token}", "Content-Type": "application/json"}
+    async def _try_groq():
+        groq_token = os.getenv("GROQ_API_KEY", "").strip()
+        if not groq_token: return None
+        import urllib.request, json as _json, base64
+        b64 = base64.b64encode(_downscale(imgs[0])).decode()
+        groq_model = "llama-3.2-11b-vision-preview"
+        url = "https://api.groq.com/openai/v1/chat/completions"
+        h = {"Authorization": f"Bearer {groq_token}", "Content-Type": "application/json"}
+        body = _json.dumps({
+            "model": groq_model,
+            "messages": [{"role": "user", "content": [
+                {"type": "text", "text": prompt},
+                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}}
+            ]}],
+            "max_tokens": 1024
+        }).encode()
+        req = urllib.request.Request(url, data=body, headers=h)
+        res = _json.loads(urllib.request.urlopen(req, timeout=45).read())
+        return res["choices"][0]["message"]["content"]
+
+    async def _try_hf():
+        hf_token = os.getenv("HF_TOKEN", "").strip()
+        if not hf_token: return None
+        import urllib.request, json as _json, base64
+        b64 = base64.b64encode(_downscale(imgs[0])).decode()
+        
+        def _call(hf_model: str):
+            url = f"https://router.huggingface.co/hf-inference/models/{hf_model}/v1/chat/completions"
+            h = {"Authorization": f"Bearer {hf_token}", "Content-Type": "application/json"}
             body = _json.dumps({
-                "model": groq_model,
+                "model": hf_model,
                 "messages": [{"role": "user", "content": [
                     {"type": "text", "text": prompt},
                     {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}}
@@ -208,75 +229,77 @@ async def _vision_call(model: str, prompt: str, imgs: List[bytes]) -> str:
             res = _json.loads(urllib.request.urlopen(req, timeout=45).read())
             return res["choices"][0]["message"]["content"]
 
-        async def _try_hf():
-            hf_token = os.getenv("HF_TOKEN", "").strip()
-            if not hf_token: return None
-            import urllib.request, json as _json, base64
-            b64 = base64.b64encode(_downscale(imgs[0])).decode()
-            
-            def _call(hf_model: str):
-                url = f"https://router.huggingface.co/hf-inference/models/{hf_model}/v1/chat/completions"
-                h = {"Authorization": f"Bearer {hf_token}", "Content-Type": "application/json"}
-                body = _json.dumps({
-                    "model": hf_model,
-                    "messages": [{"role": "user", "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}}
-                    ]}],
-                    "max_tokens": 1024
-                }).encode()
-                req = urllib.request.Request(url, data=body, headers=h)
-                res = _json.loads(urllib.request.urlopen(req, timeout=45).read())
-                return res["choices"][0]["message"]["content"]
-
-            primary = os.getenv("HF_VISION_MODEL", "Qwen/Qwen2-VL-7B-Instruct")
-            fallback = "meta-llama/Llama-3.2-11B-Vision-Instruct"
+        primary = os.getenv("HF_VISION_MODEL", "Qwen/Qwen2-VL-7B-Instruct")
+        fallback = "meta-llama/Llama-3.2-11B-Vision-Instruct"
+        try:
+            import asyncio
+            return await asyncio.to_thread(_call, primary)
+        except Exception as e:
+            log.warning("HF vision primary model (%s) failed: %s — trying fallback", primary, e)
             try:
                 import asyncio
-                return await asyncio.to_thread(_call, primary)
-            except Exception as e:
-                log.warning("HF vision primary model (%s) failed: %s — trying fallback", primary, e)
-                try:
-                    import asyncio
-                    return await asyncio.to_thread(_call, fallback)
-                except Exception as fb_err:
-                    raise Exception(f"HF both models failed. Last error: {fb_err}")
+                return await asyncio.to_thread(_call, fallback)
+            except Exception as fb_err:
+                raise Exception(f"HF both models failed. Last error: {fb_err}")
 
-        if provider == "groq":
-            try:
-                res = await _try_groq()
-                if res: return res
-            except Exception as e:
-                log.warning("Groq vision primary failed (%s) — falling back", e)
-            try:
-                res = await _try_hf()
-                if res: return res
-            except Exception as e:
-                log.warning("HF vision fallback failed (%s) — falling back to Lightning", e)
-            try:
-                res = await _try_lightning()
-                if res: return res
-            except Exception as e:
-                log.warning("Lightning vision fallback failed (%s) — waking studio", e)
-                _wake_vision_studio()
+    # Provider selection logic
+    if provider == "groq":
+        try:
+            res = await _try_groq()
+            if res: return res
+        except Exception as e:
+            log.warning("Groq vision primary failed (%s) — falling back", e)
+        try:
+            res = await _try_hf()
+            if res: return res
+        except Exception as e:
+            log.warning("HF vision fallback failed (%s) — falling back to Lightning", e)
+        try:
+            res = await _try_lightning()
+            if res: return res
+        except Exception as e:
+            log.warning("Lightning vision fallback failed (%s) — waking studio", e)
+            _wake_vision_studio()
 
-        else: # provider == "lightning" or default
-            try:
-                res = await _try_lightning()
-                if res: return res
-            except Exception as e:
-                log.warning("Lightning vision primary failed (%s) — waking studio + falling back", e)
-                _wake_vision_studio()
-            try:
-                res = await _try_hf()
-                if res: return res
-            except Exception as e:
-                log.warning("HF vision fallback failed: %s", e)
-            try:
-                res = await _try_groq()
-                if res: return res
-            except Exception as e:
-                log.warning("Groq vision fallback failed: %s", e)
+    elif provider == "hf":
+        try:
+            res = await _try_hf()
+            if res: return res
+        except Exception as e:
+            log.warning("HF vision primary failed (%s) — falling back", e)
+        try:
+            res = await _try_groq()
+            if res: return res
+        except Exception as e:
+            log.warning("Groq vision fallback failed (%s) — falling back to Lightning", e)
+        try:
+            res = await _try_lightning()
+            if res: return res
+        except Exception as e:
+            log.warning("Lightning vision fallback failed (%s) — waking studio", e)
+            _wake_vision_studio()
+
+    elif provider == "vision_local":
+        # Local Ollama path - handled below by the standard litellm path
+        pass
+
+    else: # provider == "vision_premium" or default
+        try:
+            res = await _try_lightning()
+            if res: return res
+        except Exception as e:
+            log.warning("Lightning vision primary failed (%s) — waking studio + falling back", e)
+            _wake_vision_studio()
+        try:
+            res = await _try_hf()
+            if res: return res
+        except Exception as e:
+            log.warning("HF vision fallback failed: %s", e)
+        try:
+            res = await _try_groq()
+            if res: return res
+        except Exception as e:
+            log.warning("Groq vision fallback failed: %s", e)
 
     content: List[Dict[str, Any]] = [{"type": "text", "text": prompt}]
     content.extend(_image_block(i) for i in imgs)
