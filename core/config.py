@@ -34,6 +34,13 @@ class Settings:
     LLM_VISION_LOCAL = os.getenv("LLM_VISION_LOCAL", "ollama/qwen2.5vl:7b")
     # Cheaper model for the OCR-route text→JSON cleanup (cost-optimized default).
     LLM_CLEANUP = os.getenv("LLM_CLEANUP", "anthropic/claude-haiku-4-5")
+    
+    # Vision provider selector: hf|groq|vision_local|vision_premium
+    # - hf: Hugging Face inference API (via Lightning backend)
+    # - groq: Groq API with fast vision models
+    # - vision_local: Local Ollama/vLLM inference (LLM_VISION_LOCAL)
+    # - vision_premium: High-quality cloud vision (LLM_VISION_PREMIUM)
+    VISION_PROVIDER = os.getenv("VISION_PROVIDER", "vision_premium")
 
     # Multi-page handling: cap pages per document for cost/safety. Large docs are processed in
     # page-chunks and merged (map-reduce), so 100+ page PDFs are supported up to this ceiling.
