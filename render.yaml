@@ -27,3 +27,5 @@ services:
         sync: false
       - key: REQUIRE_INTERNAL_TOKEN
         value: "false"
+      - key: TELEMETRY_OPT_OUT
+        value: "false"
