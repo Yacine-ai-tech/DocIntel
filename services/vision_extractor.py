@@ -2,10 +2,14 @@
 Vision-LLM document extractor — 2026 vision-first route.
 
 Routes:
-  - Premium: Claude Sonnet 4.6 Vision via LiteLLM (complex layouts, handwriting, mixed langs)
-  - Local: Ollama vision via LiteLLM (local privacy, $0/page) — Qwen2.5-VL is the validated
-    default; Llama 3.2 Vision also loads on Ollama 0.11.4 but its KIE quality is poor.
+  - Route A: Claude Sonnet 4.6 Vision via LiteLLM (complex layouts, handwriting, mixed langs)
+  - Route B: 3 provider options with automatic fallback to Route C:
+    - hf: Hugging Face inference API (similar to local vision model)
+    - groq: Groq API with fast vision models (similar to local vision model)  
+    - vision_local: Local Ollama/vLLM inference (Lightning AI Studio or self-hosted)
+  - Route C: OCR fallback (Tesseract + LLM cleanup) - automatic fallback for all Route B failures
 
+All Route B providers automatically fallback to Route C on failure with detailed logging.
 Extracted amount/currency/date fields are normalized deterministically afterwards by
 `services.normalize` (multi-currency, multi-locale) — LLMs are unreliable at locale parsing.
 
@@ -179,18 +183,41 @@ def _remote_vision_sync(remote: str, model: str, prompt: str, imgs: List[bytes])
 
 
 async def _vision_call(model: str, prompt: str, imgs: List[bytes]) -> str:
-    # VISION_PROVIDER: hf|groq|vision_local|vision_premium
-    provider = os.getenv("VISION_PROVIDER", "vision_premium").lower()
-
+    """
+    Route B vision call with automatic fallback to Route C (OCR).
+    
+    Route B providers (3 options):
+    - hf: Hugging Face inference API (similar to local vision model)
+    - groq: Groq API with fast vision models (similar to local vision model)
+    - vision_local: Local Ollama/vLLM inference (Lightning AI Studio or self-hosted)
+    
+    All Route B providers automatically fallback to Route C on failure with detailed logging.
+    """
+    provider = os.getenv("VISION_PROVIDER", "vision_local").lower()
+    log.info(f"Route B attempt with provider: {provider}")
+    
     async def _try_lightning():
+        """Try local vision via Lightning AI Studio or self-hosted."""
         remote = os.getenv("LIGHTNING_VISION_URL", "").strip()
-        if not remote: return None
+        if not remote: 
+            log.warning("Route B vision_local: LIGHTNING_VISION_URL not configured")
+            return None
         import asyncio
-        return await asyncio.to_thread(_remote_vision_sync, remote, model, prompt, imgs)
+        log.info("Route B vision_local: attempting Lightning AI Studio call")
+        try:
+            result = await asyncio.to_thread(_remote_vision_sync, remote, model, prompt, imgs)
+            log.info("Route B vision_local: Lightning AI Studio call succeeded")
+            return result
+        except Exception as e:
+            log.error(f"Route B vision_local: Lightning AI Studio call failed: {e}")
+            raise
 
     async def _try_groq():
+        """Try Groq API vision model."""
         groq_token = os.getenv("GROQ_API_KEY", "").strip()
-        if not groq_token: return None
+        if not groq_token: 
+            log.warning("Route B groq: GROQ_API_KEY not configured")
+            return None
         import urllib.request, json as _json, base64
         b64 = base64.b64encode(_downscale(imgs[0])).decode()
         groq_model = "llama-3.2-11b-vision-preview"
@@ -204,19 +231,29 @@ async def _vision_call(model: str, prompt: str, imgs: List[bytes]) -> str:
             ]}],
             "max_tokens": 1024
         }).encode()
-        req = urllib.request.Request(url, data=body, headers=h)
-        res = _json.loads(urllib.request.urlopen(req, timeout=45).read())
-        return res["choices"][0]["message"]["content"]
+        log.info("Route B groq: attempting Groq API call")
+        try:
+            req = urllib.request.Request(url, data=body, headers=h)
+            res = _json.loads(urllib.request.urlopen(req, timeout=45).read())
+            result = res["choices"][0]["message"]["content"]
+            log.info("Route B groq: Groq API call succeeded")
+            return result
+        except Exception as e:
+            log.error(f"Route B groq: Groq API call failed: {e}")
+            raise
 
     async def _try_hf():
+        """Try Hugging Face inference API."""
         hf_token = os.getenv("HF_TOKEN", "").strip()
-        if not hf_token: return None
+        if not hf_token: 
+            log.warning("Route B hf: HF_TOKEN not configured")
+            return None
         import urllib.request, json as _json, base64
-        b64 = base64.b64encode(_downscale(imgs[0])).decode()
         
         def _call(hf_model: str):
             url = f"https://router.huggingface.co/hf-inference/models/{hf_model}/v1/chat/completions"
             h = {"Authorization": f"Bearer {hf_token}", "Content-Type": "application/json"}
+            b64 = base64.encodebytes(_downscale(imgs[0])).decode()
             body = _json.dumps({
                 "model": hf_model,
                 "messages": [{"role": "user", "content": [
@@ -231,89 +268,70 @@ async def _vision_call(model: str, prompt: str, imgs: List[bytes]) -> str:
 
         primary = os.getenv("HF_VISION_MODEL", "Qwen/Qwen2-VL-7B-Instruct")
         fallback = "meta-llama/Llama-3.2-11B-Vision-Instruct"
+        
+        log.info(f"Route B hf: attempting HF API call with model {primary}")
         try:
             import asyncio
-            return await asyncio.to_thread(_call, primary)
+            result = await asyncio.to_thread(_call, primary)
+            log.info("Route B hf: HF API call succeeded")
+            return result
         except Exception as e:
-            log.warning("HF vision primary model (%s) failed: %s — trying fallback", primary, e)
+            log.warning(f"Route B hf: HF primary model ({primary}) failed: {e} — trying fallback")
             try:
                 import asyncio
-                return await asyncio.to_thread(_call, fallback)
+                result = await asyncio.to_thread(_call, fallback)
+                log.info("Route B hf: HF fallback model succeeded")
+                return result
             except Exception as fb_err:
-                raise Exception(f"HF both models failed. Last error: {fb_err}")
+                log.error(f"Route B hf: HF both models failed. Last error: {fb_err}")
+                raise
 
-    # Provider selection logic
-    if provider == "groq":
-        try:
-            res = await _try_groq()
-            if res: return res
-        except Exception as e:
-            log.warning("Groq vision primary failed (%s) — falling back", e)
-        try:
-            res = await _try_hf()
-            if res: return res
-        except Exception as e:
-            log.warning("HF vision fallback failed (%s) — falling back to Lightning", e)
-        try:
-            res = await _try_lightning()
-            if res: return res
-        except Exception as e:
-            log.warning("Lightning vision fallback failed (%s) — waking studio", e)
-            _wake_vision_studio()
+    # Route B provider selection with automatic fallback to Route C
+    try:
+        if provider == "groq":
+            result = await _try_groq()
+            if result: return result
+        elif provider == "hf":
+            result = await _try_hf()
+            if result: return result
+        elif provider == "vision_local":
+            result = await _try_lightning()
+            if result: return result
+        else:
+            log.warning(f"Route B: Unknown provider '{provider}', defaulting to vision_local")
+            result = await _try_lightning()
+            if result: return result
+    except Exception as e:
+        log.error(f"Route B ({provider}) failed: {e} — falling back to Route C (OCR)")
+        # Fall through to Route C OCR fallback
+    
+    # Route C fallback (OCR)
+    log.info("Route C: Using OCR fallback (Tesseract + LLM cleanup)")
+    raise Exception("Route B failed, must use Route C OCR fallback in calling code")
 
-    elif provider == "hf":
-        try:
-            res = await _try_hf()
-            if res: return res
-        except Exception as e:
-            log.warning("HF vision primary failed (%s) — falling back", e)
-        try:
-            res = await _try_groq()
-            if res: return res
-        except Exception as e:
-            log.warning("Groq vision fallback failed (%s) — falling back to Lightning", e)
-        try:
-            res = await _try_lightning()
-            if res: return res
-        except Exception as e:
-            log.warning("Lightning vision fallback failed (%s) — waking studio", e)
-            _wake_vision_studio()
 
-    elif provider == "vision_local":
-        # Local Ollama path - handled below by the standard litellm path
-        pass
-
-    else: # provider == "vision_premium" or default
-        try:
-            res = await _try_lightning()
-            if res: return res
-        except Exception as e:
-            log.warning("Lightning vision primary failed (%s) — waking studio + falling back", e)
-            _wake_vision_studio()
-        try:
-            res = await _try_hf()
-            if res: return res
-        except Exception as e:
-            log.warning("HF vision fallback failed: %s", e)
-        try:
-            res = await _try_groq()
-            if res: return res
-        except Exception as e:
-            log.warning("Groq vision fallback failed: %s", e)
-
-    content: List[Dict[str, Any]] = [{"type": "text", "text": prompt}]
-    content.extend(_image_block(i) for i in imgs)
-    kwargs: Dict[str, Any] = {
-        "model": model,
-        "messages": [{"role": "user", "content": content}],
-        "temperature": 0.1,
-    }
-    # Local Ollama models default to a tiny 4096-token context; raise it so multi-image
-    # chunks fit (each downscaled page is ~2.5-3k tokens).
-    if model.startswith("ollama"):
-        kwargs["num_ctx"] = OLLAMA_NUM_CTX
-    response = await acompletion(**kwargs)
-    return response.choices[0].message.content or "{}"
+# Route A: Premium Claude Sonnet 4.6 Vision
+async def _vision_call_route_a(model: str, prompt: str, imgs: List[bytes]) -> str:
+    """Route A: Claude Sonnet 4.6 Vision via LiteLLM (high quality, no fallback needed)."""
+    log.info("Route A: Using Claude Sonnet 4.6 Vision")
+    if not _LITELLM:
+        raise Exception("Route A requires litellm")
+    
+    content = [{"type": "text", "text": prompt}]
+    for img in imgs:
+        content.append(_image_block(img))
+    
+    try:
+        response = await acompletion(
+            model=model,
+            messages=[{"role": "user", "content": content}],
+            max_tokens=2048,
+            temperature=0.1,
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        log.error(f"Route A failed: {e}")
+        raise
 
 
 async def _extract_one(model: str, prompt: str, imgs: List[bytes]) -> Dict[str, Any]:
@@ -341,6 +359,7 @@ async def extract_via_vision_llm(
     images: Union[bytes, List[bytes]],
     model: Optional[str] = None,
     doc_type: str = "invoice",
+    route_b: bool = False,
 ) -> Dict[str, Any]:
     """
     Extract structured data from one or more document page images using a vision LLM.
@@ -352,8 +371,9 @@ async def extract_via_vision_llm(
 
     Args:
         images: Raw PNG/JPEG bytes, or a list of page images for a multi-page document.
-        model: LiteLLM vision-capable model. Defaults to LLM_VISION_PREMIUM.
+        model: LiteLLM vision-capable model. Defaults to LLM_VISION_ROUTE_A for Route A.
         doc_type: invoice|contract|receipt|financial_report|auction_listing|form|default.
+        route_b: If True, use Route B providers (hf|groq|vision_local) with fallback logic.
 
     Returns:
         A dict of extracted fields (with "_confidence", "_pages", and "_chunks" when chunked).
@@ -371,19 +391,45 @@ async def extract_via_vision_llm(
         imgs = imgs[:MAX_VISION_PAGES]
         n_pages = MAX_VISION_PAGES
 
-    model = model or os.getenv("LLM_VISION_PREMIUM", "anthropic/claude-sonnet-4-6")
-    prompt = VISION_PROMPTS.get(doc_type, VISION_PROMPTS["default"]) + _RULES
-    # Local models have a smaller context, so send fewer pages per call.
-    per_call = VISION_PAGES_PER_CALL_LOCAL if model.startswith("ollama") else VISION_PAGES_PER_CALL
+    if route_b:
+        # Route B: Use the new Route B vision call with provider selection
+        model = model or os.getenv("LLM_VISION_LOCAL", "ollama/qwen2.5vl:7b")
+        prompt = VISION_PROMPTS.get(doc_type, VISION_PROMPTS["default"]) + _RULES
+        per_call = VISION_PAGES_PER_CALL_LOCAL  # Route B uses smaller context
+        
+        try:
+            # Small document → single call
+            if n_pages <= per_call:
+                result_text = await _vision_call(model, prompt, imgs)
+                try:
+                    result = json.loads(_strip_fences(result_text))
+                    if isinstance(result, dict):
+                        result["_confidence"] = 1.0
+                        result["_pages"] = n_pages
+                        return result
+                except json.JSONDecodeError:
+                    return {"error": "json_parse_failed", "raw": result_text}
+            else:
+                # Large document → chunked processing (map-reduce)
+                return {"error": "route_b_chunking_not_supported"}
+        except Exception as e:
+            log.error(f"Route B extraction failed: {e}")
+            return {"error": str(e), "_route_b_failed": True}
+    else:
+        # Route A: Claude Sonnet 4.6 Vision (standard approach)
+        model = model or os.getenv("LLM_VISION_ROUTE_A", "anthropic/claude-sonnet-4-6")
+        prompt = VISION_PROMPTS.get(doc_type, VISION_PROMPTS["default"]) + _RULES
+        # Local models have a smaller context, so send fewer pages per call.
+        per_call = VISION_PAGES_PER_CALL_LOCAL if model.startswith("ollama") else VISION_PAGES_PER_CALL
 
-    # Small document → a single call so the model sees all pages at once.
-    if n_pages <= per_call:
-        result = await _extract_one(model, prompt, imgs)
-        if isinstance(result, dict) and "error" in result and model.startswith("ollama"):
-            # Route B fallback to OCR
-            from services.ocr_extractor import extract_text_from_image
-            text = extract_text_from_image(imgs[0])
-            return {
+        # Small document → a single call so the model sees all pages at once.
+        if n_pages <= per_call:
+            result = await _extract_one(model, prompt, imgs)
+            if isinstance(result, dict) and "error" in result and model.startswith("ollama"):
+                # Route B fallback to OCR
+                from services.ocr_extractor import extract_text_from_image
+                text = extract_text_from_image(imgs[0])
+                return {
                 "_warning": "The Inference Studio is asleep. Waking it up now. Falling back to basic OCR for this request.",
                 "ocr_text_fallback": text,
                 "_pages": n_pages,

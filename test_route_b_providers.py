@@ -1,7 +1,7 @@
 """
-DocIntel Route B Provider Testing Script
-Tests VISION_PROVIDER configurations: vision_premium, vision_local, hf, groq
-Excludes Lightning Studio as user is out of credits
+DocIntel Route Testing Script
+Tests Route A (Claude Sonnet), Route B (3 providers with fallback), and Route C (OCR)
+Route B providers: vision_local, hf, groq (all fallback to Route C on failure)
 """
 
 import asyncio
@@ -13,22 +13,18 @@ from typing import Dict, List
 DOCINTEL_URL = os.environ.get("DOCINTEL_URL", "http://localhost:8000")
 INTERNAL_TOKEN = os.environ.get("OMNIINTEL_INTERNAL_TOKEN", "omniintel-prod-internal-2026")
 
-# Vision providers to test (excluding Lightning Studio)
+# Route B providers (3 options only - excludes Lightning Studio per user request)
 VISION_PROVIDERS = {
-    "vision_premium": {
-        "description": "Claude Sonnet 4.6 Vision (high quality)",
-        "expected_model": "anthropic/claude-sonnet-4-6"
-    },
     "vision_local": {
-        "description": "Local Ollama Llama 3.2 Vision (requires GPU)",
+        "description": "Local Ollama/vLLM inference (Lightning AI Studio or self-hosted)",
         "expected_model": "ollama/qwen2.5vl:7b"
     },
     "hf": {
-        "description": "Hugging Face Inference API",
+        "description": "Hugging Face Inference API (similar to local vision model)",
         "expected_model": "hf_model"
     },
     "groq": {
-        "description": "Groq API with fast vision models",
+        "description": "Groq API with fast vision models (similar to local vision model)",
         "expected_model": "groq/llava-v1.5-7b"
     }
 }
@@ -86,16 +82,16 @@ class RouteBTester:
         
         route_results = {}
         
-        # Test Route A: vision_premium (Claude Sonnet)
-        print("  Testing Route A: vision_premium (Claude Sonnet)")
+        # Test Route A: vision_route_a (Claude Sonnet)
+        print("  Testing Route A: vision_route_a (Claude Sonnet)")
         try:
             headers = {"X-OmniIntel-Internal-Token": INTERNAL_TOKEN}
             
             async with httpx.AsyncClient(timeout=30.0) as client:
-                # Test classify endpoint (uses route selection logic)
+                # Test extract endpoint with Route A
                 response = await client.post(
                     f"{self.base_url}/extract",
-                    data={"route": "vision_premium", "doc_type": "invoice"},
+                    data={"route": "vision_route_a", "doc_type": "invoice"},
                     headers=headers
                 )
                 
@@ -119,6 +115,40 @@ class RouteBTester:
                 "success": False
             }
             print(f"    ✗ Route A test failed: {e}")
+        
+        # Test Route B: vision_route_b (3 providers)
+        print("  Testing Route B: vision_route_b (3 providers)")
+        try:
+            headers = {"X-OmniIntel-Internal-Token": INTERNAL_TOKEN}
+            
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                # Test extract endpoint with Route B
+                response = await client.post(
+                    f"{self.base_url}/extract",
+                    data={"route": "vision_route_b", "doc_type": "invoice"},
+                    headers=headers
+                )
+                
+                if response.status_code in [200, 422]:
+                    route_results["route_b"] = {
+                        "status": response.status_code,
+                        "success": True,
+                        "message": "Route B endpoint accessible"
+                    }
+                    print(f"    ✓ Route B endpoint accessible (status: {response.status_code})")
+                else:
+                    route_results["route_b"] = {
+                        "status": response.status_code,
+                        "success": False,
+                        "error": f"Unexpected status: {response.status_code}"
+                    }
+                    print(f"    ✗ Route B endpoint returned unexpected status: {response.status_code}")
+        except Exception as e:
+            route_results["route_b"] = {
+                "error": str(e),
+                "success": False
+            }
+            print(f"    ✗ Route B test failed: {e}")
         
         # Test Route C: ocr_fallback
         print("  Testing Route C: ocr_fallback (Tesseract)")
@@ -160,23 +190,25 @@ class RouteBTester:
         """Generate comprehensive test report"""
         report = []
         report.append("=" * 60)
-        report.append("DocIntel Route B Provider Test Report")
+        report.append("DocIntel Route Testing Report")
         report.append("=" * 60)
         report.append("")
         
-        # Route A and C tests
-        report.append("Route A (vision_premium) and Route C (ocr_fallback) Tests:")
+        # Route A and B tests
+        report.append("Route Testing Results:")
         report.append("-" * 60)
         
         route_a_accessible = self.results.get("route_a", {}).get("success", False)
+        route_b_accessible = self.results.get("route_b", {}).get("success", False)
         route_c_accessible = self.results.get("route_c", {}).get("success", False)
         
-        report.append(f"  Route A (vision_premium): {'✓ Accessible' if route_a_accessible else '✗ Not accessible'}")
+        report.append(f"  Route A (vision_route_a - Claude Sonnet): {'✓ Accessible' if route_a_accessible else '✗ Not accessible'}")
+        report.append(f"  Route B (vision_route_b - 3 providers): {'✓ Accessible' if route_b_accessible else '✗ Not accessible'}")
         report.append(f"  Route C (ocr_fallback): {'✓ Accessible' if route_c_accessible else '✗ Not accessible'}")
         report.append("")
         
         # Provider tests
-        report.append("Vision Provider Configuration Tests:")
+        report.append("Route B Provider Configuration Tests:")
         report.append("-" * 60)
         
         for provider, result in self.results.items():
@@ -196,35 +228,37 @@ class RouteBTester:
         
         report.append("=" * 60)
         report.append(f"Summary: {healthy_count}/{provider_count} providers have healthy service")
-        
-        # Route success based on endpoint accessibility (200 or 422 means accessible)
-        route_a_accessible = self.results.get("route_a", {}).get("success", False)
-        route_c_accessible = self.results.get("route_c", {}).get("success", False)
-        
-        report.append(f"Route A (vision_premium): {'✓ Accessible' if route_a_accessible else '✗ Not accessible'}")
-        report.append(f"Route C (ocr_fallback): {'✓ Accessible' if route_c_accessible else '✗ Not accessible'}")
+        report.append(f"Route A (Claude Sonnet): {'✓ Accessible' if route_a_accessible else '✗ Not accessible'}")
+        report.append(f"Route B (3 providers): {'✓ Accessible' if route_b_accessible else '✗ Not accessible'}")
+        report.append(f"Route C (OCR fallback): {'✓ Accessible' if route_c_accessible else '✗ Not accessible'}")
         report.append("")
-        report.append("Note: Full provider testing requires service restarts with")
-        report.append("      different VISION_PROVIDER environment variables.")
+        report.append("Route B Provider Options:")
+        report.append("  - vision_local: Lightning AI Studio or self-hosted")
+        report.append("  - hf: Hugging Face Inference API")
+        report.append("  - groq: Groq API with fast vision models")
+        report.append("")
+        report.append("All Route B providers automatically fallback to Route C on failure.")
         report.append("=" * 60)
         
         return "\n".join(report)
 
 async def main():
-    print("=== DocIntel Route B Provider Testing ===")
+    print("=== DocIntel Route Testing ===")
     print(f"Testing against: {DOCINTEL_URL}")
-    print("Excluding Lightning Studio (out of credits)")
+    print("Route A: Claude Sonnet 4.6 Vision (no fallback)")
+    print("Route B: 3 providers (vision_local, hf, groq) with auto-fallback to Route C")
+    print("Route C: OCR fallback (Tesseract + LLM cleanup)")
     print()
     
     tester = RouteBTester(DOCINTEL_URL)
     
-    # Test Route A and C
-    print("1. Testing Route A and C")
+    # Test Route A and B
+    print("1. Testing Route A and Route B")
     await tester.test_routes_a_c()
     print()
     
     # Test provider configurations
-    print("2. Testing Provider Configurations")
+    print("2. Testing Route B Provider Configurations")
     for provider in VISION_PROVIDERS.keys():
         await tester.test_provider(provider)
     print()
@@ -234,7 +268,7 @@ async def main():
     print(report)
     
     # Save report to file
-    report_path = "ROUTE_B_TEST_REPORT.md"
+    report_path = "ROUTE_TEST_REPORT.md"
     with open(report_path, "w") as f:
         f.write(report)
     

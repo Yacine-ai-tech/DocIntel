@@ -3,7 +3,7 @@ DocIntel API — Vision-first document AI pipeline.
 
 Endpoints:
   GET  /health
-  POST /extract          file + route (vision_premium|vision_local|ocr_fallback)
+  POST /extract          file + route (vision_route_a|vision_route_b|ocr_fallback)
   POST /classify         file → doc_type only
   POST /classify-image   image + categories → category + confidence
   POST /extract-tables   PDF → tables list
@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import json
 import time
+import os
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
@@ -28,6 +30,17 @@ from core.config import settings
 from core.logger import get_logger
 from services.batch_processor import BatchProcessor
 from services.llm_extractor import LLMExtractor
+
+# Import centralized logging for Omni-Admin visibility
+try:
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "global_scripts"))
+    from omni_logging import get_logger as get_omni_logger
+    omni_logger = get_omni_logger("DocIntel")
+except ImportError:
+    omni_logger = None
+
+log = get_logger(__name__)
 from services.vision_extractor import classify_image, extract_via_vision_llm
 
 log = get_logger(__name__)
@@ -145,6 +158,11 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
     Handles PDFs as **multi-page**: vision routes get every page image (sent together so the
     model reasons across pages); the OCR route gets the full concatenated text. Returns
     {fields, page_count}.
+    
+    Routes:
+      - vision_route_a: Claude Sonnet 4.6 Vision (high quality, no fallback)
+      - vision_route_b: Route B providers (hf|groq|vision_local) with auto-fallback to Route C
+      - ocr_fallback: Route C (Tesseract OCR + LLM cleanup)
     """
     from services.ocr_extractor import (
         extract_text_from_image, extract_text_from_pdf, is_pdf, pdf_page_count, pdf_to_pngs,
@@ -152,41 +170,100 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
 
     pdf = is_pdf(data)
     page_count = pdf_page_count(data) if pdf else 1
+    used_route = route
+    fallback_used = False
 
-    if route in ("vision_premium", "vision_local"):
-        model = settings.LLM_VISION_PREMIUM if route == "vision_premium" else settings.LLM_VISION_LOCAL
+    # Route A: Claude Sonnet 4.6 Vision (no fallback)
+    if route == "vision_route_a":
+        model = settings.LLM_VISION_ROUTE_A
         images = pdf_to_pngs(data, max_pages=settings.MAX_PDF_PAGES) if pdf else [data]
         fields = None
-        woke = False
         if images:
             try:
+                log.info(f"Route A: Attempting extraction with Claude Sonnet 4.6 Vision")
                 fields = await extract_via_vision_llm(images, model=model, doc_type=doc_type)
                 if isinstance(fields, dict) and fields.get("error"):
                     raise RuntimeError(str(fields["error"]))
+                log.info("Route A: Extraction succeeded")
             except Exception as e:
-                log.warning("vision route %s failed (%s) — falling back to OCR extraction", route, e)
-                fields = None
-                if route == "vision_local":
-                    # Route B runs on an on-demand Studio. Trigger a wake (non-blocking) so the
-                    # NEXT request can use vision; this request degrades to OCR immediately.
-                    try:
-                        from services.lightning_studio import trigger_wake_async
-                        woke = trigger_wake_async()
-                    except Exception:
-                        woke = False
+                log.error(f"Route A failed: {e}")
+                raise  # Route A has no fallback
         if fields is None:
+            raise Exception("Route A extraction failed")
+    
+    # Route B: 3 providers with automatic fallback to Route C
+    elif route == "vision_route_b":
+        provider = os.getenv("VISION_PROVIDER", "vision_local").lower()
+        log.info(f"Route B: Attempting extraction with provider: {provider}")
+        
+        if omni_logger:
+            omni_logger.log_route_selection("vision_route_b", provider)
+        
+        model = settings.LLM_VISION_LOCAL  # For vision_local
+        images = pdf_to_pngs(data, max_pages=settings.MAX_PDF_PAGES) if pdf else [data]
+        fields = None
+        
+        if images:
+            try:
+                fields = await extract_via_vision_llm(images, model=model, doc_type=doc_type, route_b=True)
+                if isinstance(fields, dict) and fields.get("error"):
+                    raise RuntimeError(str(fields["error"]))
+                log.info(f"Route B ({provider}): Extraction succeeded")
+            except Exception as e:
+                log.warning(f"Route B ({provider}) failed: {e} — falling back to Route C (OCR)")
+                fallback_used = True
+                used_route = "ocr_fallback"
+                
+                if omni_logger:
+                    omni_logger.log_fallback("vision_route_b", "ocr_fallback", f"{provider} failed: {e}")
+        
+        if fields is None or fallback_used:
+            log.info("Route C: Using OCR fallback (Tesseract + LLM cleanup)")
             text = extract_text_from_pdf(data, max_pages=settings.MAX_PDF_PAGES) if pdf \
                 else extract_text_from_image(data)
-            if route == "vision_local":
-                note = ("The local-vision inference Studio was asleep — I've started it (usually ready "
-                        "in ~1-2 min). Extracted via OCR for now; re-run Route B shortly for full local "
-                        "vision.") if woke else ("Local vision (Route B) was unavailable and the Studio "
-                        "could not be woken (LIGHTNING creds missing/invalid). Extracted via OCR instead.")
-            else:
-                note = "Vision route was unavailable; extracted via OCR fallback."
             if text:
                 fields = await extractor.extract(text, doc_type=doc_type)
                 if isinstance(fields, dict):
+                    fields["_route_b_fallback"] = True
+                    fields["_route_b_provider"] = provider
+                    fields["_route_c_used"] = True
+                else:
+                    fields = {"error": "OCR extraction failed", "_route_b_fallback": True, "_route_b_provider": provider}
+            else:
+                fields = {"error": "No text extracted for OCR", "_route_b_fallback": True, "_route_b_provider": provider}
+    
+    # Route C: OCR fallback
+    elif route == "ocr_fallback":
+        log.info("Route C: Using OCR fallback (Tesseract + LLM cleanup)")
+        text = extract_text_from_pdf(data, max_pages=settings.MAX_PDF_PAGES) if pdf \
+            else extract_text_from_image(data)
+        if text:
+            fields = await extractor.extract(text, doc_type=doc_type)
+        else:
+            fields = {"error": "No text extracted for OCR"}
+    
+    # Legacy route names for backward compatibility
+    elif route in ("vision_premium", "vision_local"):
+        log.warning(f"Legacy route name '{route}' used, mapping to new architecture")
+        if omni_logger:
+            omni_logger.log_fallback(route, "vision_route_a" if route == "vision_premium" else "vision_route_b", "Legacy route name mapping")
+        
+        if route == "vision_premium":
+            return await _run_route(data, "vision_route_a", doc_type)
+        else:
+            return await _run_route(data, "vision_route_b", doc_type)
+    
+    else:
+        raise ValueError(f"Unknown route: {route}")
+
+    if isinstance(fields, dict) and fields.get("error"):
+        fields["_used_route"] = used_route
+        fields["_fallback_used"] = fallback_used
+    elif isinstance(fields, dict):
+        fields["_used_route"] = used_route
+        fields["_fallback_used"] = fallback_used
+    
+    return {"fields": fields, "page_count": page_count}
                     fields.setdefault("_fallback_from", route)
                     fields.setdefault("_note", note)
                     if route == "vision_local":
@@ -353,18 +430,33 @@ async def classify_image_endpoint(
 @app.post("/extract", response_model=ProcessResponse)
 async def extract(
     file: UploadFile = File(...),
-    route: str = Form("vision_premium"),
+    route: str = Form("vision_route_a"),
     doc_type: str = Form("invoice"),
 ) -> ProcessResponse:
     """
     Full extraction pipeline with 3 routes (multi-page PDFs handled end-to-end):
-      - vision_premium  (Claude Sonnet 4.6 Vision)
-      - vision_local    (Ollama Llama 3.2 Vision)
-      - ocr_fallback    (Tesseract OCR + LLM cleanup)
+      - vision_route_a  (Claude Sonnet 4.6 Vision - Route A)
+      - vision_route_b  (Route B: hf|groq|vision_local - auto-fallback to Route C)
+      - ocr_fallback    (Tesseract OCR + LLM cleanup - Route C)
+    
+    Route B providers (set via VISION_PROVIDER env var):
+      - hf: Hugging Face inference API (similar to local vision model)
+      - groq: Groq API with fast vision models (similar to local vision model)
+      - vision_local: Local Ollama/vLLM inference (Lightning AI Studio or self-hosted)
+    
+    All Route B providers automatically fallback to Route C on failure with detailed logging.
     """
     t0 = time.time()
     data = await file.read()
+    
+    if omni_logger:
+        omni_logger.log_request("/extract", {"route": route, "doc_type": doc_type})
+    
     out = await _run_route(data, route, doc_type)
+    
+    if omni_logger:
+        omni_logger.log_response("/extract", 200, (time.time() - t0) * 1000)
+    
     return ProcessResponse(
         doc_type=doc_type,
         route=route,
@@ -378,7 +470,7 @@ async def extract(
 @app.post("/process", response_model=ProcessResponse)
 async def process(
     file: UploadFile = File(...),
-    route: str = Form("vision_premium"),
+    route: str = Form("vision_route_a"),
     doc_type: str = Form("auto"),
 ) -> ProcessResponse:
     """
@@ -387,6 +479,11 @@ async def process(
     `doc_type="auto"` content-classifies the document first (text-based heuristic), then runs
     the chosen route. Tables are included for PDFs. Returns doc_type, fields, confidence,
     page_count.
+    
+    Routes:
+      - vision_route_a: Claude Sonnet 4.6 Vision (high quality)
+      - vision_route_b: Route B providers (hf|groq|vision_local) with auto-fallback to Route C
+      - ocr_fallback: Route C (Tesseract OCR + LLM cleanup)
     """
     t0 = time.time()
     data = await file.read()
