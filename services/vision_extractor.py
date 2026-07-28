@@ -6,8 +6,13 @@ Routes:
   - Route B: 3 provider options with automatic fallback to Route C:
     - hf: Hugging Face inference API (similar to local vision model)
     - groq: Groq API with fast vision models (similar to local vision model)  
-    - vision_local: Local Ollama/vLLM inference (Lightning AI Studio or self-hosted)
+    - vision_local: Local Ollama inference (only Llama 3.2 Vision or Qwen 2.5-VL per strategy.md)
   - Route C: OCR fallback (Tesseract + LLM cleanup) - automatic fallback for all Route B failures
+
+Local Vision Models (per strategy.md):
+  - Llama 3.2 Vision 11B (default) - better for complex layouts
+  - Qwen 2.5-VL 7B - lighter option for smaller GPUs
+  Both models via Ollama as specified in strategy.md.
 
 All Route B providers automatically fallback to Route C on failure with detailed logging.
 Extracted amount/currency/date fields are normalized deterministically afterwards by
