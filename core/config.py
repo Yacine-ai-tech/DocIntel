@@ -27,18 +27,18 @@ class Settings:
     LLM_DEFAULT = os.getenv("LLM_DEFAULT", "groq/llama-3.3-70b-versatile")
     LLM_REASONING = os.getenv("LLM_REASONING", "anthropic/claude-sonnet-4-6")
     LLM_VISION_ROUTE_A = os.getenv("LLM_VISION_ROUTE_A", "anthropic/claude-sonnet-4-6")
-    # Route B local vision providers. Default = qwen2.5vl:7b — the validated model that runs on the on-demand
-    # T4 GPU. (Llama 3.2 Vision is the strategy's listed alternative, but its `mllama` arch needs an
-    # mllama-capable runner — older Ollama (~0.11.x) or vLLM — so it isn't the default on Ollama
-    # 0.30.x.) Model is swappable per box via LLM_VISION_LOCAL (e.g. ollama/llama3.2-vision, gemma).
-    LLM_VISION_LOCAL = os.getenv("LLM_VISION_LOCAL", "ollama/qwen2.5vl:7b")
+    # Route B local vision models (per strategy.md: only these 2 options)
+    # - Llama 3.2 Vision 11B (default) - better for complex layouts
+    # - Qwen 2.5-VL 7B - lighter option for smaller GPUs
+    # Both models via Ollama as specified in strategy.md
+    LLM_VISION_LOCAL = os.getenv("LLM_VISION_LOCAL", "ollama/llama-3.2-vision")
     # Cheaper model for the OCR-route text→JSON cleanup (cost-optimized default).
     LLM_CLEANUP = os.getenv("LLM_CLEANUP", "anthropic/claude-haiku-4-5")
     
     # Route B vision provider selector: hf|groq|vision_local
     # - hf: Hugging Face inference API (similar to local vision model)
     # - groq: Groq API with fast vision models (similar to local vision model)
-    # - vision_local: Local Ollama/vLLM inference (LLM_VISION_LOCAL) - Lightning AI Studio or self-hosted
+    # - vision_local: Local Ollama inference (only Llama 3.2 Vision or Qwen 2.5-VL per strategy.md)
     # All Route B providers fallback to Route C (OCR) on failure
     VISION_PROVIDER = os.getenv("VISION_PROVIDER", "vision_local")
 

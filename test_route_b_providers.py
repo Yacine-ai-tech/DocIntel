@@ -16,8 +16,8 @@ INTERNAL_TOKEN = os.environ.get("OMNIINTEL_INTERNAL_TOKEN", "omniintel-prod-inte
 # Route B providers (3 options only - excludes Lightning Studio per user request)
 VISION_PROVIDERS = {
     "vision_local": {
-        "description": "Local Ollama/vLLM inference (Lightning AI Studio or self-hosted)",
-        "expected_model": "ollama/qwen2.5vl:7b"
+        "description": "Local Ollama inference (Llama 3.2 Vision or Qwen 2.5-VL per strategy.md)",
+        "expected_model": "ollama/llama-3.2-vision"
     },
     "hf": {
         "description": "Hugging Face Inference API (similar to local vision model)",
