@@ -109,8 +109,6 @@ async def verify_internal_token(request: Request, call_next):
     token = request.headers.get("X-OmniIntel-Internal-Token")
     valid_tokens = {
         _os.environ.get("OMNIINTEL_INTERNAL_TOKEN"),
-        "omniintel-prod-internal-2026",
-        "default-dev-token",
     }
     valid_tokens.discard(None)
     
