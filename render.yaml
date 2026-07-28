@@ -24,6 +24,6 @@ services:
       - key: CORS_ALLOWED_ORIGINS
         sync: false
       - key: OMNIINTEL_INTERNAL_TOKEN  # REQUIRED: must match gateway
-        value: REDACTED_SECRET
+        sync: false
       - key: REQUIRE_INTERNAL_TOKEN
         value: "false"
