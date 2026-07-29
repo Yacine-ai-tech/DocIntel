@@ -156,11 +156,13 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
     Handles PDFs as **multi-page**: vision routes get every page image (sent together so the
     model reasons across pages); the OCR route gets the full concatenated text. Returns
     {fields, page_count}.
-    
+
     Routes:
-      - vision_route_a: Claude Sonnet 4.6 Vision (high quality, no fallback)
-      - vision_route_b: Route B providers (hf|groq|vision_local) with auto-fallback to Route C
-      - ocr_fallback: Route C (Tesseract OCR + LLM cleanup)
+      - vision_route_a: Claude Sonnet 4.6 Vision via LiteLLM (premium, no fallback)
+      - vision_route_b: Ollama vision model — local (consumer GPU) or remote (cloud endpoint)
+                        Configured via ROUTE_B_MODE + OLLAMA_MODEL env vars.
+                        Auto-fallback to Route C (OCR) on any failure.
+      - ocr_fallback:   Tesseract OCR + LLM cleanup (Route C)
     """
     from services.ocr_extractor import (
         extract_text_from_image, extract_text_from_pdf, is_pdf, pdf_page_count, pdf_to_pngs,
@@ -189,32 +191,32 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
         if fields is None:
             raise Exception("Route A extraction failed")
     
-    # Route B: 3 providers with automatic fallback to Route C
+    # Route B: Ollama vision (local GPU or remote Ollama-compatible endpoint)
     elif route == "vision_route_b":
-        provider = os.getenv("VISION_PROVIDER", "vision_local").lower()
-        log.info(f"Route B: Attempting extraction with provider: {provider}")
-        
+        mode = os.getenv("ROUTE_B_MODE", "local")
+        model_tag = os.getenv("OLLAMA_MODEL", "qwen2.5vl:7b")
+        log.info("Route B: mode=%s model=%s", mode, model_tag)
+
         if omni_logger:
-            omni_logger.log_route_selection("vision_route_b", provider)
-        
-        model = settings.LLM_VISION_LOCAL  # For vision_local
+            omni_logger.log_route_selection("vision_route_b", f"{mode}/{model_tag}")
+
         images = pdf_to_pngs(data, max_pages=settings.MAX_PDF_PAGES) if pdf else [data]
         fields = None
-        
+
         if images:
             try:
-                fields = await extract_via_vision_llm(images, model=model, doc_type=doc_type, route_b=True)
-                if isinstance(fields, dict) and fields.get("error"):
-                    raise RuntimeError(str(fields["error"]))
-                log.info(f"Route B ({provider}): Extraction succeeded")
+                fields = await extract_via_vision_llm(images, doc_type=doc_type, route_b=True)
+                if isinstance(fields, dict) and fields.get("_route_b_failed"):
+                    raise RuntimeError(str(fields.get("error", "route_b_failed")))
+                log.info("Route B (%s/%s): extraction succeeded", mode, model_tag)
             except Exception as e:
-                log.warning(f"Route B ({provider}) failed: {e} — falling back to Route C (OCR)")
+                log.warning("Route B (%s/%s) failed: %s — falling back to Route C (OCR)", mode, model_tag, e)
                 fallback_used = True
                 used_route = "ocr_fallback"
-                
+
                 if omni_logger:
-                    omni_logger.log_fallback("vision_route_b", "ocr_fallback", f"{provider} failed: {e}")
-        
+                    omni_logger.log_fallback("vision_route_b", "ocr_fallback", f"{mode}/{model_tag} failed: {e}")
+
         if fields is None or fallback_used:
             log.info("Route C: Using OCR fallback (Tesseract + LLM cleanup)")
             text = extract_text_from_pdf(data, max_pages=settings.MAX_PDF_PAGES) if pdf \
@@ -223,12 +225,15 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
                 fields = await extractor.extract(text, doc_type=doc_type)
                 if isinstance(fields, dict):
                     fields["_route_b_fallback"] = True
-                    fields["_route_b_provider"] = provider
+                    fields["_route_b_mode"] = mode
+                    fields["_route_b_model"] = model_tag
                     fields["_route_c_used"] = True
                 else:
-                    fields = {"error": "OCR extraction failed", "_route_b_fallback": True, "_route_b_provider": provider}
+                    fields = {"error": "OCR extraction failed", "_route_b_fallback": True,
+                              "_route_b_mode": mode, "_route_b_model": model_tag}
             else:
-                fields = {"error": "No text extracted for OCR", "_route_b_fallback": True, "_route_b_provider": provider}
+                fields = {"error": "No text extracted for OCR", "_route_b_fallback": True,
+                          "_route_b_mode": mode, "_route_b_model": model_tag}
     
     # Route C: OCR fallback
     elif route == "ocr_fallback":
