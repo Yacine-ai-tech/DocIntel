@@ -262,29 +262,7 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
         fields["_fallback_used"] = fallback_used
     
     return {"fields": fields, "page_count": page_count}
-                    fields.setdefault("_fallback_from", route)
-                    fields.setdefault("_note", note)
-                    if route == "vision_local":
-                        fields.setdefault("_studio_waking", woke)
-            else:
-                fields = {"error": "extraction_unavailable",
-                          "note": note + " OCR also recovered no text — try a clearer scan.",
-                          "_fallback_from": route,
-                          **({"_studio_waking": woke} if route == "vision_local" else {})}
-    elif route == "ocr_fallback":
-        text = extract_text_from_pdf(data, max_pages=settings.MAX_PDF_PAGES) if pdf \
-            else extract_text_from_image(data)
-        if not text:
-            fields = {"error": "ocr_unavailable_or_empty",
-                      "note": "No text recovered (ensure tesseract/poppler are installed)."}
-        else:
-            fields = await extractor.extract(text, doc_type=doc_type)
-            if isinstance(fields, dict):
-                fields["_ocr_chars"] = len(text)
-    else:
-        raise HTTPException(status_code=400, detail=f"Unknown route: {route}")
 
-    return {"fields": fields, "page_count": page_count}
 
 
 def _confidence_of(fields: Any) -> Optional[float]:
