@@ -45,24 +45,36 @@ log = logging.getLogger(__name__)
 # ─── Built-in model name mapping table ────────────────────────────────────────
 # Maps Ollama model tags → provider-specific model IDs for known remote dialects.
 # Users can override entirely with ROUTE_B_REMOTE_MODEL.
+#
+# IMPORTANT — keep this table current:
+#   Groq: llama-3.2 vision models were decommissioned July 2025.
+#         Current vision model: llama-4-scout-17b-16e-instruct (supports image input)
+#         Check https://console.groq.com/docs/deprecations for updates.
+#   HF:   hf-inference provider does NOT support multimodal vision models as of July 2025.
+#         If using HF, set ROUTE_B_REMOTE_MODEL to the exact HF model ID you want
+#         (e.g. "Qwen/Qwen2.5-VL-7B-Instruct") and configure a provider that supports it
+#         (nebius, together, etc.) via ROUTE_B_REMOTE_ENDPOINT.
 _GROQ_MODEL_MAP: dict[str, str] = {
-    "qwen2.5vl:7b": "llama-3.2-11b-vision-preview",       # Groq has no Qwen → use llama
-    "qwen2.5vl:72b": "llama-3.2-90b-vision-preview",
-    "llama3.2-vision": "llama-3.2-11b-vision-preview",
-    "llama3.2-vision:11b": "llama-3.2-11b-vision-preview",
-    "llama3.2-vision:90b": "llama-3.2-90b-vision-preview",
-    "llava": "llama-3.2-11b-vision-preview",
-    "minicpm-v": "llama-3.2-11b-vision-preview",
+    # All Ollama vision tags → Groq's current vision model (llama-4-scout)
+    "qwen2.5vl:7b":          "meta-llama/llama-4-scout-17b-16e-instruct",
+    "qwen2.5vl:72b":         "meta-llama/llama-4-maverick-17b-128e-instruct",
+    "llama3.2-vision":       "meta-llama/llama-4-scout-17b-16e-instruct",
+    "llama3.2-vision:11b":   "meta-llama/llama-4-scout-17b-16e-instruct",
+    "llama3.2-vision:90b":   "meta-llama/llama-4-maverick-17b-128e-instruct",
+    "llava":                 "meta-llama/llama-4-scout-17b-16e-instruct",
+    "minicpm-v":             "meta-llama/llama-4-scout-17b-16e-instruct",
 }
 
 _HF_MODEL_MAP: dict[str, str] = {
-    "qwen2.5vl:7b": "Qwen/Qwen2-VL-7B-Instruct",
-    "qwen2.5vl:72b": "Qwen/Qwen2-VL-72B-Instruct",
-    "llama3.2-vision": "meta-llama/Llama-3.2-11B-Vision-Instruct",
-    "llama3.2-vision:11b": "meta-llama/Llama-3.2-11B-Vision-Instruct",
-    "llama3.2-vision:90b": "meta-llama/Llama-3.2-90B-Vision-Instruct",
-    "minicpm-v": "openbmb/MiniCPM-V-2_6",
-    "llava": "llava-hf/llava-1.5-7b-hf",
+    # HF model IDs — user must also set ROUTE_B_REMOTE_ENDPOINT to a provider
+    # that supports multimodal vision (hf-inference does NOT as of July 2025).
+    "qwen2.5vl:7b":          "Qwen/Qwen2.5-VL-7B-Instruct",
+    "qwen2.5vl:72b":         "Qwen/Qwen2.5-VL-72B-Instruct",
+    "llama3.2-vision":       "meta-llama/Llama-3.2-11B-Vision-Instruct",
+    "llama3.2-vision:11b":   "meta-llama/Llama-3.2-11B-Vision-Instruct",
+    "llama3.2-vision:90b":   "meta-llama/Llama-3.2-90B-Vision-Instruct",
+    "minicpm-v":             "openbmb/MiniCPM-V-2_6",
+    "llava":                 "llava-hf/llava-1.5-7b-hf",
 }
 
 # GPU incompatibility: Ollama errors that indicate the model runner is unsupported
