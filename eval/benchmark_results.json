@@ -1,0 +1,12 @@
+{
+  "benchmark": "DocIntel Vision-LLM Layout Decomposition & Table Extraction Audit",
+  "seed": 42,
+  "metrics": {
+    "pages_evaluated": 150,
+    "table_extraction_f1_score": 0.9613,
+    "layout_hierarchy_precision": 0.9787,
+    "character_error_rate_cer": 0.00819,
+    "processing_throughput_pages_per_min": 48.5
+  },
+  "timestamp": "2026-07-30T19:07:26Z"
+}
