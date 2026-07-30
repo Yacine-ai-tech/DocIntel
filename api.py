@@ -499,7 +499,7 @@ async def process(
                 tcount = sum(len(p.extract_tables() or []) for p in pdf.pages)
             fields.setdefault("_tables_detected", tcount)
         except Exception:
-            import logging; logging.error('Unhandled exception', exc_info=True)
+            log.exception("Unexpected error")
             pass
 
     return ProcessResponse(
