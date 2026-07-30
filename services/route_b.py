@@ -92,14 +92,20 @@ _WAKE_MIN_INTERVAL = 90.0
 #   novita, nscale, deepinfra — use ROUTE_B_HF_PROVIDER to pick one.
 # nebius was removed from HF router (no longer a valid provider).
 _GROQ_MODEL_MAP: Dict[str, str] = {
-    # Ollama tag -> Groq model ID
-    "qwen2.5vl:7b": "meta-llama/llama-4-scout-17b-16e-instruct",
-    "qwen2.5vl:72b": "meta-llama/llama-4-maverick-17b-128e-instruct",
-    "qwen2-vl:7b": "meta-llama/llama-4-scout-17b-16e-instruct",
-    "llava:7b": "meta-llama/llama-4-scout-17b-16e-instruct",
-    "llava:13b": "meta-llama/llama-4-maverick-17b-128e-instruct",
-    "llama3.2-vision:11b": "meta-llama/llama-4-scout-17b-16e-instruct",
-    "llama3.2-vision:90b": "meta-llama/llama-4-maverick-17b-128e-instruct",
+    # Ollama tag → Groq model ID
+    # IMPORTANT: This Groq account has NO vision models (llama-4-scout/maverick not enabled).
+    # Available models: whisper-large-v3-turbo, llama-3.3-70b-versatile, llama-3.1-8b-instant
+    # Vision via Groq requires a separate account with llama-4-scout access.
+    # Until then, Groq is used for Whisper ASR + text LLM only.
+    "qwen2.5vl:7b": "llama-3.3-70b-versatile",    # text-only fallback (no vision on this key)
+    "qwen2.5vl:72b": "llama-3.3-70b-versatile",
+    "qwen2-vl:7b": "llama-3.3-70b-versatile",
+    "llava:7b": "llama-3.3-70b-versatile",
+    "llava:13b": "llama-3.3-70b-versatile",
+    "llama3.2-vision:11b": "llama-3.3-70b-versatile",
+    "llama3.2-vision:90b": "llama-3.3-70b-versatile",
+    # Default text model if no match
+    "default": "llama-3.3-70b-versatile",
 }
 
 # HF router provider → preferred vision model
@@ -125,15 +131,16 @@ def _resolve_model(ollama_tag: str, dialect: str) -> str:
     if override:
         return override
     if dialect == "groq":
-        return _GROQ_MODEL_MAP.get(ollama_tag.lower(),
-                                   "meta-llama/llama-4-scout-17b-16e-instruct")
+        mapped = _GROQ_MODEL_MAP.get(ollama_tag.lower())
+        if not mapped:
+            mapped = _GROQ_MODEL_MAP.get("default", "llama-3.3-70b-versatile")
+        return mapped
     if dialect == "hf":
         provider = os.getenv("ROUTE_B_HF_PROVIDER", "fireworks-ai").strip().lower()
         return _HF_PROVIDER_MODEL_MAP.get(provider,
                "accounts/fireworks/models/llama-v3p2-11b-vision-instruct")
     # raw Ollama remote — use tag as-is
     return ollama_tag
-
 
 
 def _fire_wake_signal() -> None:
