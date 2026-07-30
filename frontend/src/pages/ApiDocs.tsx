@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Terminal, Copy, Check, Code2, Globe, Shield, Zap, BookOpen } from "lucide-react";
 
-const BASE_URL = "https://gateway.ysiddo-ai-projects.app/docintel";
+const BASE_URL = "http://localhost:8000/docintel";
 const ENDPOINTS = [
   {
     "method": "GET",
