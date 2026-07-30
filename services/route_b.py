@@ -203,6 +203,34 @@ def _downscale_image(image_bytes: bytes, max_edge: int = 2200) -> bytes:
         return image_bytes
 
 
+def _upload_temp_image(image_bytes: bytes) -> str:
+    """
+    Groq vision requires a public HTTPS URL and rejects base64 data URIs.
+    This temporarily uploads the image to a free ephemeral host (uguu.se)
+    so Groq can download it. Files auto-delete after 24h.
+    """
+    try:
+        req = urllib.request.Request(
+            "https://uguu.se/upload",
+            data=b"".join([
+                b"--boundary\r\n",
+                b'Content-Disposition: form-data; name="files[]"; filename="image.png"\r\n',
+                b"Content-Type: image/png\r\n\r\n",
+                image_bytes,
+                b"\r\n--boundary--\r\n"
+            ]),
+            headers={"Content-Type": "multipart/form-data; boundary=boundary"}
+        )
+        resp = json.loads(urllib.request.urlopen(req, timeout=15).read())
+        url = resp["files"][0]["url"]
+        log.debug("Route B: Temp image uploaded to %s", url)
+        return url
+    except Exception as e:
+        log.warning("Route B: Temp image upload failed: %s", e)
+        raise ValueError("Groq vision requires a public image URL, but temp upload failed.") from e
+
+
+
 # ─── Local mode ───────────────────────────────────────────────────────────────
 
 def _call_local_sync(model: str, prompt: str, imgs: List[bytes]) -> str:
@@ -315,7 +343,7 @@ def _call_remote_openai_sync(
 ) -> str:
     """
     Talk to an OpenAI-compatible remote endpoint (Groq, HuggingFace, etc.).
-    Uses the /chat/completions format with base64 image_url.
+    Uses the /chat/completions format with base64 image_url (or public URL for Groq).
 
     HuggingFace note: `hf-inference` dropped vision support. Use ROUTE_B_HF_PROVIDER
     (fireworks-ai by default) + a valid HF user access token (Bearer).
@@ -323,7 +351,7 @@ def _call_remote_openai_sync(
     URL is rewritten to:  https://router.huggingface.co/{provider}/v1/chat/completions
     """
     timeout = int(os.getenv("ROUTE_B_TIMEOUT", "60"))
-    b64 = base64.b64encode(_downscale_image(imgs[0])).decode()
+    img_bytes = _downscale_image(imgs[0])
 
     # HF: rewrite endpoint to use the correct provider
     # Format: https://router.huggingface.co/{provider}/v1/chat/completions
@@ -331,10 +359,17 @@ def _call_remote_openai_sync(
         hf_provider = os.getenv("ROUTE_B_HF_PROVIDER", "fireworks-ai").strip().lower()
         url = f"https://router.huggingface.co/{hf_provider}/v1/chat/completions"
         log.info("Route B HF: provider=%s model=%s", hf_provider, model)
+        b64 = base64.b64encode(img_bytes).decode()
+        image_content = {"url": f"data:image/png;base64,{b64}"}
     elif dialect == "groq":
         url = endpoint.rstrip("/") + "/chat/completions"
+        # Groq rejects base64 data URIs. Upload temporarily to get a public URL.
+        public_url = _upload_temp_image(img_bytes)
+        image_content = {"url": public_url}
     else:
         url = endpoint.rstrip("/") + "/chat/completions"
+        b64 = base64.b64encode(img_bytes).decode()
+        image_content = {"url": f"data:image/png;base64,{b64}"}
 
     payload = {
         "model": model,
@@ -342,11 +377,12 @@ def _call_remote_openai_sync(
             "role": "user",
             "content": [
                 {"type": "text", "text": prompt},
-                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
+                {"type": "image_url", "image_url": image_content},
             ],
         }],
         "max_tokens": 2048,
     }
+
     body = json.dumps(payload).encode()
     h = {"Content-Type": "application/json", "User-Agent": "DocIntel/2.0 Route-B-Remote"}
     if token:
