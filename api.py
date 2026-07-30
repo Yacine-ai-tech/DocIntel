@@ -193,9 +193,9 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
                 log.info("Route A: Extraction succeeded")
             except Exception as e:
                 log.error(f"Route A failed: {e}")
-                raise  # Route A has no fallback
+                fields = {"error": f"Route A extraction failed: {e}"}
         if fields is None:
-            raise Exception("Route A extraction failed")
+            fields = {"error": "Route A extraction failed"}
     
     # Route B: Ollama vision (local GPU or remote Ollama-compatible endpoint)
     elif route == "vision_route_b":
