@@ -105,7 +105,9 @@ class Settings:
 settings = Settings()
 
 
-# --- OPENAI TO GEMINI FALLBACK LOGIC ---
+# Gemini model fallback — when OPENAI_API_KEY is absent but GEMINI_API_KEY is
+# present, any LLM model string referencing OpenAI/GPT is remapped to Gemini
+# Flash automatically, requiring no code changes when switching providers.
 def _apply_gemini_fallback():
     openai_key = getattr(settings, "OPENAI_API_KEY", "") or os.getenv("OPENAI_API_KEY", "")
     gemini_key = getattr(settings, "GEMINI_API_KEY", "") or os.getenv("GEMINI_API_KEY", "")
