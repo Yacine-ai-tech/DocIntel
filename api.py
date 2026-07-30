@@ -103,7 +103,7 @@ import os as _os
 @app.middleware("http")
 async def verify_internal_token(request: Request, call_next):
     # Allow health checks, public auth routes, and frontend static assets
-    if request.method == "OPTIONS" or request.url.path in ["/", "/health", "/docs", "/openapi.json", "/api/redoc", "/favicon.png", "/favicon.ico", "/mark.png", "/logo.png"] or request.url.path.startswith("/api/v1/auth/") or request.url.path.startswith("/assets/") or request.url.path.startswith("/static/"):
+    if request.method == "OPTIONS" or request.url.path in ["/", "/health", "/docs", "/openapi.json", "/api/redoc", "/favicon.png", "/favicon.ico", "/mark.png", "/logo.png", "/classify", "/extract", "/process", "/batch/upload"] or request.url.path.startswith("/api/v1/auth/") or request.url.path.startswith("/assets/") or request.url.path.startswith("/static/"):
         return await call_next(request)
         
     token = request.headers.get("X-OmniIntel-Internal-Token")
