@@ -271,14 +271,33 @@ def _call_remote_ollama_sync(
 
 
 def _call_remote_openai_sync(
-    endpoint: str, model: str, prompt: str, imgs: List[bytes], token: str
+    endpoint: str, model: str, prompt: str, imgs: List[bytes], token: str,
+    dialect: str = "openai"
 ) -> str:
     """
-    Talk to an OpenAI-compatible remote endpoint (Groq, HuggingFace).
+    Talk to an OpenAI-compatible remote endpoint (Groq, HuggingFace, etc.).
     Uses the /chat/completions format with base64 image_url.
+
+    HuggingFace note: `hf-inference` provider was dropped for vision in mid-2025.
+    Use ROUTE_B_HF_PROVIDER=nebius (default) or together/fireworks instead.
+    The endpoint URL is rewritten to include the provider subdirectory automatically:
+      https://router.huggingface.co/{provider}/models/{model}/v1/chat/completions
     """
     timeout = int(os.getenv("ROUTE_B_TIMEOUT", "60"))
     b64 = base64.b64encode(_downscale_image(imgs[0])).decode()
+
+    # HF: rewrite endpoint to use the correct provider (nebius by default)
+    # hf-inference dropped vision support — nebius/together/fireworks all work
+    if dialect == "hf":
+        hf_provider = os.getenv("ROUTE_B_HF_PROVIDER", "nebius").strip().lower()
+        # Build correct HF router URL: /provider/models/{model}/v1/chat/completions
+        url = f"https://router.huggingface.co/{hf_provider}/models/{model}/v1/chat/completions"
+        log.info("Route B HF: using provider=%s model=%s", hf_provider, model)
+    elif dialect == "groq":
+        url = endpoint.rstrip("/") + "/chat/completions"
+    else:
+        url = endpoint.rstrip("/") + "/chat/completions"
+
     payload = {
         "model": model,
         "messages": [{
@@ -294,7 +313,6 @@ def _call_remote_openai_sync(
     h = {"Content-Type": "application/json", "User-Agent": "DocIntel/2.0 Route-B-Remote"}
     if token:
         h["Authorization"] = f"Bearer {token}"
-    url = endpoint.rstrip("/") + "/chat/completions"
     req = urllib.request.Request(url, data=body, headers=h)
     resp = json.loads(urllib.request.urlopen(req, timeout=timeout).read())
     return resp["choices"][0]["message"]["content"]
@@ -327,14 +345,14 @@ async def _call_remote(model: str, prompt: str, imgs: List[bytes]) -> str:
     if dialect in ("groq", "hf"):
         try:
             return await asyncio.to_thread(
-                _call_remote_openai_sync, endpoint, resolved_model, prompt, imgs, token
+                _call_remote_openai_sync, endpoint, resolved_model, prompt, imgs, token, dialect
             )
         except Exception as e:
             err_str = str(e).lower()
             if any(kw in err_str for kw in _MLLAMA_ERRORS) and fallback_model != resolved_model:
                 log.warning("Route B remote: %s failed (%s), retrying with %s", resolved_model, e, fallback_model)
                 return await asyncio.to_thread(
-                    _call_remote_openai_sync, endpoint, fallback_model, prompt, imgs, token
+                    _call_remote_openai_sync, endpoint, fallback_model, prompt, imgs, token, dialect
                 )
             raise
     else:
