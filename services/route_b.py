@@ -85,14 +85,35 @@ _LAST_WAKE = 0.0
 _WAKE_MIN_INTERVAL = 90.0
 
 
-def _detect_dialect(endpoint: str) -> str:
-    """Return 'groq', 'hf', or 'ollama' based on the endpoint URL."""
-    ep = endpoint.lower()
-    if "groq.com" in ep:
-        return "groq"
-    if "huggingface.co" in ep or "huggingface.cloud" in ep:
-        return "hf"
-    return "ollama"
+# ─── Remote model name mapping ───────────────────────────────────────────────
+# Groq: use their current vision model IDs
+# HF Router: model IDs must match what each provider hosts
+# Valid HF router providers (as of 2025): fireworks-ai, together, featherless-ai,
+#   novita, nscale, deepinfra — use ROUTE_B_HF_PROVIDER to pick one.
+# nebius was removed from HF router (no longer a valid provider).
+_GROQ_MODEL_MAP: Dict[str, str] = {
+    # Ollama tag -> Groq model ID
+    "qwen2.5vl:7b": "meta-llama/llama-4-scout-17b-16e-instruct",
+    "qwen2.5vl:72b": "meta-llama/llama-4-maverick-17b-128e-instruct",
+    "qwen2-vl:7b": "meta-llama/llama-4-scout-17b-16e-instruct",
+    "llava:7b": "meta-llama/llama-4-scout-17b-16e-instruct",
+    "llava:13b": "meta-llama/llama-4-maverick-17b-128e-instruct",
+    "llama3.2-vision:11b": "meta-llama/llama-4-scout-17b-16e-instruct",
+    "llama3.2-vision:90b": "meta-llama/llama-4-maverick-17b-128e-instruct",
+}
+
+# HF router provider → preferred vision model
+_HF_PROVIDER_MODEL_MAP: Dict[str, str] = {
+    "fireworks-ai": "accounts/fireworks/models/llama-v3p2-11b-vision-instruct",
+    "together": "meta-llama/Llama-3.2-11B-Vision-Instruct-Turbo",
+    "featherless-ai": "Qwen/Qwen2.5-VL-7B-Instruct",
+    "novita": "Qwen/Qwen2.5-VL-7B-Instruct",
+    "deepinfra": "Qwen/Qwen2.5-VL-7B-Instruct",
+    "nscale": "Qwen/Qwen2.5-VL-7B-Instruct",
+}
+
+_MLLAMA_ERRORS = ("no such file", "not found", "mllama", "llama3.2 vision")
+
 
 
 def _resolve_model(ollama_tag: str, dialect: str) -> str:
@@ -104,11 +125,15 @@ def _resolve_model(ollama_tag: str, dialect: str) -> str:
     if override:
         return override
     if dialect == "groq":
-        return _GROQ_MODEL_MAP.get(ollama_tag, ollama_tag)
+        return _GROQ_MODEL_MAP.get(ollama_tag.lower(),
+                                   "meta-llama/llama-4-scout-17b-16e-instruct")
     if dialect == "hf":
-        return _HF_MODEL_MAP.get(ollama_tag, ollama_tag)
-    # raw Ollama remote — use tag as-is (strip variant for cleaner Ollama API calls)
+        provider = os.getenv("ROUTE_B_HF_PROVIDER", "fireworks-ai").strip().lower()
+        return _HF_PROVIDER_MODEL_MAP.get(provider,
+               "accounts/fireworks/models/llama-v3p2-11b-vision-instruct")
+    # raw Ollama remote — use tag as-is
     return ollama_tag
+
 
 
 def _fire_wake_signal() -> None:
@@ -278,21 +303,20 @@ def _call_remote_openai_sync(
     Talk to an OpenAI-compatible remote endpoint (Groq, HuggingFace, etc.).
     Uses the /chat/completions format with base64 image_url.
 
-    HuggingFace note: `hf-inference` provider was dropped for vision in mid-2025.
-    Use ROUTE_B_HF_PROVIDER=nebius (default) or together/fireworks instead.
-    The endpoint URL is rewritten to include the provider subdirectory automatically:
-      https://router.huggingface.co/{provider}/models/{model}/v1/chat/completions
+    HuggingFace note: `hf-inference` dropped vision support. Use ROUTE_B_HF_PROVIDER
+    (fireworks-ai by default) + a valid HF user access token (Bearer).
+    Valid providers: fireworks-ai, together, featherless-ai, novita, deepinfra, nscale.
+    URL is rewritten to:  https://router.huggingface.co/{provider}/v1/chat/completions
     """
     timeout = int(os.getenv("ROUTE_B_TIMEOUT", "60"))
     b64 = base64.b64encode(_downscale_image(imgs[0])).decode()
 
-    # HF: rewrite endpoint to use the correct provider (nebius by default)
-    # hf-inference dropped vision support — nebius/together/fireworks all work
+    # HF: rewrite endpoint to use the correct provider
+    # Format: https://router.huggingface.co/{provider}/v1/chat/completions
     if dialect == "hf":
-        hf_provider = os.getenv("ROUTE_B_HF_PROVIDER", "nebius").strip().lower()
-        # Build correct HF router URL: /provider/models/{model}/v1/chat/completions
-        url = f"https://router.huggingface.co/{hf_provider}/models/{model}/v1/chat/completions"
-        log.info("Route B HF: using provider=%s model=%s", hf_provider, model)
+        hf_provider = os.getenv("ROUTE_B_HF_PROVIDER", "fireworks-ai").strip().lower()
+        url = f"https://router.huggingface.co/{hf_provider}/v1/chat/completions"
+        log.info("Route B HF: provider=%s model=%s", hf_provider, model)
     elif dialect == "groq":
         url = endpoint.rstrip("/") + "/chat/completions"
     else:
