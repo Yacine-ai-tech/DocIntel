@@ -93,19 +93,18 @@ _WAKE_MIN_INTERVAL = 90.0
 # nebius was removed from HF router (no longer a valid provider).
 _GROQ_MODEL_MAP: Dict[str, str] = {
     # Ollama tag → Groq model ID
-    # IMPORTANT: This Groq account has NO vision models (llama-4-scout/maverick not enabled).
-    # Available models: whisper-large-v3-turbo, llama-3.3-70b-versatile, llama-3.1-8b-instant
-    # Vision via Groq requires a separate account with llama-4-scout access.
-    # Until then, Groq is used for Whisper ASR + text LLM only.
-    "qwen2.5vl:7b": "llama-3.3-70b-versatile",    # text-only fallback (no vision on this key)
-    "qwen2.5vl:72b": "llama-3.3-70b-versatile",
-    "qwen2-vl:7b": "llama-3.3-70b-versatile",
-    "llava:7b": "llama-3.3-70b-versatile",
-    "llava:13b": "llama-3.3-70b-versatile",
-    "llama3.2-vision:11b": "llama-3.3-70b-versatile",
-    "llama3.2-vision:90b": "llama-3.3-70b-versatile",
-    # Default text model if no match
-    "default": "llama-3.3-70b-versatile",
+    # CONFIRMED (2026-07-30): qwen/qwen3.6-27b is the working Groq vision model.
+    # llama-4-scout deprecated 2026-07-17, llama-4-maverick deprecated 2026-03-09.
+    # IMPORTANT: Groq vision requires PUBLIC HTTPS image URLs — base64 data URIs are rejected.
+    # DocIntel must upload images to a temp public URL before sending to Groq vision.
+    "qwen2.5vl:7b":         "qwen/qwen3.6-27b",
+    "qwen2.5vl:72b":        "qwen/qwen3.6-27b",
+    "qwen2-vl:7b":          "qwen/qwen3.6-27b",
+    "llava:7b":             "qwen/qwen3.6-27b",
+    "llava:13b":            "qwen/qwen3.6-27b",
+    "llama3.2-vision:11b":  "qwen/qwen3.6-27b",
+    "llama3.2-vision:90b":  "qwen/qwen3.6-27b",
+    "default":              "qwen/qwen3.6-27b",  # always use qwen vision
 }
 
 # HF router provider → preferred vision model
@@ -365,14 +364,19 @@ async def _call_remote(model: str, prompt: str, imgs: List[bytes]) -> str:
     endpoint = os.getenv("ROUTE_B_REMOTE_ENDPOINT", "").strip()
     token = os.getenv("ROUTE_B_REMOTE_TOKEN", "").strip()
 
-    # Also check legacy env vars for Groq/HF tokens
+    # Token selection by dialect:
+    # - Groq vision: GROQ_VISION_KEY (qwen/qwen3.6-27b account, confirmed working)
+    #   fallback to GROQ_API_KEY if GROQ_VISION_KEY not set
+    # - HF vision via router: HF_READ_TOKEN (full-access token, whoami-capable)
+    #   HF_TOKEN (fine-grained) only works for embed/rerank, NOT for router vision
+    # - Ollama remote: ROUTE_B_REMOTE_TOKEN or no auth
     if not token:
-        groq_key = os.getenv("GROQ_API_KEY", "").strip()
-        hf_key = os.getenv("HF_TOKEN", "").strip()
-        if "groq.com" in endpoint.lower() and groq_key:
-            token = groq_key
-        elif "huggingface" in endpoint.lower() and hf_key:
-            token = hf_key
+        if "groq.com" in endpoint.lower():
+            token = (os.getenv("GROQ_VISION_KEY", "").strip()
+                     or os.getenv("GROQ_API_KEY", "").strip())
+        elif "huggingface" in endpoint.lower():
+            token = (os.getenv("HF_READ_TOKEN", "").strip()
+                     or os.getenv("HF_TOKEN", "").strip())
 
     dialect = _detect_dialect(endpoint)
     resolved_model = _resolve_model(model, dialect)
