@@ -22,7 +22,7 @@ _USER = os.environ.get("LIGHTNING_USER_ID")
 _KEY = os.environ.get("LIGHTNING_API_KEY")
 _NAME = os.environ.get("LIGHTNING_STUDIO_NAME", "upwork")
 _TEAMSPACE = os.environ.get("LIGHTNING_TEAMSPACE", "hello-studio-setup-project")
-_ORG = os.environ.get("LIGHTNING_ORG")  # e.g. yacinetrainer227-5z4m0-org
+_ORG = os.environ.get("LIGHTNING_ORG")  # e.g. your-org-slug (set via LIGHTNING_ORG env var)
 
 _waking = threading.Event()  # coalesce concurrent wake attempts
 
