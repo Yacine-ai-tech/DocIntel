@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 
 # Deployed service URL
-DOCINTEL_URL = "https://docintel.ysiddo-ai-projects.app"
+DOCINTEL_URL = "http://localhost:8000"
 
 # Create a simple test PDF
 def create_test_pdf():
