@@ -107,14 +107,15 @@ _GROQ_MODEL_MAP: Dict[str, str] = {
     "default":              "qwen/qwen3.6-27b",  # always use qwen vision
 }
 
-# HF router provider → preferred vision model
-# STATUS (2026-07-30): HF router vision is NOT available with a fine-grained token.
-# - fireworks-ai/together/deepinfra all return 400 "Model not supported by provider"
-#   for vision models when called via router.huggingface.co with fine-grained tokens.
-# - HF router vision requires a FULL-ACCESS token (whoami-capable), not fine-grained.
-# - Until a full-access HF token is provided, ROUTE_B_PROVIDER=hf will fall through
-#   to Route C (OCR fallback) automatically via the _call_remote error handler.
-# TODO: Replace with a full-access HF token, or use ROUTE_B_PROVIDER=ollama (Ollama local).
+# HF router provider → preferred vision model.
+#
+# NOTE: HF router vision requires a full-access HF token (not fine-grained).
+# Fine-grained tokens return 400 errors from all supported providers
+# (fireworks-ai, together, deepinfra) when calling vision models via
+# router.huggingface.co.  To enable Route B with HF, supply a full-access
+# token in ROUTE_B_HF_TOKEN, or set ROUTE_B_PROVIDER=ollama to use a
+# locally-hosted Ollama vision model instead.  Without a full-access token,
+# ROUTE_B_PROVIDER=hf will transparently fall through to Route C (Tesseract OCR).
 _HF_PROVIDER_MODEL_MAP: Dict[str, str] = {
     "fireworks-ai": "meta-llama/Llama-3.2-11B-Vision-Instruct",
     "together": "meta-llama/Llama-3.2-11B-Vision-Instruct",
