@@ -15,7 +15,7 @@ const AUTH_URL = process.env.INTELAI_API_URL   || '/';
 
 async function getAuthToken(request: any): Promise<string> {
   const resp = await request.post(`${AUTH_URL}/api/login`, {
-    data: { username: 'admin', password: 'fLNtwDH2VaQLbO' }
+    data: { username: 'admin', password: process.env.E2E_ADMIN_PASSWORD || 'CHANGE_ME' }
   }).catch(() => null);
   if (resp && resp.ok()) {
     const body = await resp.json();
@@ -44,12 +44,12 @@ test.describe('Phase 4.1 — DocIntel UI Workflows', () => {
       const req = route.request();
       const url = req.url();
       if ((req.resourceType() === 'fetch' || req.resourceType() === 'xhr') && url.includes('vercel.app')) {
-        let backendUrl = 'https://intelai-bwhp.onrender.com';
-        if (url.includes('docintel-ui')) backendUrl = 'https://docintel-mm79.onrender.com';
-        else if (url.includes('agentkit-ui')) backendUrl = 'https://agentkit-sbz5.onrender.com';
-        else if (url.includes('rageval-ui')) backendUrl = 'https://rageval-4xh5.onrender.com';
-        else if (url.includes('voiceflow-ui')) backendUrl = 'https://voiceflow-riao.onrender.com';
-        else if (url.includes('streampulse-ui')) backendUrl = 'https://streampulse-gv4o.onrender.com';
+        let backendUrl = process.env.STAGING_INTELAI_URL || 'https://intelai-bwhp.onrender.com';
+        if (url.includes('docintel-ui')) backendUrl = process.env.STAGING_DOCINTEL_URL || 'https://docintel-mm79.onrender.com';
+        else if (url.includes('agentkit-ui')) backendUrl = process.env.STAGING_AGENTKIT_URL || 'https://agentkit-sbz5.onrender.com';
+        else if (url.includes('rageval-ui')) backendUrl = process.env.STAGING_RAGEVAL_URL || 'https://rageval-4xh5.onrender.com';
+        else if (url.includes('voiceflow-ui')) backendUrl = process.env.STAGING_VOICEFLOW_URL || 'https://voiceflow-riao.onrender.com';
+        else if (url.includes('streampulse-ui')) backendUrl = process.env.STAGING_STREAMPULSE_URL || 'https://streampulse-gv4o.onrender.com';
         
         const pathPart = new URL(url).pathname;
         const newUrl = backendUrl.replace(/\/$/, '') + pathPart;
