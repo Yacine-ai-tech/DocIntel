@@ -11,6 +11,8 @@ services:
     plan: free
     autoDeploy: false
     envVars:
+      - key: ENVIRONMENT
+        value: production
       - key: ANTHROPIC_API_KEY     # Route A — Claude Sonnet 4.6 Vision
         sync: false
       - key: GROQ_API_KEY          # Route B groq provider / Route C LLM structuring
