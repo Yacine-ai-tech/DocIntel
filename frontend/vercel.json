@@ -1,6 +1,18 @@
 {
   "rewrites": [
     {
+      "source": "/docs",
+      "destination": "https://gateway.ysiddo-ai-projects.app/docintel/docs"
+    },
+    {
+      "source": "/docs/(.*)",
+      "destination": "https://gateway.ysiddo-ai-projects.app/docintel/docs/$1"
+    },
+    {
+      "source": "/openapi.json",
+      "destination": "https://gateway.ysiddo-ai-projects.app/docintel/openapi.json"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
