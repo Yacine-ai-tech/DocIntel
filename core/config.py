@@ -101,6 +101,9 @@ class Settings:
         if o.strip()
     ]
 
+    # Dedicated Neon Postgres for DocIntel (audit logs, job tracking, telemetry)
+    POSTGRES_URL: str = os.getenv("POSTGRES_URL", "")
+
 
 settings = Settings()
 
