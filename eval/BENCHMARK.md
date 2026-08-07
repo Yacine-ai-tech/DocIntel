@@ -124,6 +124,11 @@ ollama pull qwen2.5vl:7b
 LLM_VISION_LOCAL=ollama/qwen2.5vl:7b python eval/run_benchmark.py --route vision_local --doc-type receipt --limit 100
 ```
 
+### Route A Alternatives (Surya and Marker)
+
+- **Surya**: We evaluated `SuryaExtractor` as an advanced layout-aware OCR alternative for dense documents where pure Tesseract loses reading order. While heavy on ML dependencies, it outperforms Tesseract on multi-column layouts.
+- **Marker**: A specialized PDF-to-Markdown route. Used primarily for extracting full-text structure from born-digital documents prior to LLM processing.
+
 ## Cost and compute notes
 
 - **Cloud spend is bounded by sampling**: the cheap OCR-cleanup route runs broadly; the premium
