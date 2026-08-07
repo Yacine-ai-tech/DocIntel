@@ -212,6 +212,19 @@ async def extract_marker(file: UploadFile = File(...)):
     finally:
         os.remove(tmp_path)
     return res
+    
+# ─────────────────────────────────────────────────────────────────────────────
+# Surya-OCR Route A Alternative
+# ─────────────────────────────────────────────────────────────────────────────
+
+from services.surya_extractor import SuryaExtractor
+_surya = SuryaExtractor()
+
+@app.post("/extract/surya")
+async def extract_surya(file: UploadFile = File(...)):
+    """Route A explicit: Layout-aware OCR via Surya."""
+    data = await file.read()
+    return _surya.extract(data)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Camera QR / Mobile Uploads
@@ -381,10 +394,9 @@ async def process(
     if isinstance(fields, dict) and is_pdf(data):
         try:
             import io as _io
-            import pdfplumber
-            with pdfplumber.open(_io.BytesIO(data)) as pdf:
-                tcount = sum(len(p.extract_tables() or []) for p in pdf.pages)
-            fields.setdefault("_tables_detected", tcount)
+            from services.ocr_extractor import PDFTableExtractor
+            tables = PDFTableExtractor.extract_tables(_io.BytesIO(data))
+            fields.setdefault("_tables_detected", len(tables))
         except Exception:
             import logging; logging.error('Unhandled exception', exc_info=True)
             pass
@@ -415,14 +427,10 @@ async def extract_llm(text: str = Form(...), doc_type: str = Form("invoice")) ->
 async def extract_tables(file: UploadFile = File(...)) -> Dict[str, Any]:
     """Extract tables from a PDF via pdfplumber (table detection only)."""
     try:
-        import pdfplumber
         import io
+        from services.ocr_extractor import PDFTableExtractor
         pdf_bytes = await file.read()
-        tables: List[Any] = []
-        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-            for page in pdf.pages:
-                page_tables = page.extract_tables() or []
-                tables.extend(page_tables)
+        tables = PDFTableExtractor.extract_tables(io.BytesIO(pdf_bytes))
         return {"tables": tables, "table_count": len(tables)}
     except ImportError:
         return {"error": "pdfplumber_not_installed", "tables": []}

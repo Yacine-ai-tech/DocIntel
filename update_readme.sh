@@ -1,3 +1,4 @@
+cat << 'README_EOF' > /home/ai-sniper/Downloads/credential/DocIntel/README.md
 # DocIntel
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
@@ -89,3 +90,4 @@ DocIntel is released under the **AGPL-3.0 License**, ensuring unrestricted acces
 *Anonymous Telemetry:* We collect sparse, GDPR-compliant startup pings to gauge open-source utilization. Opt-out by setting `TELEMETRY_OPT_OUT=true` in your `.env`.
 
 See [COMMERCIAL.md](COMMERCIAL.md) and [TELEMETRY.md](TELEMETRY.md) for details.
+README_EOF
