@@ -59,7 +59,6 @@ export default function CameraDashboard() {
               onClick={handlePair}
               disabled={loading}
               className="mt-6 w-48"
-              size="lg"
             >
               {loading ? (
                 <RefreshCw className="animate-spin mr-2" size={18} />
@@ -92,7 +91,7 @@ export default function CameraDashboard() {
 
             <div className="pt-6">
               <Button 
-                variant="outline" 
+                variant="secondary" 
                 onClick={() => { setQrCode(null); setToken(""); }}
               >
                 Reset Session
