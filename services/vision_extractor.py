@@ -1,17 +1,26 @@
 """
-Vision-LLM document extractor — 2026 vision-first route.
+Vision-LLM document extractor — DocIntel 2.0
 
 Routes:
-  - Premium: Claude Sonnet 4.6 Vision via LiteLLM (complex layouts, handwriting, mixed langs)
-  - Local: Ollama vision via LiteLLM (local privacy, $0/page) — Qwen2.5-VL is the validated
-    default; Llama 3.2 Vision also loads on Ollama 0.11.4 but its KIE quality is poor.
+  - Route A: Claude Sonnet 4.6 Vision via LiteLLM (premium quality, complex layouts)
+  - Route B: Ollama vision model (local GPU or remote Ollama-compatible endpoint)
+             Model selection: OLLAMA_MODEL (default: qwen2.5vl:7b)
+             Mode selection:  ROUTE_B_MODE (local | remote)
+             See services/route_b.py for full configuration reference.
+  - Route C: OCR fallback (Tesseract + LLM cleanup) — automatic fallback for Route B failures
 
-Extracted amount/currency/date fields are normalized deterministically afterwards by
-`services.normalize` (multi-currency, multi-locale) — LLMs are unreliable at locale parsing.
+Supported Ollama vision models (primary focus per strategy.md):
+  - Qwen 2.5-VL 7B / 72B  — lighter, works on most GPUs, great for forms/invoices
+  - Llama 3.2 Vision 11B / 90B — better for complex mixed-language layouts
+  Any other Ollama vision model (minicpm-v, llava, etc.) also works via OLLAMA_MODEL.
 
-Multi-page documents are supported: pass a list of page images and they are sent to the
-vision model in one request so it can aggregate across pages (totals on a later page,
-multi-page contracts, etc.).
+Multi-page documents:
+  Both Route A and Route B support arbitrarily large PDFs via chunked map-reduce.
+  Route B uses VISION_PAGES_PER_CALL_LOCAL (default 2) pages per chunk and
+  ROUTE_B_CHUNK_CONCURRENCY (default 1, sequential) to avoid GPU OOM.
+
+Extracted numeric/currency/date fields are normalized deterministically by
+`services.normalize` after extraction — LLMs are unreliable at locale parsing.
 """
 from __future__ import annotations
 
@@ -41,23 +50,22 @@ try:
 except ImportError:
     _PIL = False
 
-# Page images sent to the vision model in ONE request. Larger docs are split into chunks of
-# this size and merged (map-reduce) so 100+ page PDFs work without a token blow-up.
+# ─── Page/chunk limits ────────────────────────────────────────────────────────
+# Pages sent to the vision model in ONE request. Larger docs are split into
+# chunks and merged (map-reduce) so 100+ page PDFs work without a token blow-up.
 VISION_PAGES_PER_CALL = int(os.getenv("VISION_PAGES_PER_CALL", "8"))
-# Hard ceiling on total pages processed per document (cost/safety). Raise via env for huge docs.
-MAX_VISION_PAGES = int(os.getenv("MAX_VISION_PAGES", "200"))
-# Concurrent vision calls when chunking a large document.
-VISION_CHUNK_CONCURRENCY = int(os.getenv("VISION_CHUNK_CONCURRENCY", "3"))
-# Local (Ollama) vision models have a small context window, so use fewer pages per call and
-# raise the Ollama context size so a chunk still fits.
+# Route B (Ollama) uses smaller context windows — fewer pages per chunk.
 VISION_PAGES_PER_CALL_LOCAL = int(os.getenv("VISION_PAGES_PER_CALL_LOCAL", "2"))
-OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
+# Hard ceiling on total pages per document (cost/safety). Raise via env for huge docs.
+MAX_VISION_PAGES = int(os.getenv("MAX_VISION_PAGES", "200"))
+# Concurrent Route A vision calls when chunking. Route B uses ROUTE_B_CHUNK_CONCURRENCY.
+VISION_CHUNK_CONCURRENCY = int(os.getenv("VISION_CHUNK_CONCURRENCY", "3"))
 # Downscale page images whose longest side exceeds this (px) to control token cost.
 VISION_MAX_EDGE = int(os.getenv("VISION_MAX_EDGE", "2200"))
 
-# Rules appended to every doc-type prompt. They encode the hard-won extraction lessons:
-# multi-page aggregation, handwriting, EU decimals, ISO currency, nulls, self-reported
-# confidence. Keep terse — vision models follow compact instructions well.
+
+# ─── Extraction prompts ───────────────────────────────────────────────────────
+# Rules appended to every prompt — encode hard-won extraction lessons.
 _RULES = (
     " The document may span MULTIPLE page images — read ALL of them and aggregate "
     "(a field such as the grand total may appear only on a later page; line items may "
@@ -65,9 +73,8 @@ _RULES = (
     "a machine-readable decimal with a dot (US '1,234.56' -> 1234.56; European '1.234,56' "
     "-> 1234.56; spaced '1 234 567 FCFA' -> 1234567; strip thousands separators, spaces and "
     "currency symbols). Use ISO-4217 currency codes (USD, EUR, GBP, JPY, INR, CNY, XOF, XAF, "
-    "...); the "
-    "West African CFA franc written 'FCFA'/'CFA'/'F CFA' is XOF (Central African CFA is "
-    "XAF). Dates as ISO YYYY-MM-DD. If a field is not present, use null. "
+    "...); the West African CFA franc written 'FCFA'/'CFA'/'F CFA' is XOF (Central African "
+    "CFA is XAF). Dates as ISO YYYY-MM-DD. If a field is not present, use null. "
     "Also include a numeric \"_confidence\" between 0 and 1 for the overall extraction. "
     "Return ONLY a single valid JSON object, no prose, no markdown fences."
 )
@@ -106,6 +113,8 @@ VISION_PROMPTS: Dict[str, str] = {
 }
 
 
+# ─── Utility helpers ──────────────────────────────────────────────────────────
+
 def _strip_fences(text: str) -> str:
     text = re.sub(r"^```(?:json)?\s*", "", text.strip())
     text = re.sub(r"\s*```$", "", text)
@@ -141,204 +150,106 @@ def _image_block(image_bytes: bytes) -> Dict[str, Any]:
     return {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}}
 
 
-_LAST_VISION_WAKE = 0.0
+# ─── Route A: Claude Sonnet 4.6 Vision ───────────────────────────────────────
+
+async def _vision_call_route_a(model: str, prompt: str, imgs: List[bytes]) -> str:
+    """Route A: Claude Sonnet 4.6 Vision via LiteLLM (high quality, no fallback needed)."""
+    log.info("Route A: using %s", model)
+    if not _LITELLM:
+        raise RuntimeError("Route A requires litellm — install it with: pip install litellm")
+    content = [{"type": "text", "text": prompt}]
+    for img in imgs:
+        content.append(_image_block(img))
+    response = await acompletion(
+        model=model,
+        messages=[{"role": "user", "content": content}],
+        max_tokens=2048,
+        temperature=0.1,
+    )
+    return response.choices[0].message.content
 
 
-def _wake_vision_studio() -> None:
-    """Fire-and-forget wake of the on-demand inference Studio (GPU) for Route B. Rate-limited."""
-    import time as _t, threading
-    global _LAST_VISION_WAKE
-    url = os.getenv("ORCHESTRATOR_URL", "").strip()
-    if not url or (_t.time() - _LAST_VISION_WAKE) < 60:
-        return
-    _LAST_VISION_WAKE = _t.time()
-    def _go():
-        try:
-            import json as _j, urllib.request
-            h = {"Content-Type": "application/json", "User-Agent": "DocIntel/1.0 (+https://ysiddo-ai-projects.app)"}
-            tk = os.getenv("ORCH_TOKEN", "").strip()
-            if tk: h["Authorization"] = "Bearer " + tk
-            urllib.request.urlopen(urllib.request.Request(url.rstrip("/") + "/wake",
-                data=_j.dumps({"gpu": True}).encode(), headers=h), timeout=90)
-        except Exception:
-            import logging; logging.error('Unhandled exception', exc_info=True)
-            pass
-    threading.Thread(target=_go, daemon=True).start()
-
-
-def _remote_vision_sync(remote: str, model: str, prompt: str, imgs: List[bytes]) -> Optional[str]:
-    import json as _j, urllib.request
-    b64 = base64.b64encode(_downscale(imgs[0])).decode()  # Route B remote: first page per call
-    h = {"Content-Type": "application/json", "User-Agent": "DocIntel/1.0 (+https://ysiddo-ai-projects.app)"}
-    tk = os.getenv("INFERENCE_TOKEN", "").strip()
-    if tk: h["Authorization"] = "Bearer " + tk
-    body = _j.dumps({"image_b64": b64, "prompt": prompt, "model": model.split("/", 1)[-1]}).encode()
-    req = urllib.request.Request(remote.rstrip("/") + "/vision", data=body, headers=h)
-    timeout = float(os.getenv("LIGHTNING_VISION_TIMEOUT", "45"))
-    return _j.loads(urllib.request.urlopen(req, timeout=timeout).read())["content"]
-
-
-async def _vision_call(model: str, prompt: str, imgs: List[bytes]) -> str:
-    if model.startswith("ollama"):
-        provider = os.getenv("VISION_PROVIDER", "groq").lower()
-
-        async def _try_lightning():
-            remote = os.getenv("LIGHTNING_VISION_URL", "").strip()
-            if not remote: return None
-            import asyncio
-            return await asyncio.to_thread(_remote_vision_sync, remote, model, prompt, imgs)
-
-        async def _try_groq():
-            groq_token = os.getenv("GROQ_API_KEY", "").strip()
-            if not groq_token: return None
-            import urllib.request, json as _json, base64
-            b64 = base64.b64encode(_downscale(imgs[0])).decode()
-            groq_model = "llama-3.2-11b-vision-preview"
-            url = "https://api.groq.com/openai/v1/chat/completions"
-            h = {"Authorization": f"Bearer {groq_token}", "Content-Type": "application/json"}
-            body = _json.dumps({
-                "model": groq_model,
-                "messages": [{"role": "user", "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}}
-                ]}],
-                "max_tokens": 1024
-            }).encode()
-            req = urllib.request.Request(url, data=body, headers=h)
-            res = _json.loads(urllib.request.urlopen(req, timeout=45).read())
-            return res["choices"][0]["message"]["content"]
-
-        async def _try_hf():
-            hf_token = os.getenv("HF_TOKEN", "").strip()
-            if not hf_token: return None
-            import urllib.request, json as _json, base64
-            b64 = base64.b64encode(_downscale(imgs[0])).decode()
-            
-            def _call(hf_model: str):
-                url = f"https://router.huggingface.co/hf-inference/models/{hf_model}/v1/chat/completions"
-                h = {"Authorization": f"Bearer {hf_token}", "Content-Type": "application/json"}
-                body = _json.dumps({
-                    "model": hf_model,
-                    "messages": [{"role": "user", "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}}
-                    ]}],
-                    "max_tokens": 1024
-                }).encode()
-                req = urllib.request.Request(url, data=body, headers=h)
-                res = _json.loads(urllib.request.urlopen(req, timeout=45).read())
-                return res["choices"][0]["message"]["content"]
-
-            primary = os.getenv("HF_VISION_MODEL", "Qwen/Qwen2-VL-7B-Instruct")
-            fallback = "meta-llama/Llama-3.2-11B-Vision-Instruct"
-            try:
-                import asyncio
-                return await asyncio.to_thread(_call, primary)
-            except Exception as e:
-                log.warning("HF vision primary model (%s) failed: %s — trying fallback", primary, e)
-                try:
-                    import asyncio
-                    return await asyncio.to_thread(_call, fallback)
-                except Exception as fb_err:
-                    raise Exception(f"HF both models failed. Last error: {fb_err}")
-
-        if provider == "groq":
-            try:
-                res = await _try_groq()
-                if res: return res
-            except Exception as e:
-                log.warning("Groq vision primary failed (%s) — falling back", e)
-            try:
-                res = await _try_hf()
-                if res: return res
-            except Exception as e:
-                log.warning("HF vision fallback failed (%s) — falling back to Lightning", e)
-            try:
-                res = await _try_lightning()
-                if res: return res
-            except Exception as e:
-                log.warning("Lightning vision fallback failed (%s) — waking studio", e)
-                _wake_vision_studio()
-
-        else: # provider == "lightning" or default
-            try:
-                res = await _try_lightning()
-                if res: return res
-            except Exception as e:
-                log.warning("Lightning vision primary failed (%s) — waking studio + falling back", e)
-                _wake_vision_studio()
-            try:
-                res = await _try_hf()
-                if res: return res
-            except Exception as e:
-                log.warning("HF vision fallback failed: %s", e)
-            try:
-                res = await _try_groq()
-                if res: return res
-            except Exception as e:
-                log.warning("Groq vision fallback failed: %s", e)
-
-    content: List[Dict[str, Any]] = [{"type": "text", "text": prompt}]
-    content.extend(_image_block(i) for i in imgs)
-    kwargs: Dict[str, Any] = {
-        "model": model,
-        "messages": [{"role": "user", "content": content}],
-        "temperature": 0.1,
-    }
-    # Local Ollama models default to a tiny 4096-token context; raise it so multi-image
-    # chunks fit (each downscaled page is ~2.5-3k tokens).
-    if model.startswith("ollama"):
-        kwargs["num_ctx"] = OLLAMA_NUM_CTX
-    response = await acompletion(**kwargs)
-    return response.choices[0].message.content or "{}"
-
-
-async def _extract_one(model: str, prompt: str, imgs: List[bytes]) -> Dict[str, Any]:
-    """One vision call over up to VISION_PAGES_PER_CALL images, with a single JSON retry.
-    Returns a parsed dict or an {"error": ...} dict (never raises)."""
+async def _extract_one_route_a(model: str, prompt: str, imgs: List[bytes]) -> Dict[str, Any]:
+    """One Route A vision call over up to VISION_PAGES_PER_CALL images, with JSON retry."""
     p, last = prompt, ""
     for attempt in (1, 2):
         try:
-            last = await _vision_call(model, p, imgs)
+            last = await _vision_call_route_a(model, p, imgs)
             result = json.loads(_strip_fences(last))
             return result if isinstance(result, dict) else {"value": result}
         except json.JSONDecodeError as e:
-            log.warning("Vision-LLM non-JSON (attempt %d): %s", attempt, e)
+            log.warning("Route A non-JSON (attempt %d): %s", attempt, e)
             if attempt == 1:
                 p = prompt + " Your previous reply was not valid JSON. Output ONLY the JSON object."
                 continue
             return {"error": "non_json_response", "raw": last[:500]}
         except Exception as e:
-            log.exception("Vision extraction failed: %s", e)
+            log.exception("Route A extraction failed: %s", e)
             return {"error": str(e)}
     return {"error": "unreachable"}
 
+
+# ─── Route B: Ollama Vision ───────────────────────────────────────────────────
+
+async def _vision_call_route_b(prompt: str, imgs: List[bytes]) -> str:
+    """
+    Route B: Ollama vision call via services.route_b.call_route_b().
+    Raises on failure — caller handles fallback to Route C.
+    """
+    from services.route_b import call_route_b
+    mode = os.getenv("ROUTE_B_MODE", "local")
+    model = os.getenv("OLLAMA_MODEL", "qwen2.5vl:7b")
+    log.info("Route B: mode=%s model=%s pages=%d", mode, model, len(imgs))
+    return await call_route_b(prompt, imgs)
+
+
+async def _extract_one_route_b(prompt: str, imgs: List[bytes]) -> Dict[str, Any]:
+    """
+    One Route B vision call with a single JSON-parse retry.
+    Returns a parsed dict or an {"error": ...} dict. Never raises.
+    """
+    p, last = prompt, ""
+    for attempt in (1, 2):
+        try:
+            last = await _vision_call_route_b(p, imgs)
+            result = json.loads(_strip_fences(last))
+            return result if isinstance(result, dict) else {"value": result}
+        except json.JSONDecodeError as e:
+            log.warning("Route B non-JSON (attempt %d): %s", attempt, e)
+            if attempt == 1:
+                p = prompt + " Your previous reply was not valid JSON. Output ONLY the JSON object."
+                continue
+            return {"error": "non_json_response", "raw": last[:500]}
+        except Exception as e:
+            log.error("Route B extraction failed: %s", e)
+            return {"error": str(e), "_route_b_failed": True}
+    return {"error": "unreachable"}
+
+
+# ─── Public extraction entry point ────────────────────────────────────────────
 
 async def extract_via_vision_llm(
     images: Union[bytes, List[bytes]],
     model: Optional[str] = None,
     doc_type: str = "invoice",
+    route_b: bool = False,
 ) -> Dict[str, Any]:
     """
     Extract structured data from one or more document page images using a vision LLM.
 
-    Multi-page documents are sent together so the model can aggregate across pages. Large
-    documents (more pages than VISION_PAGES_PER_CALL) are processed in page-chunks
-    concurrently and merged (map-reduce), so 100+ page PDFs work without exceeding the
-    request's token budget.
+    Multi-page documents are processed in page-chunks and merged (map-reduce), so
+    100+ page PDFs work without exceeding token budgets.
 
     Args:
-        images: Raw PNG/JPEG bytes, or a list of page images for a multi-page document.
-        model: LiteLLM vision-capable model. Defaults to LLM_VISION_PREMIUM.
+        images:  Raw PNG/JPEG bytes, or a list of page images for a multi-page document.
+        model:   LiteLLM model string for Route A. Ignored for Route B (uses OLLAMA_MODEL).
         doc_type: invoice|contract|receipt|financial_report|auction_listing|form|default.
+        route_b: If True, use Route B (Ollama) instead of Route A (Claude).
 
     Returns:
-        A dict of extracted fields (with "_confidence", "_pages", and "_chunks" when chunked).
-        Error dict if extraction fails.
+        A dict of extracted fields. Includes _confidence, _pages, _chunks (when chunked).
+        Error dict if extraction fails completely.
     """
-    if not _LITELLM:
-        return {"error": "litellm_not_installed"}
-
     imgs = _coerce_images(images)
     if not imgs:
         return {"error": "no_image"}
@@ -348,24 +259,63 @@ async def extract_via_vision_llm(
         imgs = imgs[:MAX_VISION_PAGES]
         n_pages = MAX_VISION_PAGES
 
-    model = model or os.getenv("LLM_VISION_PREMIUM", "anthropic/claude-sonnet-4-6")
     prompt = VISION_PROMPTS.get(doc_type, VISION_PROMPTS["default"]) + _RULES
-    # Local models have a smaller context, so send fewer pages per call.
-    per_call = VISION_PAGES_PER_CALL_LOCAL if model.startswith("ollama") else VISION_PAGES_PER_CALL
 
-    # Small document → a single call so the model sees all pages at once.
+    # ── Route B: Ollama vision ─────────────────────────────────────────────
+    if route_b:
+        per_call = VISION_PAGES_PER_CALL_LOCAL
+        concurrency = int(os.getenv("ROUTE_B_CHUNK_CONCURRENCY", "1"))
+
+        # Small document → single call
+        if n_pages <= per_call:
+            result = await _extract_one_route_b(prompt, imgs)
+            if isinstance(result, dict) and "_route_b_failed" not in result:
+                normalize_fields(result, doc_type)
+                result.setdefault("_confidence", result.pop("_confidence", None))
+                result["_pages"] = n_pages
+                result.setdefault("_route_b_mode", os.getenv("ROUTE_B_MODE", "local"))
+                result.setdefault("_route_b_model", os.getenv("OLLAMA_MODEL", "qwen2.5vl:7b"))
+            return result
+
+        # Large document → chunked map-reduce
+        chunks = [imgs[i:i + per_call] for i in range(0, n_pages, per_call)]
+        log.info(
+            "Route B large document: %d pages → %d chunks of %d (concurrency=%d)",
+            n_pages, len(chunks), per_call, concurrency,
+        )
+        sem = asyncio.Semaphore(concurrency)
+
+        async def _run_b(chunk: List[bytes]) -> Dict[str, Any]:
+            async with sem:
+                return await _extract_one_route_b(prompt, chunk)
+
+        parts = await asyncio.gather(*(_run_b(c) for c in chunks))
+
+        # If any chunk failed, propagate the failure so Route C can take over
+        failures = [p for p in parts if isinstance(p, dict) and p.get("_route_b_failed")]
+        if failures:
+            log.warning("Route B: %d/%d chunks failed — propagating failure for Route C fallback", len(failures), len(chunks))
+            return {"error": str(failures[0].get("error", "chunk_failed")), "_route_b_failed": True}
+
+        merged = merge_doc_fields([p for p in parts if isinstance(p, dict)])
+        normalize_fields(merged, doc_type)
+        merged.setdefault("_confidence", None)
+        merged["_pages"] = n_pages
+        merged["_chunks"] = len(chunks)
+        merged["_route_b_mode"] = os.getenv("ROUTE_B_MODE", "local")
+        merged["_route_b_model"] = os.getenv("OLLAMA_MODEL", "qwen2.5vl:7b")
+        return merged
+
+    # ── Route A: Claude Sonnet 4.6 Vision ─────────────────────────────────
+    if not _LITELLM:
+        return {"error": "litellm_not_installed — Route A requires litellm"}
+
+    model = model or os.getenv("LLM_VISION_ROUTE_A", "anthropic/claude-sonnet-4-6")
+    per_call = VISION_PAGES_PER_CALL
+
+    # Small document → single call
     if n_pages <= per_call:
-        result = await _extract_one(model, prompt, imgs)
-        if isinstance(result, dict) and "error" in result and model.startswith("ollama"):
-            # Route B fallback to OCR
-            from services.ocr_extractor import extract_text_from_image
-            text = extract_text_from_image(imgs[0])
-            return {
-                "_warning": "The Inference Studio is asleep. Waking it up now. Falling back to basic OCR for this request.",
-                "ocr_text_fallback": text,
-                "_pages": n_pages,
-                "error": "vision_studio_starting"
-            }
+        result = await _extract_one_route_a(model, prompt, imgs)
         if isinstance(result, dict) and "error" not in result:
             normalize_fields(result, doc_type)
             result.setdefault("_confidence", None)
@@ -374,33 +324,23 @@ async def extract_via_vision_llm(
 
     # Large document → map-reduce over page chunks (bounded concurrency), then merge.
     chunks = [imgs[i:i + per_call] for i in range(0, n_pages, per_call)]
-    log.info("large document: %d pages → %d vision chunks of %d", n_pages, len(chunks), per_call)
+    log.info("Route A large document: %d pages → %d chunks of %d", n_pages, len(chunks), per_call)
     sem = asyncio.Semaphore(VISION_CHUNK_CONCURRENCY)
 
-    async def _run(chunk: List[bytes]) -> Dict[str, Any]:
+    async def _run_a(chunk: List[bytes]) -> Dict[str, Any]:
         async with sem:
-            return await _extract_one(model, prompt, chunk)
+            return await _extract_one_route_a(model, prompt, chunk)
 
-    parts = await asyncio.gather(*(_run(c) for c in chunks))
-    
-    # If any chunk failed for Ollama, do OCR fallback for the first page
-    if model.startswith("ollama") and any(isinstance(p, dict) and "error" in p for p in parts):
-        from services.ocr_extractor import extract_text_from_image
-        text = extract_text_from_image(imgs[0])
-        return {
-            "_warning": "The Inference Studio is asleep. Waking it up now. Falling back to basic OCR for this request.",
-            "ocr_text_fallback": text,
-            "_pages": n_pages,
-            "error": "vision_studio_starting"
-        }
-
-    merged = merge_doc_fields(parts)
+    parts = await asyncio.gather(*(_run_a(c) for c in chunks))
+    merged = merge_doc_fields([p for p in parts if isinstance(p, dict)])
     normalize_fields(merged, doc_type)
     merged.setdefault("_confidence", None)
     merged["_pages"] = n_pages
     merged["_chunks"] = len(chunks)
     return merged
 
+
+# ─── Image classification (Route A only) ─────────────────────────────────────
 
 async def classify_image(
     image_bytes: bytes,
@@ -409,19 +349,17 @@ async def classify_image(
 ) -> Dict[str, Any]:
     """
     Vision-first object classification — used for auction-listing aggregation.
-
     Returns {"category": str, "confidence": float in [0,1], "reasoning": str}.
     """
     if not _LITELLM:
         return {"error": "litellm_not_installed"}
-
-    model = model or os.getenv("LLM_VISION_PREMIUM", "anthropic/claude-sonnet-4-6")
+    model = model or os.getenv("LLM_VISION_ROUTE_A", "anthropic/claude-sonnet-4-6")
     prompt = (
         f"Classify the main object/document in this image into one of: {', '.join(categories)}. "
         "Return ONLY JSON: {category, confidence (0-1), reasoning}."
     )
     try:
-        content = await _vision_call(model, prompt, [image_bytes])
+        content = await _vision_call_route_a(model, prompt, [image_bytes])
         return json.loads(_strip_fences(content))
     except Exception as e:
         log.exception("classify_image failed: %s", e)
