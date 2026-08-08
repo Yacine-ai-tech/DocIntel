@@ -15,9 +15,9 @@ DocIntel is a production-ready, vision-first document extraction engine. It tran
 Modern document extraction is shifting from traditional multi-stage OCR pipelines (`Tesseract -> NLP -> JSON`) to vision-language models (VLMs) capable of end-to-end spatial and semantic reasoning. DocIntel implements this paradigm shift while maintaining legacy compliance paths.
 
 - **Vision-First Cascaded Extraction:**
-  - **Route A (Premium Cloud):** Leverages Claude Sonnet 4.6 Vision for state-of-the-art layout comprehension, handwritten transcription, and multilingual reasoning.
-  - **Route B (Privacy-Preserving Local):** Operates entirely offline using Qwen2.5-VL 7B on accessible GPU hardware (e.g., NVIDIA T4) for zero API cost and stringent data sovereignty.
-  - **Route C (Legacy Fallback):** Tesseract OCR coupled with an LLM text-cleanup phase.
+  - **Route A (Premium Cloud):** Leverages a standard Vision URL for state-of-the-art layout comprehension, handwritten transcription, and multilingual reasoning.
+  - **Route B (Privacy-Preserving Local):** Operates entirely offline using a local GPU VLM on accessible hardware (e.g., NVIDIA T4) for zero API cost and stringent data sovereignty.
+  - **Route C (Legacy Fallback):** Tesseract OCR coupled with a generic LLM text-cleanup phase.
 - **Advanced Document Understanding:**
   - Direct integration with **Marker** for rigorous PDF-to-Markdown conversion.
   - Integration with **Surya** for layout-aware OCR and bounding-box resolution.
@@ -40,7 +40,7 @@ DocIntel is continuously evaluated against real-world corpora to validate extrac
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env  # Configure applicable provider API keys
+cp .env.example .env  # Configure applicable database and standard generic endpoints
 uvicorn api:app --port 8001
 ```
 
