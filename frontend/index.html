@@ -13,17 +13,32 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="dns-prefetch" href="https://fonts.googleapis.com" />
     <link rel="dns-prefetch" href="https://fonts.gstatic.com" />
+    
+
+  
     <script>
+      // Zero-Trust Fresh Code Guarantee: Unregister SW & clear CacheStorage on every mount
       if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js').catch(() => {});
-        });
+        navigator.serviceWorker.getRegistrations().then(function(registrations) {
+          for (var registration of registrations) {
+            registration.unregister();
+          }
+        }).catch(function() {});
+      }
+      if ('caches' in window) {
+        caches.keys().then(function(names) {
+          for (var name of names) {
+            caches.delete(name);
+          }
+        }).catch(function() {});
       }
     </script>
-
-  </head>
+</head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
-  </body>
+  
+  <!-- Cloudflare Analytics Pixel -->
+  <img src="http://localhost:8000/pixel/docintel" width="1" height="1" style="display:none" alt="" aria-hidden="true">
+</body>
 </html>

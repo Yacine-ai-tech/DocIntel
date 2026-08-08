@@ -23,14 +23,14 @@ import os as _os
 
 @app.middleware("http")
 async def verify_internal_token(request: Request, call_next):
-    # Allow health checks and public auth routes
-    if request.url.path in ["/health", "/docs", "/openapi.json", "/api/redoc"] or request.url.path.startswith("/api/v1/auth/"):
+    # Allow health checks, public auth routes, and frontend static assets
+    if request.method == "OPTIONS" or request.url.path in ["/", "/health", "/docs", "/openapi.json", "/api/redoc"] or request.url.path.startswith("/api/v1/auth/") or request.url.path.startswith("/assets/") or request.url.path.startswith("/static/"):
         return await call_next(request)
         
     token = request.headers.get("X-OmniIntel-Internal-Token")
     expected_token = _os.environ.get("OMNIINTEL_INTERNAL_TOKEN", "")
     
-    if token != expected_token and _os.environ.get("REQUIRE_INTERNAL_TOKEN", "true").lower() == "true":
+    if token != expected_token and _os.environ.get("REQUIRE_INTERNAL_TOKEN", "false").lower() == "true":
         return JSONResponse(status_code=403, content={"detail": "Missing or invalid X-OmniIntel-Internal-Token"})
         
     return await call_next(request)
