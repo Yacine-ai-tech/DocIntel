@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "docintel"
+version = "0.1.0"
+description = "DocIntel — Vision-first document AI & OCR pipeline."
+readme = "README.md"
+license = { text = "AGPL-3.0" }
+requires-python = ">=3.10"
+authors = [{ name = "Yacine" }]
+classifiers = [
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+]
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "python-dotenv",
+    "httpx",
+]
+
+[tool.setuptools]
+
+[tool.setuptools.packages.find]
+where = ["services"]
+include = ["*"]

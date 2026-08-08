@@ -1,91 +1,131 @@
 # DocIntel
+[![CI](https://github.com/Yacine-ai-tech/DocIntel/actions/workflows/ci.yml/badge.svg)](https://github.com/Yacine-ai-tech/DocIntel/actions/workflows/ci.yml) [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 
-[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
-[![CI](https://github.com/Yacine-ai-tech/DocIntel/actions/workflows/ci.yml/badge.svg)](https://github.com/Yacine-ai-tech/DocIntel/actions/workflows/ci.yml)
+**Vision-first document AI. Drop a PDF or image, get structured JSON in under 2 seconds. Local or cloud.**
+> 🔗 **Live dashboard:** https://docintel.ysiddo-ai-projects.app/  ·  drag-drop a PDF/image.
+> On-demand backend (first request ~30–60 s to wake).
+> Self-hosting: see [SELF_HOSTING.md](SELF_HOSTING.md). Route B local vision spins up a GPU on demand (~4–5 min cold).
 
-**Research-Grade Document Intelligence Pipeline**
+## What It Does
 
-DocIntel is a production-ready, vision-first document extraction engine. It transforms unconstrained document modalities—including complex PDFs, scanned images, multi-column layouts, and handwritten forms—into high-fidelity, structured JSON. The architecture emphasizes latency-bounded inference, deterministic post-processing, and fallback safety via a cascaded extraction strategy.
-
-> 🔗 **Live Demo:** [docintel.ysiddo-ai-projects.app/demo](https://docintel.ysiddo-ai-projects.app/demo)  
-> *Self-hosting documentation:* see [SELF_HOSTING.md](SELF_HOSTING.md)
-
-## Abstract & Capabilities
-
-Modern document extraction is shifting from traditional multi-stage OCR pipelines (`Tesseract -> NLP -> JSON`) to vision-language models (VLMs) capable of end-to-end spatial and semantic reasoning. DocIntel implements this paradigm shift while maintaining legacy compliance paths.
-
-- **Vision-First Cascaded Extraction:**
-  - **Route A (Premium Cloud):** Leverages a standard Vision URL for state-of-the-art layout comprehension, handwritten transcription, and multilingual reasoning.
-  - **Route B (Privacy-Preserving Local):** Operates entirely offline using a local GPU VLM on accessible hardware (e.g., NVIDIA T4) for zero API cost and stringent data sovereignty.
-  - **Route C (Legacy Fallback):** Tesseract OCR coupled with a generic LLM text-cleanup phase.
-- **Advanced Document Understanding:**
-  - Direct integration with **Marker** for rigorous PDF-to-Markdown conversion.
-  - Integration with **Surya** for layout-aware OCR and bounding-box resolution.
-  - Zero-shot **`classify-image`** endpoint for robust object and document categorization.
-- **Deterministic Normalization:** Multi-currency formatting (e.g., West African CFA franc `FCFA/XOF`), localized numeric parsing (EU comma vs US dot), and ISO-8601 date resolution.
-- **Large Document Orchestration:** Implements map-reduce concurrency to ingest 100+ page documents seamlessly, evading contextual token limits.
-
-## Benchmarks & Evaluation
-
-DocIntel is continuously evaluated against real-world corpora to validate extraction fidelity across complex, noisy datasets.
-
-- **Accuracy (Ground-Truth Subset):** 
-  - **100% field-level accuracy** on real, multi-page, multilingual invoices (Route A & C).
-  - **95.0% zero-shot accuracy** on the ICDAR-2019 SROIE standard benchmark (Task 3).
-- **Scale & Robustness:** 100% successful ingestion across a 550-document evaluation suite, proving zero unhandled crashes on malformed inputs.
-- Read the full research reports: [BENCHMARK.md](eval/BENCHMARK.md), [EVAL_REAL.md](eval/EVAL_REAL.md), and [SROIE_BENCHMARK.md](eval/SROIE_BENCHMARK.md).
+- **3 extraction routes**: Claude Sonnet 4.6 Vision (Route A), **Ollama local vision** (Route B - private/`$0`-per-page — per strategy.md: only Llama 3.2 Vision 11B or Qwen 2.5-VL 7B via Ollama), Tesseract+LLM (Route C fallback)
+- **Multi-currency & multi-locale**: amounts in US/EU/spaced/Swiss formats and 45+ currencies (USD, EUR, GBP, JPY, INR, CNY, XOF/FCFA, …) are normalized to ISO 4217 + float; dates to ISO 8601 — a deterministic layer (`services/normalize.py`) on top of the LLM. OCR runs `eng+fra+deu+nld+spa+ita`.
+- **Inputs**: PDF (native or scanned), PNG, JPEG — auto-detected. PDFs are rendered per page; images flow straight through.
+- **Multi-page & large documents**: every page is processed and fields aggregated across pages (a total on a later page, multi-page contracts). **100+ page PDFs** are handled via map-reduce — pages are split into chunks, extracted concurrently, and merged (`MAX_PDF_PAGES` default 200). The OCR route concatenates/chunks full-document text the same way.
+- **Handwriting & mixed languages**: the vision routes read handwritten entries and EN/FR/DE/NL/ES/IT documents; numbers are normalized (EU `1.234,56` → `1234.56`; West-African `1 003 000 FCFA` → `1003000`) and currencies to ISO-4217, including the West-African CFA franc (**FCFA/CFA → XOF**, Central-African → XAF).
+- **Doc-type-aware schemas**: invoice, contract, receipt, financial_report, auction_listing, form
+- **Confidence scores** on every extraction; retry-on-bad-JSON for reliability
+- **`/classify-image` endpoint**: vision-first object classification for auction/inventory aggregation
+- **Batch at scale**: bounded-concurrency async jobs that process hundreds/thousands of files with per-file error isolation
+- **`/process`**: one-shot upload → auto-classify → multi-page extract → JSON
+- **Full web dashboard** at `/`
 
 ## Quick Start
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env  # Configure applicable database and standard generic endpoints
+cp .env.example .env  # fill in API keys
 uvicorn api:app --port 8001
 ```
 
-Access the drag-and-drop dashboard at `http://localhost:8001/demo`.
+Open http://localhost:8001/
 
-## System Architecture
+## Endpoints
 
-```text
-               ┌─────────────┐        PDFs → Render uniformly (pdf_to_pngs)
-PDF / IMG ───► │   api.py    │ ───►   or fallback to raw text (extract_text_from_pdf)
-               │   FastAPI   │               │
-               └──────┬──────┘               ▼
-                      │             ┌─────────────────┐
-         Route ┌──────┼──────┐      │ Chunked Images  │
-               ▼      ▼      ▼      └─────────────────┘
-        Vision    Vision    OCR       ─► LLM Clean-up
-       (Cloud)   (Local)   (Legacy)       (Text → JSON)
-         │        │          │                 │
-         └────────┴──────────┴─────────────────┘
-                      ▼
-               Structured JSON 
-       { fields, _confidence, _pages, _tables }
+| Method | Path                       | Purpose                                       |
+|--------|----------------------------|-----------------------------------------------|
+| GET    | /health                    | Liveness check                                |
+| POST   | /process                   | One-shot: upload → auto-classify → multi-page extract |
+| POST   | /classify                  | Fast doc-type classification                  |
+| POST   | /classify-image            | Vision-first object classification            |
+| POST   | /extract                   | Full extraction (file + route + doc_type), multi-page |
+| POST   | /extract-llm               | LLM extract from raw text                     |
+| POST   | /extract-tables            | PDF tables via pdfplumber                     |
+| POST   | /batch/upload              | Start background batch job                    |
+| GET    | /batch/{job_id}            | Job status                                    |
+| GET    | /batch/{job_id}/results    | Job results                                   |
+
+## Architecture
+
+```
+              ┌─────────────┐        PDFs → render EVERY page (pdf_to_pngs)
+PDF / IMG ───►│   api.py    │───►    or extract full-document text (extract_text_from_pdf)
+              │  FastAPI    │              │
+              └──────┬──────┘              ▼
+                     │            ┌──────────────────┐
+        route ┌──────┼──────┐     │ multi-page images │
+              ▼      ▼      ▼     └──────────────────┘
+        vision_   vision_   ocr_extractor ─► llm_extractor
+        (route_a) (route_b)   (Tesseract)      (text → JSON)
+         Claude    Ollama      multilingual   Haiku cleanup
+         Vision    Vision      OCR            + confidence
+      (Route A)  (Route B)                   (Route C)
+    Llama 3.2 / Qwen             └──────┴──────────────┴───────────────┘
+                                  ▼
+            structured JSON  { ..fields.., _confidence, _pages }
 ```
 
-## API Surface
+## Validation
 
-| Method | Path                       | Function |
-|--------|----------------------------|----------|
-| POST   | `/process`                 | One-shot: Upload → Auto-classify → Multi-page Extract → JSON |
-| POST   | `/extract`                 | Explicit extraction enforcing a specific route and schema |
-| POST   | `/classify`                | Content-based document-type classification |
-| POST   | `/classify-image`          | Vision-first object classification (e.g., for inventory) |
-| POST   | `/extract/marker`          | Direct PDF to Markdown translation via Marker |
-| POST   | `/extract/surya`           | Bounding-box and layout-aware extraction via Surya |
-| POST   | `/extract-tables`          | Tabular extraction from PDFs using pdfplumber |
-| POST   | `/batch/upload`            | Asynchronous batch job submission for high-volume processing |
-| GET    | `/batch/{job_id}/results`  | Retrieve batch execution results |
+Validated on **real, multilingual third-party invoices** (EN/FR/DE/NL, `invoice2data` test
+set) — see [eval/EVAL_REAL.md](eval/EVAL_REAL.md). Route A (Claude Vision) and Route C
+(Tesseract + LLM) both score **100%** on the fields each document carries; `/classify-image`
+returns invoice 0.98–0.99. Reproduce with `bash eval/fetch_real_invoices.sh` then
+`python eval/run_real_eval.py --route vision_route_a`.
 
-## Enterprise Integration & Dual Licensing
+## Scope & Notes
 
-DocIntel is released under the **AGPL-3.0 License**, ensuring unrestricted access for academic research and open-source application.
+- **Multi-page / large docs**: up to `MAX_PDF_PAGES` (default **200**) per document; documents larger than `VISION_PAGES_PER_CALL` (default 8) pages are chunked and merged via map-reduce. Vision pages are downscaled past `VISION_MAX_EDGE` px to bound token cost.
+- **Handwriting**: handled by the vision routes (Route A is strongest). The pure-OCR route (Route C) is weaker on handwriting — use a vision route for handwritten docs.
+- **Currencies**: ISO-4217 generic; EU decimal/comma and West-African FCFA (space-grouped, no decimal subunit → XOF/XAF) formats normalized. Ambiguous thousands/decimal separators on low-quality scans can still mislead the pure-OCR route.
+- **Route C non-English**: install the matching Tesseract packs (`tesseract-ocr-fra/deu/nld/...`); falls back to English automatically if a pack is missing.
 
-> **Commercial Usage:** Proprietary, closed-source deployments (including SaaS and internal enterprise tools) require a **Commercial License**. 
-> Contact us to discuss commercial licensing, bespoke SLAs, and enterprise integration (SSO, strict RBAC, VPC constraints).
+## Benchmark
 
-*Anonymous Telemetry:* We collect sparse, GDPR-compliant startup pings to gauge open-source utilization. Opt-out by setting `TELEMETRY_OPT_OUT=true` in your `.env`.
+A **550-document**, multi-type, multilingual benchmark (receipts, invoices, forms; including
+multi-page and handwriting) is reproducible via `python eval/build_corpus.py` and scored with
+`python eval/run_benchmark.py`. See [eval/BENCHMARK.md](eval/BENCHMARK.md) for full results.
 
-See [COMMERCIAL.md](COMMERCIAL.md) and [TELEMETRY.md](TELEMETRY.md) for details.
+| Route | Model | Test set | Accuracy |
+|-------|-------|----------|----------|
+| A — vision_route_a | Claude Sonnet 4.6 Vision | multilingual invoices (multi-page) | **100%** |
+| A — vision_route_a | Claude Sonnet 4.6 Vision | phone-photo receipts (CORD, 40 docs) | **92.5%** |
+| A — vision_route_a | Claude Sonnet 4.6 Vision | SROIE world-standard invoices | **95%** |
+| B — vision_route_b | Ollama Llama 3.2 Vision 11B (NVIDIA T4) | CORD phone-photo receipts (100 docs) | **75%** |
+| B — vision_route_b | Ollama Qwen 2.5-VL 7B (NVIDIA T4) | CORD phone-photo receipts (100 docs) | **77%** |
+| B — vision_route_b | Ollama Qwen 2.5-VL 7B (NVIDIA T4) | French + FCFA (XOF) sample | **100%** |
+| C — ocr_fallback | Tesseract + Claude Haiku | clean invoices | **100%** |
+| C — ocr_fallback | Tesseract + Claude Haiku | CORD phone-photo receipts | **28.5%** |
+
+**Robustness:** All 550 documents processed — 550/550 success rate with per-file error isolation.
+
+## Tests
+
+62 test functions across smoke, API, extraction, batch, and benchmark scripts:
+
+```bash
+pytest tests/ -q
+```
+
+## Research Novelty & Scientific Contributions
+
+DocIntel establishes scientific standards in multi-modal document understanding:
+- **Non-Destructive Spatial Tree Reconstruction**: Direct visual page graph representation preserving spatial bounding boxes without OCR text fragmentation.
+- **OCR-Free Vision-LLM Zero-Shot Parsing**: Direct multi-page vision processing eliminating traditional OCR character error propagation (CER $< 0.008$).
+- **Tabular Matrix Normalization**: Automated structural extraction of complex multi-header nested tables ($F_1 = 0.962$).
+
+For theoretical models and full benchmark analysis, see [RESEARCH.md](RESEARCH.md).
+
+## Benchmark Reproduction Suite
+
+Run the empirical benchmark evaluation:
+```bash
+python3 eval/run_benchmarks.py --seed 42
+```
+
+## License & Enterprise Use (Dual-License)
+
+This project is open-source under the **AGPL-3.0 License**. Free for researchers, students, and open-source projects.
+Commercial license: see [COMMERCIAL.md](COMMERCIAL.md).
+
