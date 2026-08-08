@@ -1,3 +1,5 @@
+export class ApiError extends Error { constructor(public status: number, message: string) { super(message); this.name = 'ApiError'; } }
+
 /** Typed client for the DocIntel API. Same-origin in production (FastAPI serves dist/);
  *  in dev the Vite proxy forwards to VITE_PROXY_TARGET. */
 

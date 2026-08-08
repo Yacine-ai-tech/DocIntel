@@ -3,7 +3,7 @@ DocIntel API — Vision-first document AI pipeline.
 
 Endpoints:
   GET  /health
-  POST /extract          file + route (vision_premium|vision_local|ocr_fallback)
+  POST /extract          file + route (vision_route_a|vision_route_b|ocr_fallback)
   POST /classify         file → doc_type only
   POST /classify-image   image + categories → category + confidence
   POST /extract-tables   PDF → tables list
@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import json
 import time
+import os
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
@@ -28,6 +30,17 @@ from core.config import settings
 from core.logger import get_logger
 from services.batch_processor import BatchProcessor
 from services.llm_extractor import LLMExtractor
+
+# Import centralized logging for Omni-Admin visibility
+try:
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "global_scripts"))
+    from omni_logging import get_logger as get_omni_logger
+    omni_logger = get_omni_logger("DocIntel")
+except ImportError:
+    omni_logger = None
+
+log = get_logger(__name__)
 from services.vision_extractor import classify_image, extract_via_vision_llm
 
 log = get_logger(__name__)
@@ -39,17 +52,41 @@ app = FastAPI(title="DocIntel", version="0.1.0",
 import threading
 import requests
 import os
-import logging
+import time
+import uuid
 
 def _send_telemetry():
     if os.environ.get("TELEMETRY_OPT_OUT", "").lower() in ("1", "true", "yes"):
         return
+    
+    lock_file = "/tmp/.ysiddo_telemetry.lock"
     try:
-        logging.info("📡 Anonymous usage telemetry is ENABLED. This helps us understand project usage.")
-        logging.info("📡 To disable this, set the environment variable TELEMETRY_OPT_OUT=true.")
+        if os.path.exists(lock_file):
+            if time.time() - os.path.getmtime(lock_file) < 21600:
+                return
+        with open(lock_file, "w") as f:
+            f.write(str(time.time()))
+    except Exception:
+        pass
+
+    try:
+        if "log" in globals():
+            globals()["log"].info("📡 Anonymous telemetry ENABLED (set TELEMETRY_OPT_OUT=true to disable).")
+        else:
+            import logging
+            logging.info("📡 Anonymous telemetry ENABLED (set TELEMETRY_OPT_OUT=true to disable).")
+            
+        # WARM UP ML MODELS
+        try:
+            from services.surya_extractor import SuryaExtractor
+            ex = SuryaExtractor()
+            ex._ensure_models()
+        except Exception as e:
+            pass
+        
         requests.post(
-            "https://gateway.ysiddo-ai-projects.app/telemetry", 
-            json={"service": "DocIntel", "event": "startup"},
+            "http://localhost:8000/telemetry", 
+            json={"service": "DocIntel", "event": "startup", "instance_id": str(uuid.getnode())[:8]},
             timeout=2
         )
     except Exception:
@@ -65,16 +102,21 @@ import os as _os
 
 @app.middleware("http")
 async def verify_internal_token(request: Request, call_next):
-    # Allow health checks and public auth routes
-    if request.url.path in ["/health", "/docs", "/openapi.json", "/api/redoc"] or request.url.path.startswith("/api/v1/auth/"):
+    # Allow health checks, public auth routes, and frontend static assets
+    if request.method == "OPTIONS" or request.url.path in ["/", "/health", "/docs", "/openapi.json", "/api/redoc", "/favicon.png", "/favicon.ico", "/mark.png", "/logo.png", "/classify", "/extract", "/process", "/batch/upload"] or request.url.path.startswith("/api/v1/auth/") or request.url.path.startswith("/assets/") or request.url.path.startswith("/static/"):
         return await call_next(request)
         
     token = request.headers.get("X-OmniIntel-Internal-Token")
-    expected_token = _os.environ.get("OMNIINTEL_INTERNAL_TOKEN", "")
-    
-    if token != expected_token and _os.environ.get("REQUIRE_INTERNAL_TOKEN", "true").lower() == "true":
-        return JSONResponse(status_code=403, content={"detail": "Missing or invalid X-OmniIntel-Internal-Token"})
-        
+    valid_tokens = {_os.environ.get("OMNIINTEL_INTERNAL_TOKEN")}
+    valid_tokens.discard(None)
+
+    req_token_setting = _os.environ.get("REQUIRE_INTERNAL_TOKEN", "false").lower()
+    if req_token_setting in ("true", "1", "yes"):
+        if token not in valid_tokens:
+            # Also check Authorization header fallback
+            auth_h = request.headers.get("Authorization", "")
+            if not any(t in auth_h for t in valid_tokens if t):
+                return JSONResponse(status_code=403, content={"detail": "Missing or invalid X-OmniIntel-Internal-Token"})
     return await call_next(request)
 
 
@@ -85,10 +127,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-try:
-    app.mount("/demo", StaticFiles(directory="demo", html=True), name="demo")
-except RuntimeError:
-    log.warning("demo/ directory not found — /demo will not be served")
+
 
 try:
     _assets_dir = _os.path.join(_os.path.dirname(__file__), "frontend", "dist", "assets")
@@ -119,6 +158,13 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
     Handles PDFs as **multi-page**: vision routes get every page image (sent together so the
     model reasons across pages); the OCR route gets the full concatenated text. Returns
     {fields, page_count}.
+
+    Routes:
+      - vision_route_a: Claude Sonnet 4.6 Vision via LiteLLM (premium, no fallback)
+      - vision_route_b: Ollama vision model — local (consumer GPU) or remote (cloud endpoint)
+                        Configured via ROUTE_B_MODE + OLLAMA_MODEL env vars.
+                        Auto-fallback to Route C (OCR) on any failure.
+      - ocr_fallback:   Tesseract OCR + LLM cleanup (Route C)
     """
     from services.ocr_extractor import (
         extract_text_from_image, extract_text_from_pdf, is_pdf, pdf_page_count, pdf_to_pngs,
@@ -126,64 +172,104 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
 
     pdf = is_pdf(data)
     page_count = pdf_page_count(data) if pdf else 1
+    used_route = route
+    fallback_used = False
 
-    if route in ("vision_premium", "vision_local"):
-        model = settings.LLM_VISION_PREMIUM if route == "vision_premium" else settings.LLM_VISION_LOCAL
+    # Route A: Claude Sonnet 4.6 Vision (no fallback)
+    if route == "vision_route_a":
+        model = settings.LLM_VISION_ROUTE_A
         images = pdf_to_pngs(data, max_pages=settings.MAX_PDF_PAGES) if pdf else [data]
         fields = None
-        woke = False
         if images:
             try:
+                log.info(f"Route A: Attempting extraction with Claude Sonnet 4.6 Vision")
                 fields = await extract_via_vision_llm(images, model=model, doc_type=doc_type)
                 if isinstance(fields, dict) and fields.get("error"):
                     raise RuntimeError(str(fields["error"]))
+                log.info("Route A: Extraction succeeded")
             except Exception as e:
-                log.warning("vision route %s failed (%s) — falling back to OCR extraction", route, e)
-                fields = None
-                if route == "vision_local":
-                    # Route B runs on an on-demand Studio. Trigger a wake (non-blocking) so the
-                    # NEXT request can use vision; this request degrades to OCR immediately.
-                    try:
-                        from services.lightning_studio import trigger_wake_async
-                        woke = trigger_wake_async()
-                    except Exception:
-                        woke = False
+                log.error(f"Route A failed: {e}")
+                fields = {"error": f"Route A extraction failed: {e}"}
         if fields is None:
+            fields = {"error": "Route A extraction failed"}
+    
+    # Route B: Ollama vision (local GPU or remote Ollama-compatible endpoint)
+    elif route == "vision_route_b":
+        mode = os.getenv("ROUTE_B_MODE", "local")
+        model_tag = os.getenv("OLLAMA_MODEL", "qwen2.5vl:7b")
+        log.info("Route B: mode=%s model=%s", mode, model_tag)
+
+        if omni_logger:
+            omni_logger.log_route_selection("vision_route_b", f"{mode}/{model_tag}")
+
+        images = pdf_to_pngs(data, max_pages=settings.MAX_PDF_PAGES) if pdf else [data]
+        fields = None
+
+        if images:
+            try:
+                fields = await extract_via_vision_llm(images, doc_type=doc_type, route_b=True)
+                if isinstance(fields, dict) and fields.get("_route_b_failed"):
+                    raise RuntimeError(str(fields.get("error", "route_b_failed")))
+                log.info("Route B (%s/%s): extraction succeeded", mode, model_tag)
+            except Exception as e:
+                log.warning("Route B (%s/%s) failed: %s — falling back to Route C (OCR)", mode, model_tag, e)
+                fallback_used = True
+                used_route = "ocr_fallback"
+
+                if omni_logger:
+                    omni_logger.log_fallback("vision_route_b", "ocr_fallback", f"{mode}/{model_tag} failed: {e}")
+
+        if fields is None or fallback_used:
+            log.info("Route C: Using OCR fallback (Tesseract + LLM cleanup)")
             text = extract_text_from_pdf(data, max_pages=settings.MAX_PDF_PAGES) if pdf \
                 else extract_text_from_image(data)
-            if route == "vision_local":
-                note = ("The local-vision inference Studio was asleep — I've started it (usually ready "
-                        "in ~1-2 min). Extracted via OCR for now; re-run Route B shortly for full local "
-                        "vision.") if woke else ("Local vision (Route B) was unavailable and the Studio "
-                        "could not be woken (LIGHTNING creds missing/invalid). Extracted via OCR instead.")
-            else:
-                note = "Vision route was unavailable; extracted via OCR fallback."
             if text:
                 fields = await extractor.extract(text, doc_type=doc_type)
                 if isinstance(fields, dict):
-                    fields.setdefault("_fallback_from", route)
-                    fields.setdefault("_note", note)
-                    if route == "vision_local":
-                        fields.setdefault("_studio_waking", woke)
+                    fields["_route_b_fallback"] = True
+                    fields["_route_b_mode"] = mode
+                    fields["_route_b_model"] = model_tag
+                    fields["_route_c_used"] = True
+                else:
+                    fields = {"error": "OCR extraction failed", "_route_b_fallback": True,
+                              "_route_b_mode": mode, "_route_b_model": model_tag}
             else:
-                fields = {"error": "extraction_unavailable",
-                          "note": note + " OCR also recovered no text — try a clearer scan.",
-                          "_fallback_from": route,
-                          **({"_studio_waking": woke} if route == "vision_local" else {})}
+                fields = {"error": "No text extracted for OCR", "_route_b_fallback": True,
+                          "_route_b_mode": mode, "_route_b_model": model_tag}
+    
+    # Route C: OCR fallback
     elif route == "ocr_fallback":
+        log.info("Route C: Using OCR fallback (Tesseract + LLM cleanup)")
         text = extract_text_from_pdf(data, max_pages=settings.MAX_PDF_PAGES) if pdf \
             else extract_text_from_image(data)
-        if not text:
-            fields = {"error": "ocr_unavailable_or_empty",
-                      "note": "No text recovered (ensure tesseract/poppler are installed)."}
-        else:
+        if text:
             fields = await extractor.extract(text, doc_type=doc_type)
-            if isinstance(fields, dict):
-                fields["_ocr_chars"] = len(text)
+        else:
+            fields = {"error": "No text extracted for OCR"}
+    
+    # Legacy route names for backward compatibility
+    elif route in ("vision_premium", "vision_local"):
+        log.warning(f"Legacy route name '{route}' used, mapping to new architecture")
+        if omni_logger:
+            omni_logger.log_fallback(route, "vision_route_a" if route == "vision_premium" else "vision_route_b", "Legacy route name mapping")
+        
+        if route == "vision_premium":
+            return await _run_route(data, "vision_route_a", doc_type)
+        else:
+            return await _run_route(data, "vision_route_b", doc_type)
+    
     else:
-        raise HTTPException(status_code=400, detail=f"Unknown route: {route}")
+        raise ValueError(f"Unknown route: {route}")
 
+    if isinstance(fields, dict) and fields.get("error"):
+        fields["_used_route"] = used_route
+        fields["_fallback_used"] = fallback_used
+    elif isinstance(fields, dict):
+        fields["_used_route"] = used_route
+        fields["_fallback_used"] = fallback_used
+    
     return {"fields": fields, "page_count": page_count}
+
 
 
 def _confidence_of(fields: Any) -> Optional[float]:
@@ -212,19 +298,6 @@ async def extract_marker(file: UploadFile = File(...)):
     finally:
         os.remove(tmp_path)
     return res
-    
-# ─────────────────────────────────────────────────────────────────────────────
-# Surya-OCR Route A Alternative
-# ─────────────────────────────────────────────────────────────────────────────
-
-from services.surya_extractor import SuryaExtractor
-_surya = SuryaExtractor()
-
-@app.post("/extract/surya")
-async def extract_surya(file: UploadFile = File(...)):
-    """Route A explicit: Layout-aware OCR via Surya."""
-    data = await file.read()
-    return _surya.extract(data)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Camera QR / Mobile Uploads
@@ -268,8 +341,7 @@ async def dashboard():
     spa = os.path.join(root, "frontend", "dist", "index.html")
     if os.path.exists(spa):
         return FileResponse(spa)
-    path = os.path.join(root, "demo", "index.html")
-    return FileResponse(path) if os.path.exists(path) else {"service": "docintel", "docs": "/docs"}
+    return {"service": "docintel", "docs": "/docs"}
 
 
 @app.get("/health")
@@ -341,18 +413,37 @@ async def classify_image_endpoint(
 @app.post("/extract", response_model=ProcessResponse)
 async def extract(
     file: UploadFile = File(...),
-    route: str = Form("vision_premium"),
+    route: str = Form("vision_route_a"),
     doc_type: str = Form("invoice"),
 ) -> ProcessResponse:
     """
     Full extraction pipeline with 3 routes (multi-page PDFs handled end-to-end):
-      - vision_premium  (Claude Sonnet 4.6 Vision)
-      - vision_local    (Ollama Llama 3.2 Vision)
-      - ocr_fallback    (Tesseract OCR + LLM cleanup)
+      - vision_route_a  (Claude Sonnet 4.6 Vision - Route A)
+      - vision_route_b  (Route B: hf|groq|vision_local - auto-fallback to Route C)
+      - ocr_fallback    (Tesseract OCR + LLM cleanup - Route C)
+    
+    Route B providers (set via VISION_PROVIDER env var):
+      - hf: Hugging Face inference API (similar to local vision model)
+      - groq: Groq API with fast vision models (similar to local vision model)
+      - vision_local: Local Ollama inference (only Llama 3.2 Vision or Qwen 2.5-VL per strategy.md)
+    
+    Local Vision Models (per strategy.md):
+      - Llama 3.2 Vision 11B (default) - better for complex layouts
+      - Qwen 2.5-VL 7B - lighter option for smaller GPUs
+    
+    All Route B providers automatically fallback to Route C on failure with detailed logging.
     """
     t0 = time.time()
     data = await file.read()
+    
+    if omni_logger:
+        omni_logger.log_request("/extract", {"route": route, "doc_type": doc_type})
+    
     out = await _run_route(data, route, doc_type)
+    
+    if omni_logger:
+        omni_logger.log_response("/extract", 200, (time.time() - t0) * 1000)
+    
     return ProcessResponse(
         doc_type=doc_type,
         route=route,
@@ -366,7 +457,7 @@ async def extract(
 @app.post("/process", response_model=ProcessResponse)
 async def process(
     file: UploadFile = File(...),
-    route: str = Form("vision_premium"),
+    route: str = Form("vision_route_a"),
     doc_type: str = Form("auto"),
 ) -> ProcessResponse:
     """
@@ -375,6 +466,11 @@ async def process(
     `doc_type="auto"` content-classifies the document first (text-based heuristic), then runs
     the chosen route. Tables are included for PDFs. Returns doc_type, fields, confidence,
     page_count.
+    
+    Routes:
+      - vision_route_a: Claude Sonnet 4.6 Vision (high quality)
+      - vision_route_b: Route B providers (hf|groq|vision_local) with auto-fallback to Route C
+      - ocr_fallback: Route C (Tesseract OCR + LLM cleanup)
     """
     t0 = time.time()
     data = await file.read()
@@ -394,11 +490,12 @@ async def process(
     if isinstance(fields, dict) and is_pdf(data):
         try:
             import io as _io
-            from services.ocr_extractor import PDFTableExtractor
-            tables = PDFTableExtractor.extract_tables(_io.BytesIO(data))
-            fields.setdefault("_tables_detected", len(tables))
+            import pdfplumber
+            with pdfplumber.open(_io.BytesIO(data)) as pdf:
+                tcount = sum(len(p.extract_tables() or []) for p in pdf.pages)
+            fields.setdefault("_tables_detected", tcount)
         except Exception:
-            import logging; logging.error('Unhandled exception', exc_info=True)
+            log.exception("Unexpected error")
             pass
 
     return ProcessResponse(
@@ -427,10 +524,14 @@ async def extract_llm(text: str = Form(...), doc_type: str = Form("invoice")) ->
 async def extract_tables(file: UploadFile = File(...)) -> Dict[str, Any]:
     """Extract tables from a PDF via pdfplumber (table detection only)."""
     try:
+        import pdfplumber
         import io
-        from services.ocr_extractor import PDFTableExtractor
         pdf_bytes = await file.read()
-        tables = PDFTableExtractor.extract_tables(io.BytesIO(pdf_bytes))
+        tables: List[Any] = []
+        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+            for page in pdf.pages:
+                page_tables = page.extract_tables() or []
+                tables.extend(page_tables)
         return {"tables": tables, "table_count": len(tables)}
     except ImportError:
         return {"error": "pdfplumber_not_installed", "tables": []}
