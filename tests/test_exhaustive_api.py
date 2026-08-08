@@ -2,7 +2,7 @@ import pytest
 import httpx
 import os
 
-TOKEN = os.getenv('OMNIINTEL_INTERNAL_TOKEN', 'omniintel-prod-internal-2026')
+TOKEN = os.getenv('OMNIINTEL_INTERNAL_TOKEN', '')
 HEADERS = {'X-OmniIntel-Internal-Token': TOKEN}
 BASE_URL = os.getenv('TEST_BASE_URL', 'https://gateway.ysiddo-ai-projects.app/docintel')
 
