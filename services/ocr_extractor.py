@@ -83,18 +83,20 @@ def is_pdf(data: bytes) -> bool:
 
 def pdf_page_count(pdf_bytes: bytes) -> int:
     """Number of pages in a PDF (0 if it can't be read)."""
+    if not is_pdf(pdf_bytes):
+        return 0
     if _PDFPLUMBER:
         try:
             with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
                 return len(pdf.pages)
         except Exception as e:
-            log.error("pdf_page_count (pdfplumber) failed: %s", e)
+            log.warning("pdf_page_count (pdfplumber) failed (possibly corrupted PDF): %s", e)
     if _PDF2IMAGE:
         try:
             from pdf2image.pdf2image import pdfinfo_from_bytes
             return int(pdfinfo_from_bytes(pdf_bytes).get("Pages", 0))
         except Exception as e:
-            log.error("pdf_page_count (pdfinfo) failed: %s", e)
+            log.warning("pdf_page_count (pdfinfo) failed (possibly corrupted PDF): %s", e)
     return 0
 
 
@@ -120,7 +122,7 @@ def _wake_render_studio() -> None:
             urllib.request.urlopen(urllib.request.Request(
                 url.rstrip("/") + "/wake", data=_j.dumps({"gpu": False}).encode(), headers=h), timeout=90)
         except Exception:
-            import logging; logging.error('Unhandled exception', exc_info=True)
+            log.exception("Unexpected error")
             pass
     threading.Thread(target=_go, daemon=True).start()
 
@@ -176,6 +178,8 @@ def pdf_to_pngs(pdf_bytes: bytes, dpi: int = 150, max_pages: int = 20) -> List[b
     PDFs (> LIGHTNING_RENDER_PAGE_THRESHOLD pages) are offloaded to the Lightning backend when
     ``LIGHTNING_RENDER_URL`` is set. Returns [] if rendering is unavailable.
     """
+    if not is_pdf(pdf_bytes):
+        return []
     remote = _remote_render(pdf_bytes, dpi=dpi, max_pages=max_pages)
     if remote is not None:
         return remote
@@ -207,11 +211,11 @@ def pdf_to_pngs(pdf_bytes: bytes, dpi: int = 150, max_pages: int = 20) -> List[b
                 try:
                     _os.remove(p)
                 except Exception:
-                    import logging; logging.error('Unhandled exception', exc_info=True)
+                    log.exception("Unexpected error")
                     pass
         return out
     except Exception as e:
-        log.error("PDF→PNG render failed: %s", e)
+        log.warning("PDF→PNG render failed (possibly corrupted PDF): %s", e)
         return []
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -228,6 +232,10 @@ def extract_text_from_pdf(pdf_bytes: bytes, max_pages: int = 50, ocr_dpi: int = 
     pages; for scanned PDFs with no embedded text it falls back to rendering each page and
     running Tesseract. Pages are separated by a form-feed marker so the LLM sees boundaries.
     """
+    if not is_pdf(pdf_bytes):
+        log.warning("extract_text_from_pdf called with non-PDF bytes")
+        return extract_text_from_image(pdf_bytes) if _TESSERACT else ""
+
     parts: List[str] = []
     if _PDFPLUMBER:
         try:
@@ -235,7 +243,7 @@ def extract_text_from_pdf(pdf_bytes: bytes, max_pages: int = 50, ocr_dpi: int = 
                 for page in pdf.pages[:max_pages]:
                     parts.append(page.extract_text() or "")
         except Exception as e:
-            log.error("extract_text_from_pdf (pdfplumber) failed: %s", e)
+            log.warning("extract_text_from_pdf (pdfplumber) failed (possibly corrupted PDF): %s", e)
     native = "\n\f\n".join(parts).strip()
     if native:
         return native
@@ -368,7 +376,7 @@ class FormFieldDetector:
                             if not field_names or field_name in field_names:
                                 values[field_name] = field_data.get("value")
                     except Exception:
-                        import logging; logging.error('Unhandled exception', exc_info=True)
+                        log.exception("Unexpected error")
                         pass
 
                 # Fallback: extract text from all regions
