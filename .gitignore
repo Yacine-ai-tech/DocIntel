@@ -70,3 +70,7 @@ scripts/gpu_activate.py
 frontend/node_modules/
 !frontend/dist/
 !frontend/dist/**
+
+.env.local
+.pytest_cache/
+.coverage
