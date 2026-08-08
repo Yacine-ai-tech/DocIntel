@@ -1,6 +1,6 @@
 import UserGuidePage from './pages/UserGuidePage';
 import BenchmarkPage from './pages/BenchmarkPage';
-import ApiDocsPage from './pages/ApiDocsPage';
+import ApiDocs from './pages/ApiDocs';
 import { Component, ReactNode, lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { BrowserRouter, Route, Routes, useLocation } from "react-router-dom";
 import { Camera, FileScan, Image, Layers, BarChart3, Cpu, History, Workflow, GitCompareArrows, FolderOpen, Settings2, Code2, BookOpen } from "lucide-react";
@@ -140,7 +140,7 @@ export default function App() {
                     <Route path="/models" element={<Models />} />
                     <Route path="/activity" element={<Activity />} />
                     <Route path="/settings" element={<Settings />} />
-                    <Route path="/api-docs" element={<ApiDocsPage />} />
+                    <Route path="/api-docs" element={<ApiDocs />} />
                     <Route path="/benchmark" element={<BenchmarkPage />} />
                     <Route path="/user-guide" element={<UserGuidePage />} />
                     <Route path="*" element={<Workspace />} />
