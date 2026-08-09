@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-const BASE_URL = process.env.TEST_BASE_URL || BASE_URL + '';
+const BASE_URL = process.env.TEST_BASE_URL || '';
 
 test.describe('Exhaustive UI Component & Page Flow Suite', () => {
 
