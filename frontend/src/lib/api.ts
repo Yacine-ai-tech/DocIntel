@@ -35,6 +35,30 @@ export type BatchResults = {
   results: { filename: string; fields: Record<string, unknown> | null; confidence: number | null; page_count: number | null }[];
 };
 
+export type CameraPairResponse = {
+  token: string;
+  qr_available: boolean;
+  qr_code: string | null;
+  expires_in_hours: number;
+  frontend_url: string;
+};
+
+export type CameraUploadResult = {
+  fields: Record<string, unknown> | null;
+  confidence: number | null;
+  page_count: number | null;
+  processing_time_ms: number;
+};
+
+export type CameraStatusResponse = {
+  active: boolean;
+  uploads: number;
+  last_upload: string | null;
+  last_result: CameraUploadResult | null;
+};
+
+export type CameraUploadResponse = CameraUploadResult;
+
 const BASE = import.meta.env.VITE_API_BASE_URL || "";
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -92,6 +116,23 @@ export const api = {
 
   batchStatus: (id: string) => req<BatchStatus>(`/batch/${id}`),
   batchResults: (id: string) => req<BatchResults>(`/batch/${id}/results`),
+
+  pairCamera(user = "demo_user", device = "Mobile") {
+    const fd = new FormData();
+    fd.append("user", user);
+    fd.append("device", device);
+    return req<CameraPairResponse>("/camera/pair", { method: "POST", body: fd });
+  },
+
+  cameraStatus: (token: string) => req<CameraStatusResponse>(`/camera/status/${token}`),
+
+  uploadCameraPhoto(token: string, file: File, docType = "default") {
+    const fd = new FormData();
+    fd.append("token", token);
+    fd.append("file", file);
+    fd.append("doc_type", docType);
+    return req<CameraUploadResponse>("/camera/upload", { method: "POST", body: fd });
+  },
 };
 
 /* ---------- session-local activity log (real events only) ---------- */

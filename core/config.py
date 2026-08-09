@@ -29,8 +29,11 @@ class Settings:
     LLM_DEFAULT = os.getenv("LLM_DEFAULT", "groq/llama-3.3-70b-versatile")
     LLM_REASONING = os.getenv("LLM_REASONING", "anthropic/claude-sonnet-4-6")
 
-    # ─── Route B: Ollama Vision ───────────────────────────────────────────────
-    # Mode: "local" (Ollama on this machine/LAN) or "remote" (cloud Ollama endpoint)
+    # ─── Route B: Ollama Vision (local / self-hosted only — never a third-party API) ──
+    # Mode: "local" (Ollama on this machine/container) or "remote" (Ollama on hardware
+    # you control elsewhere — LAN or reachable over the internet). Both modes talk to
+    # an Ollama-compatible server you host yourself; Route B never calls Groq, HF, or
+    # any other third-party inference provider.
     ROUTE_B_MODE = os.getenv("ROUTE_B_MODE", "local")
 
     # The Ollama model to use. Any Ollama vision model is supported.
@@ -47,20 +50,19 @@ class Settings:
     OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 
     # --- REMOTE mode ---
-    # URL of the remote Ollama-compatible endpoint. Examples:
-    #   Your own on-demand GPU host (via a tunnel): https://inference.your-domain.app
-    #   Groq API:                                   https://api.groq.com/openai/v1
-    #   Hugging Face router:                        https://router.huggingface.co/hf-inference
-    #   Self-hosted Ollama on VPS:                  http://1.2.3.4:11434
+    # URL of an Ollama-compatible endpoint that YOU host — examples:
+    #   Your own GPU rig/workstation on the LAN:    http://192.168.1.50:11434
+    #   Your own GPU host, over the internet
+    #     (via a tunnel/VPN):                       https://inference.your-domain.app
+    #   Self-hosted Ollama on a VPS you rent:        http://1.2.3.4:11434
     ROUTE_B_REMOTE_ENDPOINT = os.getenv("ROUTE_B_REMOTE_ENDPOINT", "")
 
-    # Bearer token for the remote endpoint (required for Groq/HF, optional for others).
+    # Bearer token for the remote endpoint — only needed if you've put your own auth
+    # (e.g. a reverse proxy) in front of your self-hosted Ollama.
     ROUTE_B_REMOTE_TOKEN = os.getenv("ROUTE_B_REMOTE_TOKEN", "")
 
-    # Optional: override the model ID sent to the remote endpoint.
-    # Use this when the remote endpoint uses a different model naming convention
-    # than Ollama (e.g. Groq uses "llama-3.2-11b-vision-preview" not "llama3.2-vision").
-    # If not set, DocIntel auto-maps from OLLAMA_MODEL using a built-in table.
+    # Optional: override the model tag sent to the remote endpoint, if your remote
+    # Ollama instance uses a different tag name than OLLAMA_MODEL above.
     ROUTE_B_REMOTE_MODEL = os.getenv("ROUTE_B_REMOTE_MODEL", "")
 
     # Timeout in seconds for Route B inference calls.
@@ -78,9 +80,8 @@ class Settings:
     # ─── API Keys ─────────────────────────────────────────────────────────────
     # Required for Route A (Claude)
     ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-    # Required for Route B remote/Groq
+    # For LLM_DEFAULT text calls only — unrelated to Route B, which never uses these.
     GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-    # Required for Route B remote/HF
     HF_TOKEN = os.getenv("HF_TOKEN", "")
     # Optional
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")

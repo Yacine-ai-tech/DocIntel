@@ -69,6 +69,29 @@ export function AppShell({
         />
         {health === "ok" ? "Backend online" : health === "down" ? "Backend unreachable" : "Checking…"}
       </div>
+      {/* AGPL-3.0 §13 network-use source offer: this instance runs (possibly modified) AGPL
+          code as a network service, so users interacting with it must be offered the source. */}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-line px-5 py-3 text-[11px] leading-tight text-muted">
+        <span>AGPL-3.0</span>
+        <span aria-hidden="true">·</span>
+        <a
+          href="https://github.com/Yacine-ai-tech/DocIntel"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="hover:text-body hover:underline"
+        >
+          Source Code
+        </a>
+        <span aria-hidden="true">·</span>
+        <a
+          href="https://github.com/Yacine-ai-tech/DocIntel/blob/master/COMMERCIAL.md"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="hover:text-body hover:underline"
+        >
+          Commercial License
+        </a>
+      </div>
     </div>
   );
 

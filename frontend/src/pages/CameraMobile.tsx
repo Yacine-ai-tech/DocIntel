@@ -1,14 +1,22 @@
 import { useEffect, useState } from "react";
-import { Camera, CheckCircle2, RefreshCw, AlertTriangle } from "lucide-react";
+import { Camera, CheckCircle2, RefreshCw, AlertTriangle, ShieldAlert } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
+import { api, ApiError } from "../lib/api";
 
 export default function CameraMobile() {
   const [params] = useSearchParams();
   const token = params.get("token");
-  const [status, setStatus] = useState<"idle" | "uploading" | "success" | "error">("idle");
+  const [status, setStatus] = useState<"idle" | "uploading" | "success" | "error" | "insecure">("idle");
   const [errorMsg, setErrorMsg] = useState("");
 
   useEffect(() => {
+    // Most mobile browsers refuse camera capture (even via <input capture>) outside a
+    // secure context — plain http:// on a LAN IP will silently fail with no camera UI
+    // at all if we don't check this up front. See SELF_HOSTING.md.
+    if (typeof window !== "undefined" && !window.isSecureContext) {
+      setStatus("insecure");
+      return;
+    }
     if (!token) {
       setStatus("error");
       setErrorMsg("Invalid or missing token. Please scan the QR code from the DocIntel dashboard.");
@@ -17,29 +25,21 @@ export default function CameraMobile() {
 
   const handleCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    // No file means the user canceled the camera/picker, or the OS denied camera
+    // permission before a file could be produced — either way, just return to idle
+    // rather than showing a scary error for what's often a deliberate cancel.
     if (!file || !token) return;
 
     setStatus("uploading");
     try {
-      const form = new FormData();
-      form.append("token", token);
-      form.append("file", file);
-      form.append("doc_type", "default");
-
-      // Mobile app should use absolute backend URL or relative if hosted together
-      const res = await fetch("/api/v1/camera/upload", {
-        method: "POST",
-        body: form,
-      });
-      
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ detail: "Upload failed" }));
-        throw new Error(err.detail || "Upload failed");
-      }
-      
+      await api.uploadCameraPhoto(token, file);
       setStatus("success");
     } catch (err: any) {
-      setErrorMsg(err.message);
+      if (err instanceof ApiError && err.status === 403) {
+        setErrorMsg("This pairing session expired or was reset. Go back to the DocIntel dashboard and generate a new QR code.");
+      } else {
+        setErrorMsg(err.message || "Upload failed");
+      }
       setStatus("error");
     }
   };
@@ -54,8 +54,22 @@ export default function CameraMobile() {
             {status === "uploading" && "Processing via Vision AI..."}
             {status === "success" && "Successfully uploaded!"}
             {status === "error" && "Error occurred"}
+            {status === "insecure" && "Camera unavailable"}
           </p>
         </div>
+
+        {status === "insecure" && (
+          <div className="flex flex-col items-center py-12 text-amber-400">
+            <ShieldAlert size={64} className="mb-6" />
+            <p className="text-lg mb-2 px-4 font-medium">This page isn't loaded over HTTPS</p>
+            <p className="text-zinc-400 px-4">
+              Mobile browsers only allow camera access on a secure (HTTPS) connection.
+              Ask whoever set up this DocIntel instance to put it behind HTTPS
+              (a reverse proxy with TLS, or a tunnel) — plain <code className="text-zinc-300">http://</code> on
+              a local network can't open your camera.
+            </p>
+          </div>
+        )}
 
         {status === "idle" && (
           <div className="relative pt-8">

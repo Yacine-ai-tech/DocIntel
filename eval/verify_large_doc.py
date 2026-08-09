@@ -6,8 +6,8 @@ cross-chunk aggregation. Prints page_count, chunk count, and per-field correctne
 
 Usage:
   python eval/verify_large_doc.py --route ocr_fallback     # cheap (Tesseract/native text + Haiku)
-  python eval/verify_large_doc.py --route vision_premium   # Claude vision (chunked)
-  python eval/verify_large_doc.py --route vision_local      # Ollama vision (chunked, GPU)
+  python eval/verify_large_doc.py --route vision_route_a   # Claude vision (chunked)
+  python eval/verify_large_doc.py --route vision_route_b   # Ollama vision (chunked, local/self-hosted)
 """
 from __future__ import annotations
 
@@ -68,8 +68,8 @@ async def main():
     else:
         from services.vision_extractor import extract_via_vision_llm
         imgs = pdf_to_pngs(pdf, max_pages=settings.MAX_PDF_PAGES)
-        model = settings.LLM_VISION_LOCAL if a.route == "vision_local" else None
-        fields = await extract_via_vision_llm(imgs, model=model, doc_type="invoice")
+        route_b = a.route in ("vision_route_b", "vision_local")  # "vision_local" for back-compat
+        fields = await extract_via_vision_llm(imgs, doc_type="invoice", route_b=route_b)
 
     if not isinstance(fields, dict) or "error" in fields:
         print("  EXTRACTION ERROR:", fields)

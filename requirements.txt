@@ -20,3 +20,6 @@ reportlab>=4.0.0
 
 # Deterministic multi-locale date normalization (services/normalize.py)
 dateparser>=1.2.0
+
+# QR code generation for mobile-scan pairing (services/camera.py)
+qrcode>=7.4.2

@@ -9,12 +9,15 @@ import threading
 import base64
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional, List
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
-from core.config import settings
 from core.logger import get_logger
 
 log = get_logger(__name__)
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 try:
     import cv2
@@ -42,10 +45,11 @@ class MobilePairing:
             self._sessions[token] = {
                 "user": user,
                 "device_name": device_name,
-                "created_at": datetime.utcnow(),
-                "expires_at": datetime.utcnow() + timedelta(hours=24),
+                "created_at": _utcnow(),
+                "expires_at": _utcnow() + timedelta(hours=24),
                 "uploads": 0,
                 "last_upload": None,
+                "last_result": None,
                 "active": True,
             }
         log.info("Mobile session for %s on %s (token=%s…)", user, device_name, token[:8])
@@ -57,7 +61,7 @@ class MobilePairing:
             session = self._sessions.get(token)
             if not session:
                 return None
-            if datetime.utcnow() > session["expires_at"]:
+            if _utcnow() > session["expires_at"]:
                 session["active"] = False
                 log.info("Token expired: %s…", token[:8])
                 return None
@@ -65,15 +69,33 @@ class MobilePairing:
                 return None
         return session
 
-    def record_upload(self, token: str) -> bool:
-        """Record a successful upload for this token."""
+    def record_upload(self, token: str, result: Optional[Dict[str, Any]] = None) -> bool:
+        """Record a successful upload for this token, storing the extraction result
+        (if given) so the desktop session that generated the QR can poll for it."""
         with self._token_lock:
             session = self._sessions.get(token)
             if session and session["active"]:
                 session["uploads"] += 1
-                session["last_upload"] = datetime.utcnow()
+                session["last_upload"] = _utcnow()
+                if result is not None:
+                    session["last_result"] = result
                 return True
         return False
+
+    def get_status(self, token: str) -> Optional[Dict[str, Any]]:
+        """Poll target for the desktop side: session state + the most recent upload's
+        result, if any. Does not require re-validating expiry the way validate() does
+        (an expired session can still be polled to show its last result)."""
+        with self._token_lock:
+            session = self._sessions.get(token)
+            if not session:
+                return None
+            return {
+                "active": session["active"] and _utcnow() <= session["expires_at"],
+                "uploads": session["uploads"],
+                "last_upload": session["last_upload"].isoformat() if session["last_upload"] else None,
+                "last_result": session.get("last_result"),
+            }
 
     def revoke(self, token: str) -> bool:
         """Revoke a pairing token."""
@@ -108,7 +130,10 @@ class MobilePairing:
             return None
         import io
         import os
-        frontend_url = os.getenv("FRONTEND_URL", f"http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}")
+        # FRONTEND_URL is the only reliable source here — the backend can't know its own
+        # public-facing origin (behind a proxy/tunnel, different host than the frontend in
+        # split deployments, etc.). Falls back to localhost:8001 for local single-container dev.
+        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:8001").rstrip("/")
         url = f"{frontend_url}/camera/mobile?token={token}"
         img = qrcode.make(url)
         buf = io.BytesIO()
@@ -163,6 +188,7 @@ class CameraManager:
 
     def pair_mobile(self, user: str, device_name: str = "Mobile Device") -> Dict[str, Any]:
         """Create pairing session and return token + QR code."""
+        import os
         token = self.pairing.create_session(user, device_name)
         qr_b64 = self.pairing.qr_base64(token)
         return {
@@ -170,16 +196,21 @@ class CameraManager:
             "qr_available": qr_b64 is not None,
             "qr_code": qr_b64,
             "expires_in_hours": 24,
-            "server_url": f"http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}",
+            "frontend_url": os.getenv("FRONTEND_URL", "http://localhost:8001").rstrip("/"),
         }
 
     def validate_mobile(self, token: str) -> Optional[Dict[str, Any]]:
         """Validate pairing token (includes session metadata)."""
         return self.pairing.validate(token)
 
-    def record_mobile_upload(self, token: str) -> bool:
-        """Record successful upload from paired device."""
-        return self.pairing.record_upload(token)
+    def get_mobile_status(self, token: str) -> Optional[Dict[str, Any]]:
+        """Poll target for the desktop dashboard: has this token's phone uploaded yet,
+        and if so, what did extraction return."""
+        return self.pairing.get_status(token)
+
+    def record_mobile_upload(self, token: str, result: Optional[Dict[str, Any]] = None) -> bool:
+        """Record successful upload from paired device, with its extraction result."""
+        return self.pairing.record_upload(token, result)
 
     def revoke_mobile_session(self, token: str) -> bool:
         """Revoke a pairing session."""
