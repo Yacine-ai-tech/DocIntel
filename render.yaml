@@ -1,7 +1,10 @@
 # Render Blueprint — disaster-recovery / one-click redeploy. Builds from ./Dockerfile (honors $PORT),
 # health-checks /health. No secrets here: every key is `sync: false` (set values in the dashboard).
-# Route A (Claude vision) works on Render free.
-# Route B (vision_local/hf/groq) with automatic fallback to Route C (OCR) on failure.
+#
+# Routes:
+#   A (Claude Sonnet Vision)      — works on Render free, needs ANTHROPIC_API_KEY
+#   B (Ollama vision, local/self-hosted-remote only — never a third-party API; see .env.example)
+#   C (Tesseract OCR + LLM cleanup) — automatic fallback for A/B failures
 services:
   - type: web
     name: docintel
@@ -13,21 +16,54 @@ services:
     envVars:
       - key: ENVIRONMENT
         value: production
-      - key: ANTHROPIC_API_KEY     # Route A — Claude Sonnet 4.6 Vision
+
+      # ─── Route A: Claude Sonnet Vision ──────────────────────────────────
+      - key: ANTHROPIC_API_KEY
         sync: false
-      - key: GROQ_API_KEY          # Route B groq provider / Route C LLM structuring
+      - key: LLM_VISION_ROUTE_A
+        value: anthropic/claude-sonnet-4-6
+
+      # ─── Route B: Ollama vision (local or your own self-hosted remote) ──
+      # See .env.example for the full local/remote reference — Route B never calls a
+      # third-party inference API (no Groq, no HF). ROUTE_B_MODE=remote requires
+      # ROUTE_B_REMOTE_ENDPOINT to point at Ollama YOU host; leave both unset/local
+      # to disable Route B (falls back to Route C automatically).
+      - key: ROUTE_B_MODE
+        value: local
+      - key: OLLAMA_MODEL
+        value: qwen2.5vl:7b
+      - key: ROUTE_B_REMOTE_ENDPOINT
         sync: false
-      - key: HF_TOKEN              # Route B hf provider
+      - key: ROUTE_B_REMOTE_TOKEN
         sync: false
-      - key: VISION_PROVIDER       # Route B selector: vision_local|hf|groq (all fallback to Route C)
-        value: vision_local
-      - key: LLM_VISION_LOCAL       # Local vision model (only Llama 3.2 Vision or Qwen 2.5-VL)
-        value: ollama/llama-3.2-vision
+
+      # ─── Route C: OCR fallback ───────────────────────────────────────────
+      - key: LLM_CLEANUP
+        value: anthropic/claude-haiku-4-5
+
+      # ─── General LLM keys (text-only; unrelated to Route B vision) ──────
+      - key: GROQ_API_KEY
+        sync: false
+      - key: HF_TOKEN
+        sync: false
+
+      # ─── Optional: offload large-PDF rendering to a remote host you control ──
+      - key: RENDER_URL
+        sync: false
+      - key: INFERENCE_TOKEN
+        sync: false
+
       - key: CORS_ALLOWED_ORIGINS
         sync: false
-      - key: OMNIINTEL_INTERNAL_TOKEN  # REQUIRED: must match gateway
+
+      # Shared bearer secret required on non-exempt routes when
+      # REQUIRE_INTERNAL_TOKEN=true — set to any value you choose, keep it secret.
+      - key: OMNIINTEL_INTERNAL_TOKEN
         sync: false
       - key: REQUIRE_INTERNAL_TOKEN
         value: "false"
+
       - key: TELEMETRY_OPT_OUT
         value: "false"
+      - key: TELEMETRY_URL
+        sync: false
