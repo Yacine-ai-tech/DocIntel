@@ -2,7 +2,7 @@ import { Cloud, Cpu, ScanText } from "lucide-react";
 import { PageHeader } from "../kit/AppShell";
 import { Card, Chip } from "../kit/primitives";
 
-/* Factual route cards — model IDs verified against core/config.py (GAP_REPORT §1). */
+/* Factual route cards — model IDs verified against core/config.py. */
 
 const MODELS = [
   {
