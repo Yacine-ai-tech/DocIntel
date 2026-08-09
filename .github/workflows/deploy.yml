@@ -14,9 +14,53 @@ jobs:
       - name: Trigger Render deploy
         run: |
           code=$(curl -fsS -o /tmp/resp.json -w "%{http_code}" \
-            -X POST "https://api.render.com/v1/services/${{ secrets.RENDER_SERVICE_ID }}/deploys" \
-            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            -X POST "${{ secrets.DEPLOYMENT_API_ENDPOINT }}/services/${{ secrets.SERVICE_ID }}/deploys" \
+            -H "Authorization: Bearer ${{ secrets.DEPLOYMENT_API_KEY }}" \
             -H "Content-Type: application/json" \
             -d '{"clearCache":"do_not_clear"}') || { echo "deploy trigger failed"; exit 1; }
-          echo "Render responded HTTP $code"
+          echo "Deployment responded HTTP $code"
           cat /tmp/resp.json
+
+  # Publishes the DockerHub image the README/COMMERCIAL positioning promises. Entirely
+  # optional — skips cleanly (no failure) if DOCKERHUB_USERNAME/DOCKERHUB_TOKEN repo
+  # secrets aren't set, so this doesn't break CI for forks or clones without a DockerHub
+  # account. Set both in Settings → Secrets → Actions to enable.
+  docker-publish:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check DockerHub credentials are configured
+        id: check
+        run: |
+          if [ -n "${{ secrets.DOCKERHUB_USERNAME }}" ] && [ -n "${{ secrets.DOCKERHUB_TOKEN }}" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::DOCKERHUB_USERNAME/DOCKERHUB_TOKEN not set — skipping DockerHub publish."
+          fi
+
+      - name: Read version from pyproject.toml
+        if: steps.check.outputs.configured == 'true'
+        id: version
+        run: echo "version=$(grep -m1 '^version' pyproject.toml | cut -d'"' -f2)" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to Docker Hub
+        if: steps.check.outputs.configured == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        if: steps.check.outputs.configured == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/docintel:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/docintel:${{ steps.version.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
