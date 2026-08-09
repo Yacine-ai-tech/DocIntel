@@ -7,10 +7,15 @@ Endpoints:
   POST /classify         file → doc_type only
   POST /classify-image   image + categories → category + confidence
   POST /extract-tables   PDF → tables list
+  POST /extract-fields   file → generic form label/value pairs
   POST /extract-llm      text + doc_type → structured dict
-  POST /batch/upload     list of files → job_id
+  POST /batch/upload     list of files → job_id (optional webhook_url callback on completion)
   GET  /batch/{id}
   GET  /batch/{id}/results
+  POST /camera/pair      desktop → pairing token + QR (phone opens /camera/mobile?token=...)
+  GET  /camera/qr/{token} raw QR PNG
+  POST /camera/upload    phone → photo → Route B extraction, stored on the session
+  GET  /camera/status/{token} desktop polling target for the phone's upload result
 """
 from __future__ import annotations
 
@@ -48,50 +53,80 @@ log = get_logger(__name__)
 app = FastAPI(title="DocIntel", version="0.1.0",
               description="Vision-first document AI pipeline.")
 
-# --- ETHICAL TELEMETRY ---
+# --- Startup: model warm-up + anonymous telemetry ping (see TELEMETRY.md) ---
 import threading
-import requests
-import os
 import time
-import uuid
+import uuid as _uuid
+
+
+def _warm_up_models():
+    """Pre-load Surya OCR models at startup so the first real request isn't slow.
+    Runs regardless of TELEMETRY_OPT_OUT — unrelated to telemetry."""
+    try:
+        from services.surya_extractor import SuryaExtractor
+        SuryaExtractor()._ensure_models()
+    except Exception:
+        pass
+
+
+def _telemetry_instance_id() -> str:
+    """
+    A random, locally-generated install ID — NOT derived from MAC address or any other
+    hardware fingerprint. Persisted under LOGS_DIR so repeat startups of the same install
+    report the same ID (for dedup on the receiving end); delete the file to reset it.
+    See TELEMETRY.md for why this is a random UUID rather than a hardware-derived value.
+    """
+    id_file = os.path.join(settings.LOGS_DIR, ".telemetry_instance_id")
+    try:
+        if os.path.exists(id_file):
+            existing = open(id_file).read().strip()
+            if existing:
+                return existing
+    except Exception:
+        pass
+    new_id = _uuid.uuid4().hex[:16]
+    try:
+        with open(id_file, "w") as f:
+            f.write(new_id)
+    except Exception:
+        pass
+    return new_id
+
 
 def _send_telemetry():
+    """
+    One anonymous startup ping per ~6h to TELEMETRY_URL, so the project can count distinct
+    installs. Sends only {service, event, instance_id} — no document content, filenames,
+    IPs, or other request data. Disable entirely with TELEMETRY_OPT_OUT=true.
+    """
     if os.environ.get("TELEMETRY_OPT_OUT", "").lower() in ("1", "true", "yes"):
         return
-    
-    lock_file = "/tmp/.ysiddo_telemetry.lock"
+
+    lock_file = os.path.join(settings.LOGS_DIR, ".telemetry_last_ping")
     try:
-        if os.path.exists(lock_file):
-            if time.time() - os.path.getmtime(lock_file) < 21600:
-                return
+        if os.path.exists(lock_file) and time.time() - os.path.getmtime(lock_file) < 21600:
+            return
         with open(lock_file, "w") as f:
             f.write(str(time.time()))
     except Exception:
         pass
 
     try:
-        if "log" in globals():
-            globals()["log"].info("📡 Anonymous telemetry ENABLED (set TELEMETRY_OPT_OUT=true to disable).")
-        else:
-            import logging
-            logging.info("📡 Anonymous telemetry ENABLED (set TELEMETRY_OPT_OUT=true to disable).")
-            
-        # WARM UP ML MODELS
-        try:
-            from services.surya_extractor import SuryaExtractor
-            ex = SuryaExtractor()
-            ex._ensure_models()
-        except Exception as e:
-            pass
-        
-        requests.post(
-            "http://localhost:8000/telemetry", 
-            json={"service": "DocIntel", "event": "startup", "instance_id": str(uuid.getnode())[:8]},
-            timeout=2
+        import httpx
+        telemetry_url = os.environ.get(
+            "TELEMETRY_URL", "https://gateway.ysiddo-ai-projects.app/telemetry"
+        )
+        log.info("Anonymous telemetry ping to %s (set TELEMETRY_OPT_OUT=true to disable).", telemetry_url)
+        httpx.post(
+            telemetry_url,
+            json={"service": "DocIntel", "event": "startup", "instance_id": _telemetry_instance_id()},
+            timeout=2,
         )
     except Exception:
         pass
 
+
+threading.Thread(target=_warm_up_models, daemon=True).start()
 threading.Thread(target=_send_telemetry, daemon=True).start()
 # -------------------------
 
@@ -103,7 +138,7 @@ import os as _os
 @app.middleware("http")
 async def verify_internal_token(request: Request, call_next):
     # Allow health checks, public auth routes, and frontend static assets
-    if request.method == "OPTIONS" or request.url.path in ["/", "/health", "/docs", "/openapi.json", "/api/redoc", "/favicon.png", "/favicon.ico", "/mark.png", "/logo.png", "/classify", "/extract", "/process", "/batch/upload"] or request.url.path.startswith("/api/v1/auth/") or request.url.path.startswith("/assets/") or request.url.path.startswith("/static/"):
+    if request.method == "OPTIONS" or request.url.path in ["/", "/health", "/docs", "/openapi.json", "/api/redoc", "/favicon.png", "/favicon.ico", "/mark.png", "/logo.png", "/classify", "/extract", "/process", "/batch/upload"] or request.url.path.startswith("/api/v1/auth/") or request.url.path.startswith("/assets/") or request.url.path.startswith("/static/") or request.url.path.startswith("/camera/"):
         return await call_next(request)
         
     token = request.headers.get("X-OmniIntel-Internal-Token")
@@ -161,8 +196,9 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
 
     Routes:
       - vision_route_a: Claude Sonnet 4.6 Vision via LiteLLM (premium, no fallback)
-      - vision_route_b: Ollama vision model — local (consumer GPU) or remote (cloud endpoint)
-                        Configured via ROUTE_B_MODE + OLLAMA_MODEL env vars.
+      - vision_route_b: Ollama vision model — local (this machine) or remote (hardware you
+                        control, same network or reachable over the internet). Never a
+                        third-party inference API. Configured via ROUTE_B_MODE + OLLAMA_MODEL.
                         Auto-fallback to Route C (OCR) on any failure.
       - ocr_fallback:   Tesseract OCR + LLM cleanup (Route C)
     """
@@ -322,14 +358,33 @@ async def camera_qr_image(token: str):
 
 @app.post("/camera/upload")
 async def camera_upload(token: str = Form(...), file: UploadFile = File(...), doc_type: str = Form("default")):
-    """Mobile device uploads photo; processes via vision local route."""
+    """Mobile device uploads photo; processes via Route B (local/self-hosted Ollama vision),
+    and stores the result on the session so the desktop side that generated the QR can pick
+    it up via GET /camera/status/{token} — see /camera/status below."""
     session = _camera.validate_mobile(token)
     if not session:
         raise HTTPException(403, "Invalid or expired token")
     data = await file.read()
-    _camera.record_mobile_upload(token)
-    # Automatically route to vision
-    return await _run_route(data, route="vision_local", doc_type=doc_type)
+    t0 = time.time()
+    out = await _run_route(data, route="vision_route_b", doc_type=doc_type)
+    result = {
+        "fields": out["fields"],
+        "confidence": _confidence_of(out["fields"]),
+        "page_count": out["page_count"],
+        "processing_time_ms": round((time.time() - t0) * 1000, 1),
+    }
+    _camera.record_mobile_upload(token, result)
+    return result
+
+
+@app.get("/camera/status/{token}")
+async def camera_status(token: str) -> Dict[str, Any]:
+    """Desktop polling target: has the paired phone uploaded anything yet, and what did
+    extraction return. Poll this after /camera/pair while showing the QR code."""
+    status = _camera.get_mobile_status(token)
+    if status is None:
+        raise HTTPException(404, "Token not found")
+    return status
 
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -419,19 +474,19 @@ async def extract(
     """
     Full extraction pipeline with 3 routes (multi-page PDFs handled end-to-end):
       - vision_route_a  (Claude Sonnet 4.6 Vision - Route A)
-      - vision_route_b  (Route B: hf|groq|vision_local - auto-fallback to Route C)
+      - vision_route_b  (Ollama vision, local or self-hosted-remote - Route B)
       - ocr_fallback    (Tesseract OCR + LLM cleanup - Route C)
-    
-    Route B providers (set via VISION_PROVIDER env var):
-      - hf: Hugging Face inference API (similar to local vision model)
-      - groq: Groq API with fast vision models (similar to local vision model)
-      - vision_local: Local Ollama inference (only Llama 3.2 Vision or Qwen 2.5-VL)
-    
-    Local Vision Models:
-      - Llama 3.2 Vision 11B (default) - better for complex layouts
-      - Qwen 2.5-VL 7B - lighter option for smaller GPUs
-    
-    All Route B providers automatically fallback to Route C on failure with detailed logging.
+
+    Route B (set via ROUTE_B_MODE env var — never a third-party inference API):
+      - local:  Ollama running on this same machine/container (OLLAMA_HOST)
+      - remote: Ollama running on hardware you control elsewhere — same LAN or
+                reachable over the internet (ROUTE_B_REMOTE_ENDPOINT)
+
+    Vision models (OLLAMA_MODEL, any Ollama vision tag):
+      - qwen2.5vl:7b (default) - lighter, works on most GPUs
+      - llama3.2-vision:11b - better for complex layouts, needs CUDA >= 7.5
+
+    Route B automatically falls back to Route C on any failure, with detailed logging.
     """
     t0 = time.time()
     data = await file.read()
@@ -469,7 +524,7 @@ async def process(
     
     Routes:
       - vision_route_a: Claude Sonnet 4.6 Vision (high quality)
-      - vision_route_b: Route B providers (hf|groq|vision_local) with auto-fallback to Route C
+      - vision_route_b: Ollama vision, local or self-hosted-remote, auto-fallback to Route C
       - ocr_fallback: Route C (Tesseract OCR + LLM cleanup)
     """
     t0 = time.time()
@@ -506,6 +561,32 @@ async def process(
         page_count=out["page_count"],
         processing_time_ms=round((time.time() - t0) * 1000, 1),
     )
+
+
+@app.post("/extract-fields")
+async def extract_fields(
+    file: UploadFile = File(...),
+    route: str = Form("vision_route_a"),
+) -> Dict[str, Any]:
+    """
+    Generic form-field extraction: label -> value pairs, independent of the
+    invoice/contract/receipt doc-type schemas used by /extract. Reuses the "form"
+    prompt (handles checkboxes and handwritten entries on the vision routes).
+    """
+    t0 = time.time()
+    data = await file.read()
+    out = await _run_route(data, route, doc_type="form")
+    fields = out["fields"] if isinstance(out["fields"], dict) else {}
+    return {
+        "route": route,
+        "page_count": out["page_count"],
+        "form_title": fields.get("form_title"),
+        "fields": fields.get("fields"),
+        "confidence": _confidence_of(fields),
+        "processing_time_ms": round((time.time() - t0) * 1000, 1),
+        "error": fields.get("error"),
+        "raw": fields,
+    }
 
 
 @app.post("/extract-llm", response_model=ProcessResponse)
@@ -546,8 +627,16 @@ async def batch_upload(
     files: List[UploadFile] = File(...),
     route: str = Form("vision_premium"),
     doc_type: str = Form("invoice"),
+    webhook_url: Optional[str] = Form(None),
 ) -> Dict[str, Any]:
-    """Start a background batch process and return a job_id."""
+    """
+    Start a background batch process and return a job_id.
+
+    If `webhook_url` is set, DocIntel POSTs the job summary + results to it once the
+    batch completes — no polling needed. This is the integration point for n8n (or
+    Zapier/Make/any HTTP-triggered automation): point webhook_url at an n8n Webhook
+    node's URL. See docs/n8n/README.md for a worked example.
+    """
     file_data: List[Dict[str, Any]] = []
     for f in files:
         file_data.append({
@@ -568,8 +657,8 @@ async def batch_upload(
             "page_count": out["page_count"],
         }
 
-    background.add_task(batch.process, job_id, file_data, _process_one)
-    return {"job_id": job_id, "total": len(file_data)}
+    background.add_task(batch.process, job_id, file_data, _process_one, webhook_url)
+    return {"job_id": job_id, "total": len(file_data), "webhook_url": webhook_url}
 
 
 @app.get("/batch/{job_id}")

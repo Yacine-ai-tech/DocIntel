@@ -30,6 +30,7 @@ import io
 import json
 import os
 import re
+import time
 from typing import Any, Dict, List, Optional, Union
 
 from core.logger import get_logger
@@ -150,43 +151,61 @@ def _image_block(image_bytes: bytes) -> Dict[str, Any]:
     return {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}}
 
 
+def _completion_cost_usd(response: Any) -> float:
+    """Real per-call $ cost from LiteLLM's token-usage-based pricing tables — not an
+    estimate. Returns 0.0 if the model/provider isn't in LiteLLM's pricing data (e.g. a
+    custom Ollama tag) rather than raising, since cost tracking must never break extraction."""
+    try:
+        import litellm
+        return float(litellm.completion_cost(completion_response=response))
+    except Exception:
+        return 0.0
+
+
 # ─── Route A: Claude Sonnet 4.6 Vision ───────────────────────────────────────
 
-async def _vision_call_route_a(model: str, prompt: str, imgs: List[bytes]) -> str:
-    """Route A: Claude Sonnet 4.6 Vision via LiteLLM (high quality, no fallback needed)."""
+async def _vision_call_route_a(model: str, prompt: str, imgs: List[bytes]) -> tuple[str, float]:
+    """Route A: Claude Sonnet 4.6 Vision via LiteLLM (high quality, no fallback needed).
+    Returns (content, cost_usd)."""
     log.info("Route A: using %s", model)
     if not _LITELLM:
         raise RuntimeError("Route A requires litellm — install it with: pip install litellm")
     content = [{"type": "text", "text": prompt}]
     for img in imgs:
         content.append(_image_block(img))
+    t0 = time.monotonic()
     response = await acompletion(
         model=model,
         messages=[{"role": "user", "content": content}],
         max_tokens=2048,
         temperature=0.1,
     )
-    return response.choices[0].message.content
+    log.debug("Route A call took %.2fs", time.monotonic() - t0)
+    return response.choices[0].message.content, _completion_cost_usd(response)
 
 
 async def _extract_one_route_a(model: str, prompt: str, imgs: List[bytes]) -> Dict[str, Any]:
     """One Route A vision call over up to VISION_PAGES_PER_CALL images, with JSON retry."""
     p, last = prompt, ""
+    cost = 0.0
     for attempt in (1, 2):
         try:
-            last = await _vision_call_route_a(model, p, imgs)
+            last, call_cost = await _vision_call_route_a(model, p, imgs)
+            cost += call_cost
             result = json.loads(_strip_fences(last))
-            return result if isinstance(result, dict) else {"value": result}
+            result = result if isinstance(result, dict) else {"value": result}
+            result["_cost_usd"] = cost
+            return result
         except json.JSONDecodeError as e:
             log.warning("Route A non-JSON (attempt %d): %s", attempt, e)
             if attempt == 1:
                 p = prompt + " Your previous reply was not valid JSON. Output ONLY the JSON object."
                 continue
-            return {"error": "non_json_response", "raw": last[:500]}
+            return {"error": "non_json_response", "raw": last[:500], "_cost_usd": cost}
         except Exception as e:
             log.exception("Route A extraction failed: %s", e)
-            return {"error": str(e)}
-    return {"error": "unreachable"}
+            return {"error": str(e), "_cost_usd": cost}
+    return {"error": "unreachable", "_cost_usd": cost}
 
 
 # ─── Route B: Ollama Vision ───────────────────────────────────────────────────
@@ -273,6 +292,7 @@ async def extract_via_vision_llm(
                 normalize_fields(result, doc_type)
                 result.setdefault("_confidence", result.pop("_confidence", None))
                 result["_pages"] = n_pages
+                result["_cost_usd"] = 0.0  # local/self-hosted — no metered API cost
                 result.setdefault("_route_b_mode", os.getenv("ROUTE_B_MODE", "local"))
                 result.setdefault("_route_b_model", os.getenv("OLLAMA_MODEL", "qwen2.5vl:7b"))
             return result
@@ -302,6 +322,7 @@ async def extract_via_vision_llm(
         merged.setdefault("_confidence", None)
         merged["_pages"] = n_pages
         merged["_chunks"] = len(chunks)
+        merged["_cost_usd"] = 0.0  # local/self-hosted — no metered API cost
         merged["_route_b_mode"] = os.getenv("ROUTE_B_MODE", "local")
         merged["_route_b_model"] = os.getenv("OLLAMA_MODEL", "qwen2.5vl:7b")
         return merged
@@ -332,11 +353,13 @@ async def extract_via_vision_llm(
             return await _extract_one_route_a(model, prompt, chunk)
 
     parts = await asyncio.gather(*(_run_a(c) for c in chunks))
+    total_cost = sum(p.get("_cost_usd", 0.0) for p in parts if isinstance(p, dict))
     merged = merge_doc_fields([p for p in parts if isinstance(p, dict)])
     normalize_fields(merged, doc_type)
     merged.setdefault("_confidence", None)
     merged["_pages"] = n_pages
     merged["_chunks"] = len(chunks)
+    merged["_cost_usd"] = round(total_cost, 6)
     return merged
 
 
@@ -359,8 +382,11 @@ async def classify_image(
         "Return ONLY JSON: {category, confidence (0-1), reasoning}."
     )
     try:
-        content = await _vision_call_route_a(model, prompt, [image_bytes])
-        return json.loads(_strip_fences(content))
+        content, cost = await _vision_call_route_a(model, prompt, [image_bytes])
+        result = json.loads(_strip_fences(content))
+        if isinstance(result, dict):
+            result["_cost_usd"] = cost
+        return result
     except Exception as e:
         log.exception("classify_image failed: %s", e)
         return {"category": "unknown", "confidence": 0.0, "error": str(e)}

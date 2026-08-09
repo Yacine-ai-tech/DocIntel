@@ -1,0 +1,101 @@
+name: Weekly Accuracy Regression Eval
+
+# STRATEGY.md §3.4: iterate prompts until accuracy on key fields (total, vendor, date,
+# invoice number) reaches 90%+ on the eval set, and re-check weekly. Entirely optional to
+# enable: skips cleanly (no failure) if ANTHROPIC_API_KEY isn't configured as a repo
+# secret, so this doesn't break CI for forks/clones without an API key. Reports the
+# result to the omni-admin gateway's /eval-report endpoint (visible in its Overview
+# stats + Entity Matrix event log under event_type=eval) when OMNIINTEL_INTERNAL_TOKEN
+# is also configured — reporting is best-effort and never fails the job.
+
+on:
+  schedule:
+    - cron: "0 4 * * 1"   # every Monday 04:00 UTC
+  workflow_dispatch: {}
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  weekly-eval:
+    name: "Route A accuracy regression"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Check ANTHROPIC_API_KEY is configured
+        id: check
+        run: |
+          if [ -n "${{ secrets.ANTHROPIC_API_KEY }}" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::ANTHROPIC_API_KEY not set — skipping weekly eval (Route A needs a real key; this costs a small amount of real API usage when enabled)."
+          fi
+
+      - name: Install dependencies
+        if: steps.check.outputs.configured == 'true'
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Generate synthetic eval set (10 invoices, fixed seed — reproducible)
+        if: steps.check.outputs.configured == 'true'
+        run: python eval/generate_synthetic.py --n 10 --seed 42
+
+      - name: Run accuracy eval (Route A, gates on 85% key-field accuracy)
+        if: steps.check.outputs.configured == 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python eval/run_eval.py --route vision_route_a --threshold 0.85
+
+      - name: Report to omni-admin monitoring
+        if: always() && steps.check.outputs.configured == 'true'
+        env:
+          INTERNAL_TOKEN: ${{ secrets.OMNIINTEL_INTERNAL_TOKEN }}
+        run: |
+          if [ -z "$INTERNAL_TOKEN" ]; then
+            echo "::notice::OMNIINTEL_INTERNAL_TOKEN not set — skipping omni-admin report (eval results above still count for pass/fail)."
+            exit 0
+          fi
+          python3 - <<'EOF'
+          import json, os, urllib.request
+
+          try:
+              summary = json.load(open("eval/results.json"))["summary"]
+          except Exception as e:
+              print(f"no results.json to report ({e}) — eval likely failed before producing output")
+              raise SystemExit(0)
+
+          payload = {
+              "service": "docintel",
+              "route": "vision_route_a",
+              "docs": summary.get("docs"),
+              "accuracy": summary.get("overall_key_field_accuracy"),
+              "threshold": 0.85,
+              "passed": (summary.get("overall_key_field_accuracy") or 0) >= 0.85,
+              "latency_mean_s": summary.get("latency_mean_s"),
+              "cost_usd_total": summary.get("cost_usd_total"),
+              "cost_usd_mean": summary.get("cost_usd_mean"),
+              "git_sha": os.environ.get("GITHUB_SHA", ""),
+          }
+          req = urllib.request.Request(
+              "https://gateway.ysiddo-ai-projects.app/eval-report",
+              data=json.dumps(payload).encode(),
+              headers={
+                  "Content-Type": "application/json",
+                  "X-OmniIntel-Internal-Token": os.environ["INTERNAL_TOKEN"],
+                  "User-Agent": "DocIntel-Weekly-Eval-CI/1.0",
+              },
+          )
+          try:
+              with urllib.request.urlopen(req, timeout=10) as r:
+                  print(f"omni-admin report: {r.status} {r.read().decode()}")
+          except Exception as e:
+              print(f"omni-admin report failed (non-fatal): {e}")
+          EOF
