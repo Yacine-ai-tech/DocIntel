@@ -5,9 +5,9 @@ Currency is normalized across symbol/code ($↔USD, €↔EUR, ₹↔INR, £↔G
 (substring), id/date exact, numerics within max(0.02, 1%).
 
 Usage:
-    python eval/run_real_eval.py --route vision_premium   # Route A (Claude Vision)
+    python eval/run_real_eval.py --route vision_route_a   # Route A (Claude Vision)
     python eval/run_real_eval.py --route ocr_fallback     # Route C (Tesseract + LLM)
-    python eval/run_real_eval.py --route vision_local      # Route B (Ollama Llama Vision)
+    python eval/run_real_eval.py --route vision_route_b   # Route B (Ollama vision — local/self-hosted)
 """
 from __future__ import annotations
 
@@ -73,16 +73,16 @@ async def _extract(route, png_path):
         text = extract_text_from_image(img)
         return await LLMExtractor().extract(text, "invoice") if text else {"error": "ocr_empty"}
     from services.vision_extractor import extract_via_vision_llm
-    from core.config import settings
-    model = settings.LLM_VISION_LOCAL if route == "vision_local" else None
-    return await extract_via_vision_llm(img, model=model, doc_type="invoice")
+    if route in ("vision_route_b", "vision_local"):  # "vision_local" accepted for back-compat
+        return await extract_via_vision_llm(img, doc_type="invoice", route_b=True)
+    return await extract_via_vision_llm(img, doc_type="invoice")
 
 
 async def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dataset", default="eval/real_invoices_eval.jsonl")
     ap.add_argument("--image-dir", default="eval/real_invoices")
-    ap.add_argument("--route", default="vision_premium")
+    ap.add_argument("--route", default="vision_route_a")
     a = ap.parse_args()
 
     rows = [json.loads(line) for line in open(a.dataset) if line.strip()]

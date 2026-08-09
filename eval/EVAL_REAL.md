@@ -30,9 +30,9 @@ German invoice, whose total is on page 2, is scored fairly on its page-1 fields)
 ## Results
 
 ```bash
-python eval/run_real_eval.py --route vision_premium   # Route A — Claude Sonnet 4.6 Vision
+python eval/run_real_eval.py --route vision_route_a   # Route A — Claude Sonnet 4.6 Vision
 python eval/run_real_eval.py --route ocr_fallback     # Route C — Tesseract + LLM
-python eval/run_real_eval.py --route vision_local     # Route B — Ollama Qwen2.5-VL (GPU)
+python eval/run_real_eval.py --route vision_route_b   # Route B — Ollama Qwen2.5-VL (local/self-hosted GPU)
 ```
 
 | Route | Engine | Score (present fields) |
@@ -55,7 +55,7 @@ A French invoice priced in FCFA (UEMOA convention, 18% TVA, space-grouped amount
 
 ```bash
 python eval/make_fcfa_sample.py
-python eval/run_real_eval.py --dataset eval/fcfa_eval.jsonl --image-dir eval/fcfa_sample --route vision_premium
+python eval/run_real_eval.py --dataset eval/fcfa_eval.jsonl --image-dir eval/fcfa_sample --route vision_route_a
 OCR_LANGS=fra+eng python eval/run_real_eval.py --dataset eval/fcfa_eval.jsonl --image-dir eval/fcfa_sample --route ocr_fallback
 ```
 
@@ -80,7 +80,7 @@ All three routes read the French labels, transcribe the space-grouped amounts to
 Route B keeps all computation on the host (no data leaves the box). The 7B model is impractical on
 CPU, so it is evaluated on an **NVIDIA T4 GPU** attached on demand and released after the run. The
 validated model is **Ollama Qwen2.5-VL** (see the model note in [BENCHMARK.md](BENCHMARK.md); the
-route is model-agnostic via `LLM_VISION_LOCAL`).
+route is model-agnostic via `OLLAMA_MODEL`).
 
 ## Significance
 

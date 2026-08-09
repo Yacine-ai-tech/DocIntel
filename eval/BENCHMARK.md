@@ -64,6 +64,24 @@ the **zero-failure success rate at scale**.
 | **B — vision_local** | Ollama qwen2.5-VL 7B (NVIDIA T4) | invoices (6; multilingual, multi-page) | **25/39 = 64.1%** |
 | **B — vision_local** | Ollama qwen2.5-VL 7B (NVIDIA T4) | French + FCFA (XOF) sample | **7/7 = 100%** |
 
+### Cost & latency
+
+`eval/run_benchmark.py` now measures real per-document latency (wall time) and real per-document
+$ cost (via `litellm.completion_cost()`, computed from actual token usage returned by the
+provider — not an estimate) for any `--route` run, printed alongside accuracy:
+
+```bash
+python eval/run_benchmark.py --route vision_route_a --limit 40
+#   LATENCY (per doc, wall time): mean=2.31s  p50=2.10s  p95=4.02s
+#   COST: total=$0.4120  mean=$0.01030/doc
+```
+
+Route B (local/self-hosted Ollama) always reports `$0.00` — there's no metered API call to
+price. Route C's cost is just the Haiku cleanup call, not the free OCR pass. No numbers are
+published here yet — the table above predates this instrumentation; re-run each route to get a
+real accuracy+latency+cost comparison rather than mixing old accuracy numbers with new cost
+numbers from different points in time.
+
 ### Discussion
 
 Vision-first extraction (Route A) is strong across document types: **100%** on real multilingual,
@@ -110,7 +128,7 @@ run. The 7B model is impractical on CPU, so a GPU is required for usable latency
 > *unknown* by the bundled `llama-server` runner); on the Ollama build where it does load (0.11.x)
 > its key-information-extraction quality on the French/FCFA invoice was unusable (0/7) versus 7/7
 > for Qwen 2.5-VL. **Qwen 2.5-VL is therefore the validated local model.** The route is
-> model-agnostic via `LLM_VISION_LOCAL`, so any Ollama-served vision model (Llama 3.2 Vision,
+> model-agnostic via `OLLAMA_MODEL`, so any Ollama-served vision model (Llama 3.2 Vision,
 > Gemma, etc.) can be substituted on a host whose runtime supports it.
 
 **Large documents on the local route.** Ollama's default context window (4096 tokens) is too small
@@ -121,7 +139,7 @@ recommended.
 
 ```bash
 ollama pull qwen2.5vl:7b
-LLM_VISION_LOCAL=ollama/qwen2.5vl:7b python eval/run_benchmark.py --route vision_local --doc-type receipt --limit 100
+OLLAMA_MODEL=qwen2.5vl:7b python eval/run_benchmark.py --route vision_route_b --doc-type receipt --limit 100
 ```
 
 ### Route A Alternatives (Surya and Marker)
