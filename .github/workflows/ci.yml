@@ -42,7 +42,9 @@ jobs:
       
       - name: Run tests
         run: |
-          pytest tests/ -v --tb=short
+          # test_exhaustive_api.py needs a live server (TEST_BASE_URL) — it runs against the
+          # deployed service in the E2E Smoke Tests job below, not here against nothing.
+          pytest tests/ -v --tb=short --ignore=tests/test_exhaustive_api.py
       
       - name: Check code style
         run: |
@@ -96,8 +98,8 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install httpx
-      
+          pip install httpx pytest pytest-asyncio
+
       - name: Health check
         run: |
           python -c "
@@ -107,6 +109,14 @@ jobs:
           assert response.status_code == 200
           print(f'Response: {response.json()}')
           "
+
+      - name: Run exhaustive API tests against live deployment
+        if: env.DOCINTEL_URL != ''
+        env:
+          TEST_BASE_URL: ${{ env.DOCINTEL_URL }}
+          OMNIINTEL_INTERNAL_TOKEN: ${{ env.OMNIINTEL_INTERNAL_TOKEN }}
+        run: |
+          pytest tests/test_exhaustive_api.py -v --tb=short
       
       - name: Route availability test
         run: |
