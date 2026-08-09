@@ -52,6 +52,7 @@ class BatchProcessor:
         job_id: str,
         files: List[Dict[str, Any]],
         processor_fn: Callable,
+        webhook_url: Optional[str] = None,
     ) -> None:
         """
         Process a batch concurrently in the background.
@@ -60,6 +61,9 @@ class BatchProcessor:
             job_id: Pre-allocated job ID from new_job().
             files: List of {filename, bytes, doc_type, route} dicts.
             processor_fn: An async callable that processes one file and returns a dict.
+            webhook_url: If set, POSTed with {job_id, status, total, processed, failed,
+                results} once the job completes — used to trigger downstream automation
+                (e.g. an n8n Webhook node; see docs/n8n/README.md) without polling.
         """
         job = self._jobs.get(job_id)
         if job is None:
@@ -84,6 +88,18 @@ class BatchProcessor:
         await asyncio.gather(*(_run(i, fd) for i, fd in enumerate(files)))
         job["status"] = "completed"
         job["finished_at"] = _now()
+
+        if webhook_url:
+            from services.webhook import send_webhook
+            await send_webhook(webhook_url, {
+                "job_id": job_id,
+                "status": job["status"],
+                "total": job["total"],
+                "processed": job["processed"],
+                "failed": job["failed"],
+                "finished_at": job["finished_at"],
+                "results": job["results"],
+            })
 
     def get_status(self, job_id: str) -> Optional[Dict[str, Any]]:
         """Return the job status (no results)."""
