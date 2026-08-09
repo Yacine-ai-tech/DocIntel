@@ -105,18 +105,15 @@ export function AppShell({
           <span className="text-sm font-semibold">{product}</span>
         </header>
         <main className="min-w-0 flex-1 overflow-y-auto">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={loc.pathname}
-              initial={{ opacity: 0, y: 4 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
-              className="mx-auto max-w-6xl px-5 py-8 lg:px-10"
-            >
-              {children}
-            </motion.div>
-          </AnimatePresence>
+          <motion.div
+            key={loc.pathname}
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+            className="mx-auto max-w-6xl px-5 py-8 lg:px-10"
+          >
+            {children}
+          </motion.div>
         </main>
       </div>
     </div>
