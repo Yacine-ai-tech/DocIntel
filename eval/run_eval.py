@@ -4,6 +4,7 @@ Dataset jsonl line:  {"file": "inv_01.png", "expected": {"vendor": ..., "total":
 
 Usage:
     python eval/run_eval.py --dataset eval/invoices_eval.jsonl --image-dir eval/synthetic_invoices
+    python eval/run_eval.py --route vision_route_b   # Ollama vision (local/self-hosted)
     # gates: exits 1 if overall key-field accuracy < --threshold (default 0.85)
 """
 from __future__ import annotations
@@ -12,6 +13,7 @@ import argparse
 import asyncio
 import json
 import sys
+import time
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -31,9 +33,14 @@ async def run_route(route: str, dataset_path: str, image_dir: str) -> Dict[str, 
         if not path.exists():
             results.append({"file": row["file"], "error": "missing"})
             continue
-        actual = await extract_via_vision_llm(path.read_bytes(), doc_type="invoice")
+        route_b = route in ("vision_route_b", "vision_local")  # "vision_local" for back-compat
+        t0 = time.time()
+        actual = await extract_via_vision_llm(path.read_bytes(), doc_type="invoice", route_b=route_b)
+        latency_s = time.time() - t0
         results.append({"file": row["file"], "expected": row["expected"], "actual": actual,
-                        "fields": score_fields(row["expected"], actual or {})})
+                        "fields": score_fields(row["expected"], actual or {}),
+                        "latency_s": round(latency_s, 3),
+                        "cost_usd": (actual or {}).get("_cost_usd", 0.0)})
     return {"route": route, "n": len(results), "results": results}
 
 
@@ -48,10 +55,15 @@ def summarize(out: Dict[str, Any]) -> Dict[str, Any]:
             total_correct += int(ok)
             total_fields += 1
     n = max(1, len(scored))
+    latencies = [r["latency_s"] for r in scored if "latency_s" in r]
+    total_cost = sum(r.get("cost_usd", 0.0) or 0.0 for r in scored)
     return {
         "docs": len(scored),
         "per_field_accuracy": {k: round(per_field[k] / n, 3) for k in KEY_FIELDS},
         "overall_key_field_accuracy": round(total_correct / max(1, total_fields), 3),
+        "latency_mean_s": round(sum(latencies) / max(1, len(latencies)), 3) if latencies else None,
+        "cost_usd_total": round(total_cost, 6),
+        "cost_usd_mean": round(total_cost / n, 6),
     }
 
 
@@ -59,7 +71,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--dataset", default="eval/invoices_eval.jsonl")
     p.add_argument("--image-dir", default="eval/synthetic_invoices")
-    p.add_argument("--route", default="vision_premium")
+    p.add_argument("--route", default="vision_route_a")
     p.add_argument("--output", default="eval/results.json")
     p.add_argument("--threshold", type=float, default=0.85)
     args = p.parse_args()
@@ -74,6 +86,9 @@ def main():
         print(f"  {k:16} {v:.1%}")
     acc = summary["overall_key_field_accuracy"]
     print(f"\n  OVERALL key-field accuracy: {acc:.1%}  (threshold {args.threshold:.0%})")
+    if summary["latency_mean_s"] is not None:
+        print(f"  latency: mean={summary['latency_mean_s']:.2f}s")
+    print(f"  cost: total=${summary['cost_usd_total']:.4f}  mean=${summary['cost_usd_mean']:.5f}/doc")
     if acc < args.threshold:
         print("  ⚠️  below threshold")
         sys.exit(1)
