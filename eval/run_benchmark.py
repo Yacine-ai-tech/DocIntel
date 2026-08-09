@@ -6,16 +6,16 @@ falling over). This runner measures both, with cost controls so a full run is af
 
 Modes:
   --scale-only        ingest+OCR every doc (NO LLM, free) → throughput + success rate at scale
-  --route vision_premium|vision_local|ocr_fallback   field extraction + accuracy on GT subset
+  --route vision_route_a|vision_route_b|ocr_fallback   field extraction + accuracy on GT subset
 
 Cost controls: --limit caps docs; --doc-type filters; --concurrency bounds fan-out. Route C
 cleanup uses the cheap model from settings (Haiku by default).
 
 Usage:
-  python eval/run_benchmark.py --scale-only                       # free robustness pass
-  python eval/run_benchmark.py --route ocr_fallback --limit 200   # broad, cheap accuracy
-  python eval/run_benchmark.py --route vision_premium --limit 40  # premium accuracy sample
-  python eval/run_benchmark.py --route vision_local --limit 40    # Ollama (GPU) sample
+  python eval/run_benchmark.py --scale-only                          # free robustness pass
+  python eval/run_benchmark.py --route ocr_fallback --limit 200      # broad, cheap accuracy
+  python eval/run_benchmark.py --route vision_route_a --limit 40     # Claude accuracy sample
+  python eval/run_benchmark.py --route vision_route_b --limit 40     # Ollama (local/self-hosted) sample
 """
 from __future__ import annotations
 
@@ -99,9 +99,9 @@ async def extract(route, row):
             return {"error": "ocr_empty"}
         return await LLMExtractor(model=settings.LLM_CLEANUP).extract(text, row["doc_type"])
     from services.vision_extractor import extract_via_vision_llm
-    from core.config import settings
-    model = settings.LLM_VISION_LOCAL if route == "vision_local" else None
-    return await extract_via_vision_llm(imgs, model=model, doc_type=row["doc_type"])
+    if route in ("vision_route_b", "vision_local"):  # "vision_local" accepted for back-compat
+        return await extract_via_vision_llm(imgs, doc_type=row["doc_type"], route_b=True)
+    return await extract_via_vision_llm(imgs, doc_type=row["doc_type"])
 
 
 def ingest_ocr(row):
@@ -135,6 +135,8 @@ async def main():
     field_c = field_t = 0
     per_field: dict = {}
     per_type: dict = {}
+    latencies: list = []   # per-document wall time (s) — real, not estimated
+    total_cost = 0.0       # real $ from litellm.completion_cost(), summed across docs
 
     if a.scale_only:
         sem = asyncio.Semaphore(a.concurrency)
@@ -152,9 +154,13 @@ async def main():
         sem = asyncio.Semaphore(a.concurrency)
 
         async def run_one(row):
-            nonlocal ok, err, field_c, field_t
+            nonlocal ok, err, field_c, field_t, total_cost
             async with sem:
+                t_item = time.time()
                 res = await extract(a.route, row)
+                latencies.append(time.time() - t_item)
+                if isinstance(res, dict):
+                    total_cost += res.get("_cost_usd", 0.0) or 0.0
                 pt = per_type.setdefault(row["doc_type"], [0, 0])
                 if isinstance(res, dict) and "error" not in res:
                     ok += 1
@@ -177,6 +183,15 @@ async def main():
           f"success_rate: {ok / max(1, ok + err):.1%}")
     print(f"  wall: {dt:.1f}s  throughput: {(ok + err) / max(0.1, dt):.2f} docs/s "
           f"(concurrency={a.concurrency})")
+    if not a.scale_only and latencies:
+        latencies.sort()
+        n = len(latencies)
+        mean_lat = sum(latencies) / n
+        p50 = latencies[n // 2]
+        p95 = latencies[min(n - 1, int(n * 0.95))]
+        print(f"  LATENCY (per doc, wall time): mean={mean_lat:.2f}s  p50={p50:.2f}s  p95={p95:.2f}s")
+        print(f"  COST: total=${total_cost:.4f}  mean=${total_cost / n:.5f}/doc "
+              f"(real, from litellm.completion_cost() — $0.00 for local/self-hosted Route B)")
     if not a.scale_only and field_t:
         print(f"  FIELD ACCURACY (GT subset): {field_c}/{field_t} = {field_c / field_t:.1%}")
         for k, (c, t) in sorted(per_field.items()):

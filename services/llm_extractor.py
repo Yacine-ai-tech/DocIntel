@@ -84,6 +84,16 @@ def _strip_fences(text: str) -> str:
     return text.strip()
 
 
+def _completion_cost_usd(response: Any) -> float:
+    """Real per-call $ cost from LiteLLM's token-usage-based pricing tables. Returns 0.0
+    if the model isn't in LiteLLM's pricing data rather than raising."""
+    try:
+        import litellm
+        return float(litellm.completion_cost(completion_response=response))
+    except Exception:
+        return 0.0
+
+
 class LLMExtractor:
     """Extract structured data from raw text using LiteLLM."""
 
@@ -98,6 +108,7 @@ class LLMExtractor:
         """One LLM call over a text block, with a single JSON retry. Never raises."""
         prompt = PROMPTS.get(doc_type, PROMPTS["default"]) + _RULES
         content = ""
+        cost = 0.0
         for attempt in (1, 2):
             try:
                 response = await acompletion(
@@ -108,19 +119,22 @@ class LLMExtractor:
                     ],
                     temperature=0.1,
                 )
+                cost += _completion_cost_usd(response)
                 content = response.choices[0].message.content or "{}"
                 result = json.loads(_strip_fences(content))
-                return result if isinstance(result, dict) else {"value": result}
+                result = result if isinstance(result, dict) else {"value": result}
+                result["_cost_usd"] = cost
+                return result
             except json.JSONDecodeError as e:
                 log.warning("LLM non-JSON (attempt %d): %s", attempt, e)
                 if attempt == 1:
                     prompt += " Your previous reply was not valid JSON. Output ONLY the JSON object."
                     continue
-                return {"error": "non_json_response", "raw": content[:500]}
+                return {"error": "non_json_response", "raw": content[:500], "_cost_usd": cost}
             except Exception as e:
                 log.exception("LLM extraction failed: %s", e)
-                return {"error": str(e)}
-        return {"error": "unreachable"}
+                return {"error": str(e), "_cost_usd": cost}
+        return {"error": "unreachable", "_cost_usd": cost}
 
     async def extract(self, text: str, doc_type: str = "default") -> Dict[str, Any]:
         """
@@ -163,10 +177,12 @@ class LLMExtractor:
 
         log.info("large document text: %d chars → %d LLM chunks", len(text), len(chunks))
         parts = await asyncio.gather(*(self._extract_one(c, doc_type) for c in chunks))
+        total_cost = sum(p.get("_cost_usd", 0.0) for p in parts if isinstance(p, dict))
         merged = merge_doc_fields(parts)
         self._apply_regex_fallback(text, merged, doc_type)
         normalize_fields(merged, doc_type)
         merged["_chunks"] = len(chunks)
+        merged["_cost_usd"] = round(total_cost, 6)
         return merged
         
     def _apply_regex_fallback(self, text: str, result: Dict[str, Any], doc_type: str) -> None:
