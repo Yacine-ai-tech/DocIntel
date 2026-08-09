@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-const BASE_URL = process.env.TEST_BASE_URL || BASE_URL + '';
+const BASE_URL = process.env.TEST_BASE_URL || '';
 
 const ROUTES = ['/', '/documents', '/images', '/camera', '/pipelines', '/compare', '/batch', '/benchmarks', '/models', '/activity', '/settings'];
 
