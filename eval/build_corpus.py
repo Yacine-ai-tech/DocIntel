@@ -1,8 +1,8 @@
 """Assemble a 500+ document benchmark corpus of REAL documents with ground truth.
 
-This is the released research artifact (per STRATEGY.md §3.9 — "releasing the benchmark is
-the biggest contribution"). It is multi-source and multi-type so accuracy numbers reflect
-production diversity, not one template:
+This is a released research artifact — releasing the benchmark is the biggest contribution.
+It is multi-source and multi-type so accuracy numbers reflect production diversity, not one
+template:
 
   - CORD-v2 receipts            (naver-clova-ix/cord-v2)  — clean JSON field GT, scalable
   - invoice2data invoices       (MIT)                     — multilingual, incl. multi-page

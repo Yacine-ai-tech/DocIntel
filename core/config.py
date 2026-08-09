@@ -48,10 +48,10 @@ class Settings:
 
     # --- REMOTE mode ---
     # URL of the remote Ollama-compatible endpoint. Examples:
-    #   Lightning AI Studio (cloudflare tunnel): https://inference.your-domain.app
-    #   Groq API:                                https://api.groq.com/openai/v1
-    #   Hugging Face router:                     https://router.huggingface.co/hf-inference
-    #   Self-hosted Ollama on VPS:               http://1.2.3.4:11434
+    #   Your own on-demand GPU host (via a tunnel): https://inference.your-domain.app
+    #   Groq API:                                   https://api.groq.com/openai/v1
+    #   Hugging Face router:                        https://router.huggingface.co/hf-inference
+    #   Self-hosted Ollama on VPS:                  http://1.2.3.4:11434
     ROUTE_B_REMOTE_ENDPOINT = os.getenv("ROUTE_B_REMOTE_ENDPOINT", "")
 
     # Bearer token for the remote endpoint (required for Groq/HF, optional for others).
@@ -74,13 +74,6 @@ class Settings:
     # ─── Route C: OCR fallback ────────────────────────────────────────────────
     # Cheaper model for the OCR-route text→JSON cleanup (cost-optimized default).
     LLM_CLEANUP = os.getenv("LLM_CLEANUP", "anthropic/claude-haiku-4-5")
-
-    # ─── Orchestrator (wake-on-demand GPU) ───────────────────────────────────
-    # Only needed when ROUTE_B_MODE=remote and pointing at an on-demand GPU server
-    # (e.g. Lightning AI Studio via the Orchestrator service).
-    # Leave empty if your remote endpoint is always-on (Groq, HF, own server).
-    ORCHESTRATOR_URL = os.getenv("ORCHESTRATOR_URL", "")
-    ORCH_TOKEN = os.getenv("ORCH_TOKEN", "")
 
     # ─── API Keys ─────────────────────────────────────────────────────────────
     # Required for Route A (Claude)

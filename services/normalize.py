@@ -1,7 +1,7 @@
 """
 Deterministic post-processing for extracted document fields.
 
-STRATEGY §3.4 + Day 36-37 are explicit that LLMs are unreliable at locale-specific
+LLMs are unreliable at locale-specific
 *number*, *currency* and *date* normalization, and call for a hybrid layer: extract with the
 LLM, then normalize these fields deterministically. This module is that layer. It is
 multi-currency and multi-locale by design — not specialised to any one region:

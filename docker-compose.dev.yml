@@ -1,10 +1,11 @@
-# Lightweight dev compose for DocIntel — runs in the docintel Lightning Studio.
+# Lightweight dev compose for DocIntel — meant for a remote dev host (any on-demand
+# cloud box, a home server, etc.) — not just a local machine.
 # Tesseract/poppler are baked into the image (Dockerfile installs via apt).
 #
-# Usage inside the Studio:
+# Usage on the remote host:
 #   docker compose -f docker-compose.dev.yml up --build
 #
-# Reach it from the laptop: ssh -L 8001:localhost:8001 lightning-docintel
+# Reach it from your laptop: ssh -L 8001:localhost:8001 <your-remote-host>
 # Then: http://localhost:8001/health
 
 services:
