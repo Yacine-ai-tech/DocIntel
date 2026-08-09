@@ -4,8 +4,8 @@ import { PageHeader } from "../kit/AppShell";
 import { Card, StatTile } from "../kit/primitives";
 import { FileCheck2, Globe2, Landmark, ScanLine } from "lucide-react";
 
-/* All figures verified against eval/BENCHMARK.md and eval/SROIE_BENCHMARK.md
-   (GAP_REPORT.md §4). Do not edit without re-running the benchmark. */
+/* All figures verified against eval/BENCHMARK.md and eval/SROIE_BENCHMARK.md.
+   Do not edit without re-running the benchmark. */
 
 const ROUTE_COMPARISON = [
   { set: "Invoices (multilingual, multi-page)", "Claude Vision (A)": 100, "Local qwen2.5-VL (B)": 64.1, "OCR + LLM (C)": 100 },

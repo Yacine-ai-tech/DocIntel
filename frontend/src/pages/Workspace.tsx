@@ -67,7 +67,7 @@ export default function Workspace() {
     setErrMsg("");
     setResult(null);
     setEdited({});
-    // No per-stage timing in the API (see GAP_REPORT §2): progress the first stages on a
+    // No per-stage timing in the API: progress the first stages on a
     // timer while the single /process call runs, then fill final state from the real response.
     timers.current.forEach(clearTimeout);
     timers.current = [1, 2, 3].map((i) =>

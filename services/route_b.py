@@ -13,7 +13,7 @@ Two deployment modes, selected via ROUTE_B_MODE env var:
   remote  — Ollama (or Ollama-compatible API) on a remote cloud endpoint
              Configure: ROUTE_B_REMOTE_ENDPOINT + ROUTE_B_REMOTE_TOKEN
              Supported dialects (auto-detected by endpoint URL):
-               • Raw Ollama        → any server running Ollama (Lightning Studio, VPS, etc.)
+               • Raw Ollama        → any server running Ollama (on-demand GPU host, VPS, etc.)
                • Groq              → https://api.groq.com/openai/v1
                • HuggingFace       → https://router.huggingface.co/hf-inference
 
@@ -35,8 +35,6 @@ import io
 import json
 import logging
 import os
-import threading
-import time
 import urllib.request
 from typing import List, Optional
 
@@ -79,10 +77,6 @@ _HF_MODEL_MAP: dict[str, str] = {
 
 # GPU incompatibility: Ollama errors that indicate the model runner is unsupported
 _MLLAMA_ERRORS = ("mllama", "not supported", "runner", "ggml_backend")
-
-# Rate-limit the orchestrator wake signal (seconds between wake calls)
-_LAST_WAKE = 0.0
-_WAKE_MIN_INTERVAL = 90.0
 
 
 # ─── Remote model name mapping ───────────────────────────────────────────────
@@ -149,40 +143,6 @@ def _resolve_model(ollama_tag: str, dialect: str) -> str:
                "accounts/fireworks/models/llama-v3p2-11b-vision-instruct")
     # raw Ollama remote — use tag as-is
     return ollama_tag
-
-
-def _fire_wake_signal() -> None:
-    """
-    Non-blocking background thread that pings the Orchestrator /wake endpoint.
-    Only fires if ORCHESTRATOR_URL is set and enough time has passed since the last wake.
-    This is optional — only needed for on-demand GPU servers (e.g. Lightning AI Studio).
-    """
-    global _LAST_WAKE
-    url = os.getenv("ORCHESTRATOR_URL", "").strip()
-    if not url:
-        return
-    now = time.time()
-    if (now - _LAST_WAKE) < _WAKE_MIN_INTERVAL:
-        return
-    _LAST_WAKE = now
-
-    def _go():
-        try:
-            h = {"Content-Type": "application/json",
-                 "User-Agent": "DocIntel/2.0 Route-B"}
-            tk = os.getenv("ORCH_TOKEN", "").strip()
-            if tk:
-                h["Authorization"] = f"Bearer {tk}"
-            body = json.dumps({"gpu": True, "service": "docintel"}).encode()
-            req = urllib.request.Request(
-                url.rstrip("/") + "/wake", data=body, headers=h
-            )
-            urllib.request.urlopen(req, timeout=10)
-            log.debug("Route B: Orchestrator wake signal sent to %s", url)
-        except Exception as e:
-            log.debug("Route B: wake signal failed (non-fatal): %s", e)
-
-    threading.Thread(target=_go, daemon=True).start()
 
 
 def _downscale_image(image_bytes: bytes, max_edge: int = 2200) -> bytes:
@@ -297,7 +257,7 @@ def _call_remote_ollama_sync(
 ) -> str:
     """
     Talk to a remote Ollama instance using Ollama's native /api/chat API.
-    Used for: Lightning AI Studio (via cloudflared tunnel), self-hosted Ollama on VPS, etc.
+    Used for: an on-demand GPU host (via a tunnel), self-hosted Ollama on VPS, etc.
     """
     timeout = int(os.getenv("ROUTE_B_TIMEOUT", "60"))
     images_b64 = [
@@ -436,8 +396,7 @@ async def _call_remote(model: str, prompt: str, imgs: List[bytes]) -> str:
                 )
             raise
     else:
-        # Raw Ollama (Lightning Studio, self-hosted, etc.)
-        _fire_wake_signal()
+        # Raw Ollama (on-demand GPU host, self-hosted, etc.)
         try:
             return await asyncio.to_thread(
                 _call_remote_ollama_sync, endpoint, resolved_model, prompt, imgs, token

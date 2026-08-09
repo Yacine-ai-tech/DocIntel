@@ -100,43 +100,16 @@ def pdf_page_count(pdf_bytes: bytes) -> int:
     return 0
 
 
-_LAST_RENDER_WAKE = 0.0
-
-
-def _wake_render_studio() -> None:
-    """Fire-and-forget wake of the on-demand Lightning Studio (CPU is fine for rasterising).
-    Rate-limited so a burst of large uploads doesn't spam the orchestrator."""
-    import time as _t, threading
-    global _LAST_RENDER_WAKE
-    url = _os.getenv("ORCHESTRATOR_URL", "").strip()
-    if not url or (_t.time() - _LAST_RENDER_WAKE) < 60:
-        return
-    _LAST_RENDER_WAKE = _t.time()
-    def _go():
-        try:
-            import json as _j, urllib.request
-            h = {"Content-Type": "application/json", "User-Agent": "DocIntel/1.0 (+https://ysiddo-ai-projects.app)"}
-            tk = _os.getenv("ORCH_TOKEN", "").strip()
-            if tk:
-                h["Authorization"] = "Bearer " + tk
-            urllib.request.urlopen(urllib.request.Request(
-                url.rstrip("/") + "/wake", data=_j.dumps({"gpu": False}).encode(), headers=h), timeout=90)
-        except Exception:
-            log.exception("Unexpected error")
-            pass
-    threading.Thread(target=_go, daemon=True).start()
-
-
 def _remote_render(pdf_bytes: bytes, dpi: int, max_pages: int) -> Optional[List[bytes]]:
-    """Offload PDF rasterisation to the Lightning backend (free 15GB box) for *big* PDFs so the
-    512MB app tier never holds every decoded page in RAM. Only kicks in when LIGHTNING_RENDER_URL
-    is set and the doc exceeds LIGHTNING_RENDER_PAGE_THRESHOLD pages — small docs render locally
-    (no round-trip). Returns the PNG pages, or None to fall back to local rendering."""
-    url = _os.getenv("LIGHTNING_RENDER_URL", "").strip()
+    """Offload PDF rasterisation to a remote inference host for *big* PDFs so the 512MB app tier
+    never holds every decoded page in RAM. Only kicks in when RENDER_URL is set and the doc exceeds
+    RENDER_PAGE_THRESHOLD pages — small docs render locally (no round-trip). Returns the PNG pages,
+    or None to fall back to local rendering."""
+    url = _os.getenv("RENDER_URL", "").strip()
     if not url:
         return None
     n = pdf_page_count(pdf_bytes)
-    threshold = int(_os.getenv("LIGHTNING_RENDER_PAGE_THRESHOLD", "8"))
+    threshold = int(_os.getenv("RENDER_PAGE_THRESHOLD", "8"))
     if n and n <= threshold:
         return None  # small/medium docs: the bounded local renderer handles these fine
     try:
@@ -151,16 +124,15 @@ def _remote_render(pdf_bytes: bytes, dpi: int, max_pages: int) -> Optional[List[
         if tk:
             h["Authorization"] = "Bearer " + tk
         req = urllib.request.Request(url.rstrip("/") + "/render-pdf", data=payload, headers=h)
-        timeout = float(_os.getenv("LIGHTNING_RENDER_TIMEOUT", "180"))
+        timeout = float(_os.getenv("RENDER_TIMEOUT", "180"))
         resp = _j.loads(urllib.request.urlopen(req, timeout=timeout).read())
         pages = resp.get("pages_b64") or []
         if pages:
-            log.info("rendered %d-page PDF on the Lightning backend (off-box)", len(pages))
+            log.info("rendered %d-page PDF on the remote inference host (off-box)", len(pages))
             return [base64.b64decode(p) for p in pages]
         return None
     except Exception as e:
-        log.warning("remote PDF render unavailable (%s) — waking studio + local fallback", e)
-        _wake_render_studio()
+        log.warning("remote PDF render unavailable (%s) — local fallback", e)
         return None
 
 
@@ -175,8 +147,8 @@ def pdf_to_pngs(pdf_bytes: bytes, dpi: int = 150, max_pages: int = 20) -> List[b
     Memory: the old path decoded every page into a PIL image at once (~6.5MB/page → a 24-page PDF
     held ~150MB and OOM-crashed the free tier). Now poppler rasterises straight to a temp folder
     (``paths_only``) and we read + downscale one page at a time, so peak RAM is ~one page. Huge
-    PDFs (> LIGHTNING_RENDER_PAGE_THRESHOLD pages) are offloaded to the Lightning backend when
-    ``LIGHTNING_RENDER_URL`` is set. Returns [] if rendering is unavailable.
+    PDFs (> RENDER_PAGE_THRESHOLD pages) are offloaded to a remote inference host when
+    ``RENDER_URL`` is set. Returns [] if rendering is unavailable.
     """
     if not is_pdf(pdf_bytes):
         return []
