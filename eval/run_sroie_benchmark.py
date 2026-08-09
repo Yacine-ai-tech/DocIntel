@@ -1,7 +1,7 @@
 """World-standard receipt key-information-extraction benchmark: **SROIE** (ICDAR 2019 Task 3).
 Runs DocIntel Route A (Claude Sonnet Vision) on SROIE receipt images and scores the standard
 fields (company, date, total) against ground truth. This is the recognized benchmark behind
-STRATEGY §3.4's "90%+ field accuracy" target.
+the "90%+ field accuracy" target.
 
 Scoring (per the SROIE convention, lenient where the field is free-text):
   company → case-insensitive substring match (either direction)
@@ -122,7 +122,7 @@ async def main():
         t = total_present[f]
         print(f"  {f:8} {correct[f]}/{t} = {correct[f]/max(1,t):.1%}")
     print(f"  OVERALL field accuracy: {micro_c}/{micro_t} = {micro_c/max(1,micro_t):.1%}")
-    print(f"  (STRATEGY §3.4 target: 90%+ on invoice/receipt fields | published SROIE SOTA "
+    print(f"  (target: 90%+ on invoice/receipt fields | published SROIE SOTA "
           f"F1 ~96-98% with task-finetuned LayoutLM-class models)")
 
 

@@ -2,7 +2,7 @@
 SuryaExtractor — layout-aware OCR via the `surya-ocr` library (text + bounding boxes + reading
 order), the modern open-source successor to plain Tesseract for the OCR route.
 
-Per STRATEGY §3.10 the OCR path is now a *fallback* behind vision-first, but for clean scanned
+The OCR path is now a *fallback* behind vision-first, but for clean scanned
 documents Surya gives much better layout fidelity than Tesseract (proper reading order, tables,
 multi-column). Heavy ML dep — lives in `requirements-ml.txt`; this module degrades to a stub
 when surya isn't installed, exactly like `MarkerExtractor`.
