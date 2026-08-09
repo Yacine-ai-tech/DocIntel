@@ -1,0 +1,101 @@
+{
+  "name": "DocIntel — Batch Completion Receiver",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "docintel-callback",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000001",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        420,
+        300
+      ],
+      "webhookId": "docintel-callback"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.body.status }}",
+              "rightValue": "completed",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0002-4000-8000-000000000002",
+      "name": "Job completed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        640,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "body.results",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0003-4000-8000-000000000003",
+      "name": "Split out per-file results",
+      "type": "n8n-nodes-base.itemLists",
+      "typeVersion": 1,
+      "position": [
+        860,
+        220
+      ],
+      "notes": "One item per processed file — {filename, fields, confidence, page_count}. Fan this out into your DB/Sheet/CRM/Slack node."
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Job completed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Job completed?": {
+      "main": [
+        [
+          {
+            "node": "Split out per-file results",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "description": "Receives the POST DocIntel sends to webhook_url when a /batch/upload job finishes. Import this, activate it, copy the Webhook node's Production URL, and pass it as webhook_url when you POST /batch/upload. Extend 'Split out per-file results' with whatever node writes the extracted fields into your system (Sheets, Airtable, Postgres, Slack, ...)."
+  }
+}
