@@ -9,7 +9,7 @@ Routes:
              See services/route_b.py for full configuration reference.
   - Route C: OCR fallback (Tesseract + LLM cleanup) — automatic fallback for Route B failures
 
-Supported Ollama vision models (primary focus per strategy.md):
+Supported Ollama vision models (primary focus):
   - Qwen 2.5-VL 7B / 72B  — lighter, works on most GPUs, great for forms/invoices
   - Llama 3.2 Vision 11B / 90B — better for complex mixed-language layouts
   Any other Ollama vision model (minicpm-v, llava, etc.) also works via OLLAMA_MODEL.
