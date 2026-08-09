@@ -76,3 +76,9 @@ frontend/node_modules/
 .coverage
 frontend/playwright-report/
 frontend/test-results/
+
+# Backup from the .env line-ending repair (safe to delete once verified)
+.env.bak-corrupted
+
+# Internal zero-trust architecture audit — not for the public AGPL repo
+ARCHITECTURE.md
