@@ -138,7 +138,13 @@ import os as _os
 @app.middleware("http")
 async def verify_internal_token(request: Request, call_next):
     # Allow health checks, public auth routes, and frontend static assets
-    if request.method == "OPTIONS" or request.url.path in ["/", "/health", "/docs", "/openapi.json", "/api/redoc", "/favicon.png", "/favicon.ico", "/mark.png", "/logo.png", "/classify", "/extract", "/process", "/batch/upload"] or request.url.path.startswith("/api/v1/auth/") or request.url.path.startswith("/assets/") or request.url.path.startswith("/static/") or request.url.path.startswith("/camera/"):
+    # /extract/text and /extract/marker are the same class of public extraction endpoint
+    # as /extract and /process and must be listed alongside them. Leaving them out is a
+    # latent trap rather than a visible one: REQUIRE_INTERNAL_TOKEN defaults to false, so
+    # everything works until someone hardens the deployment — at which point a client
+    # (e.g. IntelAI's document delegation) gets 403 on /extract/text while /process keeps
+    # working, which looks like a broken endpoint rather than an auth policy.
+    if request.method == "OPTIONS" or request.url.path in ["/", "/health", "/docs", "/openapi.json", "/api/redoc", "/favicon.png", "/favicon.ico", "/mark.png", "/logo.png", "/classify", "/classify-image", "/extract", "/extract/text", "/extract/marker", "/process", "/batch/upload"] or request.url.path.startswith("/api/v1/auth/") or request.url.path.startswith("/assets/") or request.url.path.startswith("/static/") or request.url.path.startswith("/camera/"):
         return await call_next(request)
         
     token = request.headers.get("X-OmniIntel-Internal-Token")
