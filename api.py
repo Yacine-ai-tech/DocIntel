@@ -757,3 +757,24 @@ async def batch_results(job_id: str) -> Dict[str, Any]:
     return {"job_id": job_id, "results": results}
 
 
+@app.get("/{full_path:path}", include_in_schema=False)
+async def spa_fallback(full_path: str):
+    """Catch-all so direct navigation, refresh, or a bookmarked/shared link to
+    any frontend route serves the SPA instead of a raw 404 -- React Router
+    then resolves the route client-side. Declared last so every real API/WS
+    route above still wins.
+
+    Real static files in frontend/dist/ (favicon, logo, sw.js, ...) are
+    served directly rather than falling back to index.html for them.
+    """
+    root = _os.path.dirname(__file__)
+    dist = _os.path.realpath(_os.path.join(root, "frontend", "dist"))
+    candidate = _os.path.realpath(_os.path.join(dist, full_path))
+    if candidate.startswith(dist + _os.sep) and _os.path.isfile(candidate):
+        return FileResponse(candidate)
+    spa = _os.path.join(dist, "index.html")
+    if _os.path.exists(spa):
+        return FileResponse(spa)
+    raise HTTPException(status_code=404, detail="Not Found")
+
+
