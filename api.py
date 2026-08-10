@@ -465,6 +465,68 @@ async def classify_image_endpoint(
     return result
 
 
+@app.post("/extract/text")
+async def extract_text(
+    file: UploadFile = File(...),
+    route: str = Form("auto"),
+    max_pages: int = Form(0),
+) -> Dict[str, Any]:
+    """Full document text — the RAG-ingestion path.
+
+    Every other extraction endpoint returns *typed fields* (invoice-shaped: vendor,
+    total, line_items...). That is the wrong shape for a RAG consumer, which needs the
+    document's actual prose. STRATEGY.md §3.10 Move 3 designates Marker for exactly
+    this ("documents where you want structured text intermediate, e.g. to ingest into
+    RAG"), but marker-pdf is a heavy optional dependency, so this endpoint uses
+    whichever text path is actually available:
+
+      route="auto"     Marker if installed, else the native/OCR text layer
+      route="marker"   Marker only (errors if not installed)
+      route="ocr"      pdfplumber native text layer, per-page Tesseract for scans
+
+    Images always go through OCR (no text layer to read). Returns
+    {text, method, page_count, chars}.
+    """
+    from services.ocr_extractor import (
+        extract_text_from_image, extract_text_from_pdf, is_pdf, pdf_page_count,
+    )
+    t0 = time.time()
+    data = await file.read()
+    pdf = is_pdf(data)
+    pages = pdf_page_count(data) if pdf else 1
+    limit = max_pages or settings.MAX_PDF_PAGES
+    text, method = "", ""
+
+    if pdf and route in ("auto", "marker"):
+        import tempfile, os as _o
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+            tmp.write(data)
+            tmp_path = tmp.name
+        try:
+            res = _marker.convert(tmp_path)
+        finally:
+            _o.remove(tmp_path)
+        md = (res or {}).get("markdown") or ""
+        if md.strip():
+            text, method = md, "marker"
+        elif route == "marker":
+            return {"text": "", "method": "marker", "page_count": pages, "chars": 0,
+                    "error": (res or {}).get("error", "marker_failed")}
+
+    if not text:
+        text = extract_text_from_pdf(data, max_pages=limit) if pdf \
+            else extract_text_from_image(data)
+        method = "native_or_ocr" if pdf else "ocr"
+
+    return {
+        "text": text,
+        "method": method,
+        "page_count": pages,
+        "chars": len(text),
+        "processing_time_ms": round((time.time() - t0) * 1000, 1),
+    }
+
+
 @app.post("/extract", response_model=ProcessResponse)
 async def extract(
     file: UploadFile = File(...),
@@ -553,6 +615,17 @@ async def process(
             log.exception("Unexpected error")
             pass
 
+    # raw_text has always been declared on ProcessResponse but was never populated —
+    # every consumer wanting the document's actual prose (RAG ingesters especially) got
+    # null and had to fall back to the typed `fields`, which for a long report is a
+    # handful of characters. Populate it from the same text layer the OCR route uses.
+    raw_text = None
+    try:
+        raw_text = extract_text_from_pdf(data, max_pages=settings.MAX_PDF_PAGES) if is_pdf(data) \
+            else extract_text_from_image(data)
+    except Exception:
+        log.exception("raw_text extraction failed (non-fatal)")
+
     return ProcessResponse(
         doc_type=doc_type,
         route=route,
@@ -560,6 +633,7 @@ async def process(
         confidence=_confidence_of(fields),
         page_count=out["page_count"],
         processing_time_ms=round((time.time() - t0) * 1000, 1),
+        raw_text=raw_text or None,
     )
 
 
