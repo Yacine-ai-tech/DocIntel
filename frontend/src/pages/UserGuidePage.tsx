@@ -203,11 +203,19 @@ export default function UserGuidePage() {
               the file, and an optional <code>doc_type</code>.</li>
             <li>The server validates the token is active and unexpired (403 otherwise), records the
               upload against the session, and automatically routes the photo through{" "}
-              <strong className="text-white">Route B</strong> (local/remote Ollama vision) —
+              <strong className="text-white">Route B</strong> (local/self-hosted Ollama vision) —
               falling back to Route C (OCR) on any failure.</li>
-            <li>Extracted fields are returned directly in the response, ready to display or save on
-              the desktop dashboard (<code>CameraDashboard.tsx</code>).</li>
+            <li>The extraction result is returned to the <strong className="text-white">phone's</strong>{" "}
+              own HTTP response, but the desktop dashboard (<code>CameraDashboard.tsx</code>) never
+              sees that response directly — it polls{" "}
+              <code>GET /camera/status/{"{token}"}</code> every few seconds while showing the QR
+              code, and displays <code>last_result</code> the moment it appears.</li>
           </ol>
+          <p className="text-sm text-amber-300/90 mt-3">
+            Requires HTTPS (or <code>localhost</code>) — most mobile browsers refuse camera capture
+            on a plain <code>http://</code> origin. Set <code>FRONTEND_URL</code> to wherever your
+            phone can actually reach the frontend, or the QR code will encode an unreachable address.
+          </p>
         </Section>
 
         {/* Batch upload */}
@@ -220,12 +228,19 @@ export default function UserGuidePage() {
             (<code>BATCH_MAX_CONCURRENCY</code>, default 8) and each file is isolated: one failure
             never aborts the batch.
           </p>
-          <p className="text-sm text-gray-300">
+          <p className="text-sm text-gray-300 mb-3">
             Poll <code>GET /batch/{"{job_id}"}</code> for progress (<code>processed</code>,{" "}
             <code>failed</code>, <code>percent</code>), then fetch{" "}
             <code>GET /batch/{"{job_id}"}/results</code> for the index-aligned array of per-file
             results once complete. The scale benchmark below exercised 550 documents through this
             same concurrent pipeline with zero unhandled errors.
+          </p>
+          <p className="text-sm text-gray-300">
+            Prefer a callback over polling? Pass a <code>webhook_url</code> form field and DocIntel
+            POSTs <code>{"{job_id, status, total, processed, failed, finished_at, results}"}</code> to
+            it the moment the job completes — the integration point for n8n or any workflow
+            automation tool (see <code>docs/n8n/README.md</code> in the repo for a worked example,
+            including an importable n8n workflow template).
           </p>
         </Section>
 
