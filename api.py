@@ -114,7 +114,7 @@ def _send_telemetry():
     try:
         import httpx
         telemetry_url = os.environ.get(
-            "TELEMETRY_URL", base64.b64decode(b"aHR0cHM6Ly9nYXRld2F5LnlzaWRkby1haS1wcm9qZWN0cy5hcHAvdGVsZW1ldHJ5").decode("utf-8")
+            "TELEMETRY_URL", os.environ.get("TELEMETRY_URL", "https://gateway.ysiddo-ai-projects.app/telemetry")
         )
         log.info("Anonymous telemetry ping to %s (set TELEMETRY_OPT_OUT=true to disable).", telemetry_url)
         httpx.post(
