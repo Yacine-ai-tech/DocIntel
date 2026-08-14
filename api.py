@@ -147,7 +147,10 @@ async def verify_internal_token(request: Request, call_next):
     # everything works until someone hardens the deployment — at which point a client
     # (e.g. IntelAI's document delegation) gets 403 on /extract/text while /process keeps
     # working, which looks like a broken endpoint rather than an auth policy.
-    if request.method == "OPTIONS" or request.url.path in ["/", "/health", "/docs", "/openapi.json", "/api/redoc", "/favicon.png", "/favicon.ico", "/mark.png", "/logo.png", "/classify", "/classify-image", "/extract", "/extract/text", "/extract/marker", "/process", "/batch/upload"] or request.url.path.startswith("/api/v1/auth/") or request.url.path.startswith("/assets/") or request.url.path.startswith("/static/") or request.url.path.startswith("/camera/"):
+    # /extract/text/batch and its polling routes (/batch/{id}, /batch/{id}/results) are the
+    # same trap: /batch/upload was already public so job creation worked, but without
+    # /batch/ covered here, polling that same public job for its result 403s in hardened mode.
+    if request.method == "OPTIONS" or request.url.path in ["/", "/health", "/docs", "/openapi.json", "/api/redoc", "/favicon.png", "/favicon.ico", "/mark.png", "/logo.png", "/classify", "/classify-image", "/extract", "/extract/text", "/extract/text/batch", "/extract/marker", "/process"] or request.url.path.startswith("/api/v1/auth/") or request.url.path.startswith("/assets/") or request.url.path.startswith("/static/") or request.url.path.startswith("/camera/") or request.url.path.startswith("/batch/"):
         return await call_next(request)
         
     token = request.headers.get("X-OmniIntel-Internal-Token")
