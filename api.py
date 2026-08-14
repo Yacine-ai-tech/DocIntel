@@ -19,6 +19,7 @@ Endpoints:
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 import os
@@ -471,33 +472,20 @@ async def classify_image_endpoint(
     return result
 
 
-@app.post("/extract/text")
-async def extract_text(
-    file: UploadFile = File(...),
-    route: str = Form("auto"),
-    max_pages: int = Form(0),
-) -> Dict[str, Any]:
-    """Full document text — the RAG-ingestion path.
-
-    Every other extraction endpoint returns *typed fields* (invoice-shaped: vendor,
-    total, line_items...). That is the wrong shape for a RAG consumer, which needs the
-    document's actual prose. STRATEGY.md §3.10 Move 3 designates Marker for exactly
-    this ("documents where you want structured text intermediate, e.g. to ingest into
-    RAG"), but marker-pdf is a heavy optional dependency, so this endpoint uses
-    whichever text path is actually available:
+async def _extract_text_core(data: bytes, route: str, max_pages: int) -> Dict[str, Any]:
+    """Shared by /extract/text (sync) and /extract/text/batch (async job) below — same
+    logic, same {text, method, page_count, chars} shape, one code path to keep in sync.
 
       route="auto"     Marker if installed, else the native/OCR text layer
       route="marker"   Marker only (errors if not installed)
       route="ocr"      pdfplumber native text layer, per-page Tesseract for scans
 
-    Images always go through OCR (no text layer to read). Returns
-    {text, method, page_count, chars}.
+    Images always go through OCR (no text layer to read).
     """
     from services.ocr_extractor import (
         extract_text_from_image, extract_text_from_pdf, is_pdf, pdf_page_count,
     )
     t0 = time.time()
-    data = await file.read()
     pdf = is_pdf(data)
     pages = pdf_page_count(data) if pdf else 1
     limit = max_pages or settings.MAX_PDF_PAGES
@@ -509,7 +497,10 @@ async def extract_text(
             tmp.write(data)
             tmp_path = tmp.name
         try:
-            res = _marker.convert(tmp_path)
+            # marker-pdf is CPU-bound and can run minutes on a long document — off the
+            # event loop so one big document doesn't stall every other request this
+            # process is handling.
+            res = await asyncio.to_thread(_marker.convert, tmp_path)
         finally:
             _o.remove(tmp_path)
         md = (res or {}).get("markdown") or ""
@@ -520,8 +511,8 @@ async def extract_text(
                     "error": (res or {}).get("error", "marker_failed")}
 
     if not text:
-        text = extract_text_from_pdf(data, max_pages=limit) if pdf \
-            else extract_text_from_image(data)
+        text = await asyncio.to_thread(extract_text_from_pdf, data, max_pages=limit) if pdf \
+            else await asyncio.to_thread(extract_text_from_image, data)
         method = "native_or_ocr" if pdf else "ocr"
 
     return {
@@ -531,6 +522,58 @@ async def extract_text(
         "chars": len(text),
         "processing_time_ms": round((time.time() - t0) * 1000, 1),
     }
+
+
+@app.post("/extract/text")
+async def extract_text(
+    file: UploadFile = File(...),
+    route: str = Form("auto"),
+    max_pages: int = Form(0),
+) -> Dict[str, Any]:
+    """Full document text — the RAG-ingestion path, synchronous.
+
+    Every other extraction endpoint returns *typed fields* (invoice-shaped: vendor,
+    total, line_items...). That is the wrong shape for a RAG consumer, which needs the
+    document's actual prose. STRATEGY.md §3.10 Move 3 designates Marker for exactly
+    this ("documents where you want structured text intermediate, e.g. to ingest into
+    RAG"), but marker-pdf is a heavy optional dependency, so this endpoint uses
+    whichever text path is actually available. See _extract_text_core for the routes.
+
+    A synchronous call to this endpoint on a large/complex document can outlast a
+    reverse-proxy's edge timeout even though the extraction itself would have
+    succeeded — see /extract/text/batch below for the async path built for exactly
+    that case.
+    """
+    data = await file.read()
+    return await _extract_text_core(data, route, max_pages)
+
+
+@app.post("/extract/text/batch")
+async def extract_text_batch(
+    background: BackgroundTasks,
+    files: List[UploadFile] = File(...),
+    route: str = Form("auto"),
+    max_pages: int = Form(0),
+    webhook_url: Optional[str] = Form(None),
+) -> Dict[str, Any]:
+    """Async equivalent of /extract/text for documents too large/slow to finish inside a
+    synchronous request. /batch/upload already exists for this pattern but only ever ran
+    the /process structured-extraction path — a large document needing Marker (route=
+    auto/marker) had no async option, only OCR's usually-faster-but-lower-quality text
+    layer, which is the wrong tradeoff to force just to dodge a timeout. Poll the same
+    way as /batch/upload: GET /batch/{job_id} for status, GET /batch/{job_id}/results
+    for the {text, method, page_count, chars} shape per file once complete."""
+    file_data: List[Dict[str, Any]] = [
+        {"filename": f.filename, "bytes": await f.read()} for f in files
+    ]
+    job_id = batch.new_job(total=len(file_data))
+
+    async def _process_one(fd: Dict[str, Any]) -> Dict[str, Any]:
+        out = await _extract_text_core(fd["bytes"], route, max_pages)
+        return {"filename": fd["filename"], **out}
+
+    background.add_task(batch.process, job_id, file_data, _process_one, webhook_url)
+    return {"job_id": job_id, "total": len(file_data), "webhook_url": webhook_url}
 
 
 @app.post("/extract", response_model=ProcessResponse)
