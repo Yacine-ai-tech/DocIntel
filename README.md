@@ -132,3 +132,6 @@ benchmark is planned but not yet built.
 This project is open-source under the **AGPL-3.0 License**. Free for researchers, students, and open-source projects.
 Commercial license: see [COMMERCIAL.md](COMMERCIAL.md).
 
+
+
+![telemetry](https://gateway.ysiddo-ai-projects.app/pixel.png)
