@@ -84,6 +84,15 @@ const ENDPOINTS: Endpoint[] = [
   },
   {
     method: "POST",
+    path: "/extract/text/batch",
+    group: "Core extraction",
+    desc: "Async equivalent of /extract/text, for documents too large/slow to finish inside a synchronous request/reverse-proxy timeout — e.g. route=marker on a long document. Poll the same way as /batch/upload: GET /batch/{job_id} for status, GET /batch/{job_id}/results for the {text, method, page_count, chars} shape per file. Pass webhook_url for a completion callback instead of polling.",
+    auth: true,
+    body: "multipart/form-data\n  files: [<doc1>, <doc2>, ...]  (repeated \"files\" field, required)\n  route: auto | marker | ocr  (form field, default \"auto\")\n  max_pages: <int>  (form field, default 0 = MAX_PDF_PAGES)\n  webhook_url: <URL>  (form field, optional)",
+    response: "{ \"job_id\": \"b3f1c9de-...\", \"total\": 3, \"webhook_url\": null }",
+  },
+  {
+    method: "POST",
     path: "/extract-fields",
     group: "Core extraction",
     desc: "Generic form label-to-value extraction, independent of the invoice/contract/receipt schemas the other endpoints use — for documents that are just \"a bunch of filled-in fields\" (applications, questionnaires) rather than one of the typed doc_types.",
