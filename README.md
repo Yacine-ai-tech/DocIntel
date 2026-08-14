@@ -43,10 +43,12 @@ Open http://localhost:8001/
 | POST   | /classify                  | Fast doc-type classification                  |
 | POST   | /classify-image            | Vision-first object classification            |
 | POST   | /extract                   | Full extraction (file + route + doc_type), multi-page |
+| POST   | /extract/text              | Full document text (RAG-ingestion shape), synchronous — see /extract/text/batch for large documents |
+| POST   | /extract/text/batch        | Async /extract/text — for documents too large/slow to finish inside a synchronous request; poll via /batch/{job_id} |
 | POST   | /extract-llm               | LLM extract from raw text                     |
 | POST   | /extract-tables            | PDF tables via pdfplumber                     |
 | POST   | /extract-fields            | Generic form field extraction (label → value) |
-| POST   | /batch/upload               | Start background batch job (optional `webhook_url` — POSTed to on completion, see [docs/n8n](docs/n8n/README.md)) |
+| POST   | /batch/upload               | Start background batch job (structured extraction, optional `webhook_url` — POSTed to on completion, see [docs/n8n](docs/n8n/README.md)) |
 | GET    | /batch/{job_id}            | Job status                                    |
 | GET    | /batch/{job_id}/results    | Job results                                   |
 | POST   | /camera/pair               | Desktop: generate a mobile pairing token + QR |
