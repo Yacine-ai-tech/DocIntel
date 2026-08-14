@@ -1,4 +1,3 @@
-import base64
 """
 DocIntel API — Vision-first document AI pipeline.
 
@@ -19,6 +18,7 @@ Endpoints:
   GET  /camera/status/{token} desktop polling target for the phone's upload result
 """
 from __future__ import annotations
+import base64
 
 import asyncio
 import json
