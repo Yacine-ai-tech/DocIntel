@@ -18,10 +18,8 @@ Endpoints:
   GET  /camera/status/{token} desktop polling target for the phone's upload result
 """
 from __future__ import annotations
-import base64
 
 import asyncio
-import json
 import time
 import os
 from pathlib import Path
@@ -47,7 +45,6 @@ try:
 except ImportError:
     omni_logger = None
 
-log = get_logger(__name__)
 from services.vision_extractor import classify_image, extract_via_vision_llm
 
 log = get_logger(__name__)
@@ -57,7 +54,6 @@ app = FastAPI(title="DocIntel", version="0.1.0",
 
 
 import threading
-import time
 import uuid as _uuid
 
 
@@ -230,7 +226,7 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
         fields = None
         if images:
             try:
-                log.info(f"Route A: Attempting extraction with Claude Sonnet 4.6 Vision")
+                log.info("Route A: Attempting extraction with Claude Sonnet 4.6 Vision")
                 fields = await extract_via_vision_llm(images, model=model, doc_type=doc_type)
                 if isinstance(fields, dict) and fields.get("error"):
                     raise RuntimeError(str(fields["error"]))

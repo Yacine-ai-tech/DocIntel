@@ -3,7 +3,6 @@ Camera integration — live feed, mobile pairing, QR scanning.
 """
 from __future__ import annotations
 
-import json
 import secrets
 import threading
 import base64
