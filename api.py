@@ -102,6 +102,9 @@ def _send_telemetry():
     IPs, or other request data. Disable entirely with TELEMETRY_OPT_OUT=true.
     """
 
+    if os.environ.get("TELEMETRY_OPT_OUT", "").lower() in ("1", "true", "yes"):
+        return
+
     lock_file = os.path.join(settings.LOGS_DIR, ".telemetry_last_ping")
     try:
         if os.path.exists(lock_file) and time.time() - os.path.getmtime(lock_file) < 21600:
@@ -114,7 +117,7 @@ def _send_telemetry():
     try:
         import httpx
         telemetry_url = os.environ.get(
-            "TELEMETRY_URL", os.environ.get("TELEMETRY_URL", "https://gateway.ysiddo-ai-projects.app/telemetry")
+            "TELEMETRY_URL", "https://gateway.ysiddo-ai-projects.app/telemetry"
         )
         log.info("Anonymous telemetry ping to %s (set TELEMETRY_OPT_OUT=true to disable).", telemetry_url)
         httpx.post(
