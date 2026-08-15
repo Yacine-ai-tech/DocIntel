@@ -88,8 +88,21 @@ async function req<T>(path: string, init?: RequestInit, retryCount = 0): Promise
   }
 }
 
+export type BenchmarksResponse = {
+  summary: {
+    corpus?: { total_documents: number; ground_truth_documents: number; sources: { name: string; type: string; docs: number; ground_truth: string | null }[] };
+    robustness?: { documents_processed: number; documents_total: number; success_rate_pct: number; unhandled_errors: number };
+    route_comparison?: { set: string; vision_route_a: number; vision_route_b: number; ocr_fallback: number }[];
+    stat_tiles?: { route_a_invoices: { correct: number; total: number; pct: number }; sroie_zero_shot_pct: number; fcfa: { correct: number; total: number; pct: number } };
+    sroie?: { n: number; company_pct: number; date_pct: number; total_pct: number; overall_pct: number };
+  };
+  markdown: string | null;
+};
+
 export const api = {
   health: () => req<{ status: string; service: string; version: string }>("/health"),
+
+  benchmarks: () => req<BenchmarksResponse>("/benchmarks"),
 
   process(file: File, route: string, docType: string) {
     const fd = new FormData();

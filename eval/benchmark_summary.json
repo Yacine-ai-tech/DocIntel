@@ -1,0 +1,36 @@
+{
+  "_comment": "Structured summary of eval/BENCHMARK.md, hand-synced to the real, reproduced numbers in that file. This is the source Benchmarks.tsx/BenchmarkPage.tsx fetch via GET /benchmarks, so the live UI reads the same numbers a human reading BENCHMARK.md sees. Update this file whenever BENCHMARK.md's numbers change.",
+  "generated_from": "eval/BENCHMARK.md",
+  "corpus": {
+    "total_documents": 550,
+    "ground_truth_documents": 500,
+    "sources": [
+      { "name": "CORD-v2", "type": "receipt", "docs": 494, "ground_truth": "total (IDR)" },
+      { "name": "invoice2data", "type": "invoice", "docs": 6, "ground_truth": "full fields" },
+      { "name": "FUNSD", "type": "form", "docs": 50, "ground_truth": null }
+    ]
+  },
+  "robustness": {
+    "documents_processed": 550,
+    "documents_total": 550,
+    "success_rate_pct": 100.0,
+    "unhandled_errors": 0
+  },
+  "route_comparison": [
+    { "set": "Invoices (multilingual, multi-page)", "vision_route_a": 100.0, "vision_route_b": 64.1, "ocr_fallback": 100.0 },
+    { "set": "Receipts (CORD phone photos)", "vision_route_a": 92.5, "vision_route_b": 77.0, "ocr_fallback": 28.5 },
+    { "set": "French + FCFA invoice", "vision_route_a": 100.0, "vision_route_b": 100.0, "ocr_fallback": 100.0 }
+  ],
+  "stat_tiles": {
+    "route_a_invoices": { "correct": 39, "total": 39, "pct": 100.0 },
+    "sroie_zero_shot_pct": 95.0,
+    "fcfa": { "correct": 7, "total": 7, "pct": 100.0 }
+  },
+  "sroie": {
+    "n": 20,
+    "company_pct": 95.0,
+    "date_pct": 90.0,
+    "total_pct": 100.0,
+    "overall_pct": 95.0
+  }
+}

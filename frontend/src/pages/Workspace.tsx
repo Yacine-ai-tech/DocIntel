@@ -45,8 +45,10 @@ export default function Workspace() {
   const [showJSON, setShowJSON] = useState(prefs.view === "json");
   const [edited, setEdited] = useState<Record<string, string>>({});
   const [dragging, setDragging] = useState(false);
+  const [elapsedMs, setElapsedMs] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const timers = useRef<number[]>([]);
+  const elapsedInterval = useRef<number | undefined>(undefined);
 
   const pickFile = useCallback((f: File | null) => {
     if (!f) return;
@@ -73,9 +75,18 @@ export default function Workspace() {
     timers.current = [1, 2, 3].map((i) =>
       window.setTimeout(() => setStage((s) => Math.max(s, i)), i * 900),
     );
+    // /process on the live deployment can genuinely take 60-100+ seconds (Render free-tier
+    // CPU-throttling during the auto-classify pre-step, or a large/multi-page document) —
+    // with only the 4 fixed stage icons above, that reads as "hung" well before it finishes.
+    // A running elapsed-time counter is the honest signal: still working, here's how long.
+    const startedAt = Date.now();
+    setElapsedMs(0);
+    window.clearInterval(elapsedInterval.current);
+    elapsedInterval.current = window.setInterval(() => setElapsedMs(Date.now() - startedAt), 250);
     try {
       const res = await api.process(file, route, docType);
       timers.current.forEach(clearTimeout);
+      window.clearInterval(elapsedInterval.current);
       setStage(STAGES.length - 1);
       setResult(res);
       setPhase(res.error || res.fields?.error ? "error" : "done");
@@ -91,6 +102,7 @@ export default function Workspace() {
       });
     } catch (e) {
       timers.current.forEach(clearTimeout);
+      window.clearInterval(elapsedInterval.current);
       setErrMsg(e instanceof Error ? e.message : String(e));
       setPhase("error");
     }
@@ -189,6 +201,12 @@ export default function Workspace() {
                   stages={["Reading document", "Detecting type & layout", "Selecting model route", "Extracting fields", "Validating output"]}
                   active={Math.min(stage, 4)}
                 />
+                <div className="mt-2 flex items-center gap-2 text-xs text-muted">
+                  <span className="num">{(elapsedMs / 1000).toFixed(0)}s elapsed</span>
+                  {elapsedMs > 20000 && (
+                    <span>— still working; large or remote documents can take a minute or more.</span>
+                  )}
+                </div>
               </div>
             )}
           </div>
