@@ -14,8 +14,8 @@ jobs:
       - name: Trigger Render deploy
         run: |
           code=$(curl -fsS -o /tmp/resp.json -w "%{http_code}" \
-            -X POST "${{ secrets.DEPLOYMENT_API_ENDPOINT }}/services/${{ secrets.SERVICE_ID }}/deploys" \
-            -H "Authorization: Bearer ${{ secrets.DEPLOYMENT_API_KEY }}" \
+            -X POST "https://api.render.com/v1/services/${{ secrets.RENDER_SERVICE_ID }}/deploys" \
+            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
             -H "Content-Type: application/json" \
             -d '{"clearCache":"do_not_clear"}') || { echo "deploy trigger failed"; exit 1; }
           echo "Deployment responded HTTP $code"
