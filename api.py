@@ -20,6 +20,7 @@ Endpoints:
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 import os
 from pathlib import Path
@@ -146,7 +147,7 @@ async def verify_internal_token(request: Request, call_next):
     # /extract/text/batch and its polling routes (/batch/{id}, /batch/{id}/results) are the
     # same trap: /batch/upload was already public so job creation worked, but without
     # /batch/ covered here, polling that same public job for its result 403s in hardened mode.
-    if request.method == "OPTIONS" or request.url.path in ["/", "/health", "/docs", "/openapi.json", "/api/redoc", "/favicon.png", "/favicon.ico", "/mark.png", "/logo.png", "/classify", "/classify-image", "/extract", "/extract/text", "/extract/text/batch", "/extract/marker", "/process"] or request.url.path.startswith("/api/v1/auth/") or request.url.path.startswith("/assets/") or request.url.path.startswith("/static/") or request.url.path.startswith("/camera/") or request.url.path.startswith("/batch/"):
+    if request.method == "OPTIONS" or request.url.path in ["/", "/health", "/benchmarks", "/docs", "/openapi.json", "/api/redoc", "/favicon.png", "/favicon.ico", "/mark.png", "/logo.png", "/classify", "/classify-image", "/extract", "/extract/text", "/extract/text/batch", "/extract/marker", "/process"] or request.url.path.startswith("/api/v1/auth/") or request.url.path.startswith("/assets/") or request.url.path.startswith("/static/") or request.url.path.startswith("/camera/") or request.url.path.startswith("/batch/"):
         return await call_next(request)
         
     token = request.headers.get("X-OmniIntel-Internal-Token")
@@ -412,6 +413,36 @@ async def health() -> Dict[str, Any]:
     return {"status": "ok", "service": "docintel", "version": "0.1.0"}
 
 
+@app.get("/benchmarks")
+async def benchmarks() -> Dict[str, Any]:
+    """Serves eval/BENCHMARK.md's real numbers to the frontend's /benchmarks and /benchmark
+    pages, read from disk on every request. Both pages used to carry their own hand-copied
+    snapshot of these numbers (one a curated summary, one a literal copy-paste of the whole
+    file) with nothing forcing them to stay in sync with each other or with the real benchmark
+    as it's re-run over time. This is the fix: one endpoint, reading the same two files a human
+    auditing the benchmark would read, so the UI can't drift from them the way the old hardcoded
+    copies already had.
+    """
+    root = Path(__file__).resolve().parent
+    summary: Dict[str, Any] = {}
+    summary_path = root / "eval" / "benchmark_summary.json"
+    if summary_path.exists():
+        try:
+            summary = json.loads(summary_path.read_text())
+        except Exception:
+            log.exception("Failed to parse eval/benchmark_summary.json")
+
+    markdown = None
+    md_path = root / "eval" / "BENCHMARK.md"
+    if md_path.exists():
+        try:
+            markdown = md_path.read_text()
+        except Exception:
+            log.exception("Failed to read eval/BENCHMARK.md")
+
+    return {"summary": summary, "markdown": markdown}
+
+
 @app.post("/classify", response_model=ProcessResponse)
 async def classify(file: UploadFile = File(...)) -> ProcessResponse:
     """Fast doc-type classification — content-based (a text sample + the same classifier
@@ -645,10 +676,27 @@ async def process(
     from services.ocr_extractor import (
         DocumentClassifier, extract_text_from_image, extract_text_from_pdf, is_pdf,
     )
-    if doc_type == "auto":
-        sample = extract_text_from_pdf(data, max_pages=2) if is_pdf(data) \
+
+    # raw_text has always been declared on ProcessResponse but was never populated —
+    # every consumer wanting the document's actual prose (RAG ingesters especially) got
+    # null and had to fall back to the typed `fields`, which for a long report is a
+    # handful of characters. Populate it from the same text layer the OCR route uses.
+    #
+    # Extracted once, up front, and reused for both this and the doc_type="auto"
+    # classifier sample below — this used to run OCR/text-layer extraction on the same
+    # document twice per call (once for a 2-page classify sample, once again for the
+    # full raw_text), which on a single-page image is the exact same Tesseract call
+    # made back to back for no reason. One extraction is always <= the cost of two.
+    raw_text = None
+    try:
+        raw_text = extract_text_from_pdf(data, max_pages=settings.MAX_PDF_PAGES) if is_pdf(data) \
             else extract_text_from_image(data)
-        detected, _cls_conf = DocumentClassifier.classify_document(sample or "")
+    except Exception:
+        log.exception("raw_text extraction failed (non-fatal)")
+
+    if doc_type == "auto":
+        sample = (raw_text or "")[:4000]
+        detected, _cls_conf = DocumentClassifier.classify_document(sample)
         # Map the classifier's labels onto the extractor's schema keys.
         doc_type = {"report": "financial_report", "general": "default"}.get(detected, detected)
 
@@ -664,17 +712,6 @@ async def process(
         except Exception:
             log.exception("Unexpected error")
             pass
-
-    # raw_text has always been declared on ProcessResponse but was never populated —
-    # every consumer wanting the document's actual prose (RAG ingesters especially) got
-    # null and had to fall back to the typed `fields`, which for a long report is a
-    # handful of characters. Populate it from the same text layer the OCR route uses.
-    raw_text = None
-    try:
-        raw_text = extract_text_from_pdf(data, max_pages=settings.MAX_PDF_PAGES) if is_pdf(data) \
-            else extract_text_from_image(data)
-    except Exception:
-        log.exception("raw_text extraction failed (non-fatal)")
 
     return ProcessResponse(
         doc_type=doc_type,
