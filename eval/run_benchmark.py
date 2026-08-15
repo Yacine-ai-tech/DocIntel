@@ -16,11 +16,24 @@ Usage:
   python eval/run_benchmark.py --route ocr_fallback --limit 200      # broad, cheap accuracy
   python eval/run_benchmark.py --route vision_route_a --limit 40     # Claude accuracy sample
   python eval/run_benchmark.py --route vision_route_b --limit 40     # Ollama (local/self-hosted) sample
+
+Remote mode (--api-url):
+  Runs every doc through a real deployed DocIntel instance's HTTP API instead of importing
+  services in-process. Exists because the dev/CI sandbox this repo is normally checked out into
+  often lacks system deps only the Dockerfile installs (Tesseract for Route C and --scale-only,
+  poppler for PDF rasterization) — the deployed instance always has them, since it's built from
+  the same Dockerfile that ships to production. Multi-page docs (all_pages: multiple separate
+  page images) are assembled into one in-memory PDF via Pillow before upload, since /extract
+  takes one file and already does its own chunked multi-page handling.
+
+  python eval/run_benchmark.py --scale-only --api-url https://docintel-mm79.onrender.com
+  python eval/run_benchmark.py --route vision_route_a --api-url https://docintel-mm79.onrender.com --limit 40
 """
 from __future__ import annotations
 
 import argparse
 import asyncio
+import io
 import json
 import re
 import sys
@@ -86,6 +99,19 @@ def _imgs_for(row):
     return [p.read_bytes()] if p.exists() else []
 
 
+def _pdf_for(row) -> bytes:
+    """Assemble this row's page image(s) into one in-memory PDF for upload to /extract,
+    which takes a single file and does its own multi-page handling. A single-page doc still
+    round-trips through PDF so the HTTP path is identical regardless of page count."""
+    from PIL import Image
+    imgs = [Image.open(io.BytesIO(b)).convert("RGB") for b in _imgs_for(row)]
+    if not imgs:
+        raise FileNotFoundError(row.get("file"))
+    buf = io.BytesIO()
+    imgs[0].save(buf, "PDF", save_all=True, append_images=imgs[1:])
+    return buf.getvalue()
+
+
 async def extract(route, row):
     imgs = _imgs_for(row)
     if not imgs:
@@ -104,6 +130,25 @@ async def extract(route, row):
     return await extract_via_vision_llm(imgs, doc_type=row["doc_type"])
 
 
+async def extract_via_api(route, row, api_url, client):
+    """Same contract as extract(), but through a real deployed instance's /extract endpoint
+    instead of in-process service calls — see the module docstring's "Remote mode" section."""
+    try:
+        pdf = _pdf_for(row)
+    except FileNotFoundError:
+        return {"error": "image_missing"}
+    resp = await client.post(
+        f"{api_url}/extract",
+        files={"file": (f"{row['doc_type']}.pdf", pdf, "application/pdf")},
+        data={"route": route, "doc_type": row["doc_type"]},
+    )
+    if resp.status_code != 200:
+        return {"error": f"http_{resp.status_code}: {resp.text[:200]}"}
+    body = resp.json()
+    fields = body.get("fields")
+    return fields if isinstance(fields, dict) else {"error": body.get("error") or "no_fields"}
+
+
 def ingest_ocr(row):
     """Free robustness probe: render + OCR (no LLM). Returns char count or raises."""
     from services.ocr_extractor import extract_text_from_image
@@ -111,6 +156,21 @@ def ingest_ocr(row):
     if not imgs:
         raise FileNotFoundError(row["file"])
     return sum(len(extract_text_from_image(i)) for i in imgs)
+
+
+async def ingest_ocr_via_api(row, api_url, client):
+    """Same contract as ingest_ocr(), but through /extract/text?route=ocr on a real deployed
+    instance — forces the OCR text-layer path (no LLM, no Marker) so the free robustness probe
+    still means "ingest + OCR only" in remote mode."""
+    pdf = _pdf_for(row)
+    resp = await client.post(
+        f"{api_url}/extract/text",
+        files={"file": (f"{row['doc_type']}.pdf", pdf, "application/pdf")},
+        data={"route": "ocr"},
+    )
+    if resp.status_code != 200:
+        raise RuntimeError(f"http_{resp.status_code}: {resp.text[:200]}")
+    return len(resp.json().get("text") or "")
 
 
 async def main():
@@ -121,6 +181,10 @@ async def main():
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--doc-type", default=None)
     ap.add_argument("--concurrency", type=int, default=6)
+    ap.add_argument("--api-url", default=None,
+                     help="Run against a real deployed instance's HTTP API instead of "
+                          "in-process service calls (e.g. https://docintel-mm79.onrender.com). "
+                          "See the module docstring's 'Remote mode' section.")
     a = ap.parse_args()
 
     rows = [json.loads(l) for l in open(a.dataset) if l.strip()]
@@ -128,7 +192,8 @@ async def main():
         rows = [r for r in rows if r["doc_type"] == a.doc_type]
     if a.limit:
         rows = rows[: a.limit]
-    print(f"\nBenchmark: {len(rows)} docs | mode={'scale-only' if a.scale_only else a.route}")
+    mode_label = f"{'scale-only' if a.scale_only else a.route}" + (f" via {a.api_url}" if a.api_url else " (in-process)")
+    print(f"\nBenchmark: {len(rows)} docs | mode={mode_label}")
 
     t0 = time.time()
     ok = err = 0
@@ -138,6 +203,11 @@ async def main():
     latencies: list = []   # per-document wall time (s) — real, not estimated
     total_cost = 0.0       # real $ from litellm.completion_cost(), summed across docs
 
+    http_client = None
+    if a.api_url:
+        import httpx
+        http_client = httpx.AsyncClient(timeout=300.0)
+
     if a.scale_only:
         sem = asyncio.Semaphore(a.concurrency)
 
@@ -145,7 +215,10 @@ async def main():
             nonlocal ok, err
             async with sem:
                 try:
-                    await asyncio.to_thread(ingest_ocr, row)
+                    if a.api_url:
+                        await ingest_ocr_via_api(row, a.api_url, http_client)
+                    else:
+                        await asyncio.to_thread(ingest_ocr, row)
                     ok += 1
                 except Exception:
                     err += 1
@@ -157,7 +230,8 @@ async def main():
             nonlocal ok, err, field_c, field_t, total_cost
             async with sem:
                 t_item = time.time()
-                res = await extract(a.route, row)
+                res = await (extract_via_api(a.route, row, a.api_url, http_client) if a.api_url
+                             else extract(a.route, row))
                 latencies.append(time.time() - t_item)
                 if isinstance(res, dict):
                     total_cost += res.get("_cost_usd", 0.0) or 0.0
@@ -177,6 +251,9 @@ async def main():
                         pf[0] += int(val)
                         pf[1] += 1
         await asyncio.gather(*(run_one(r) for r in rows))
+
+    if http_client:
+        await http_client.aclose()
 
     dt = time.time() - t0
     print(f"\n  processed: {ok + err}  ok: {ok}  errors: {err}  "
