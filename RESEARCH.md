@@ -1,101 +1,76 @@
-# DocIntel: Vision-LLM Zero-Shot Multi-Modal Document Extraction & Layout Decomposition Engine
+# DocIntel: Vision-LLM-First Document Extraction
 
-## Abstract
-DocIntel presents an OCR-free, vision-first document extraction architecture for complex enterprise visual document processing. By bypassing character fragmentation heuristics and modeling document pages as spatial layout trees $\mathcal{T}_{layout} = (V, E)$, DocIntel preserves multi-header table alignments, key-value visual hierarchies, and complex form structures. The system incorporates deterministic post-processing normalization layers to standardize multi-currency amounts (ISO-4217) and multi-locale dates (ISO-8601).
+## What this actually is
 
----
+DocIntel extracts structured data from documents (invoices, receipts, contracts, forms,
+financial reports) using a **vision-LLM-first** approach: page images go directly to a
+vision-capable LLM, which returns structured JSON — no OCR text layer in between. This is the
+2026 shift the project is built around (see `global_docs/STRATEGY.md` §3.10): pure-OCR pipelines
+throw away layout, table structure, and handwriting the moment they flatten a page into a string
+of characters; a vision model reasons over the page image itself.
 
-## 1. Architecture & Spatial Parsing Model
+Three extraction routes, chosen per-request or via env default:
 
-DocIntel supports multi-page visual document parsing across three extraction pathways: Route A (Cloud Vision LLM), Route B (Local Vision LLM via Ollama), and Route C (Multilingual Tesseract OCR + LLM fallback).
+- **Route A** — Claude Sonnet 4.6 Vision (cloud, metered, real per-call cost tracked via
+  `litellm.completion_cost()`).
+- **Route B** — Ollama vision (Qwen 2.5-VL 7B validated; see `eval/BENCHMARK.md` for why Llama
+  3.2 Vision was tried and rejected), run either on the same machine/LAN or on hardware you
+  control elsewhere — never a third-party inference API. $0 per call.
+- **Route C** — Tesseract OCR + LLM cleanup, the fallback for when vision-LLM cost is
+  prohibitive or image quality is too low for a vision model to help (very low-res scans, faxes).
+  Also the automatic fallback if Route A/B fails.
 
-```
-Visual PDF / Image Input
-        |
-        v
-Page-to-Image Rendering / Downscaling
-        |
-        v
-+----------------------------------------------------------------+
-| Multi-Modal Vision Processing Pipeline                          |
-| - Route A: Vision LLM Spatial Layout Parser                     |
-| - Route B: Local Vision Model (Llama 3.2 Vision / Qwen 2.5-VL)  |
-| - Route C: Multilingual OCR (eng+fra+deu+nld+spa+ita)           |
-+----------------------------------------------------------------+
-        |
-        v
-Deterministic Normalization Engine (ISO-4217 / ISO-8601)
-        |
-        v
-Structured Multi-Page JSON + Confidence Metrics
-```
+Multi-page documents (up to `MAX_PDF_PAGES`, default 200) are handled by chunking pages across
+multiple vision calls and merging results (`services/doc_merge.py`): list fields concatenate
+across chunks, running-total-style fields take the last non-empty chunk, everything else takes
+the first non-null value seen.
 
-### Spatial Tree Formulation
-A document page is represented as a spatial layout graph $\mathcal{T}_{layout} = (V, E)$:
-- **Vertices $V$**: Visual text nodes $v_i = (\text{text}_i, \text{bbox}_i, \text{confidence}_i)$ where $\text{bbox}_i = [x_{min}, y_{min}, x_{max}, y_{max}]$.
-- **Edges $E$**: Spatial adjacency relationships (reading order, table cell alignment, visual parent-child hierarchy).
+## Deterministic post-processing
 
----
+LLMs are unreliable at locale-specific formatting, so amounts, currencies, and dates go through
+a deterministic normalization layer (`services/normalize.py`) after extraction, not instead of
+it — the model still reads the document; this layer only standardizes how the answer is
+represented:
 
-## 2. Deterministic Normalization & Error Bound Analysis
+- **Amounts**: US `1,234.56`, EU `1.234,56`, space-grouped `1 234 567`, Swiss `1'234.56`, and
+  parenthesised negatives all convert to a plain float — conservatively: a value that doesn't
+  match a known pattern is left unchanged rather than guessed at.
+- **Currency → ISO-4217**: symbols and codes for ~40+ currencies, including West/Central African
+  CFA franc (`FCFA`/`CFA` → `XOF` or `XAF` depending on context) — a currency STRATEGY.md's
+  original v1 design didn't cover and general-purpose LLM normalization gets wrong by default.
+- **Dates → ISO-8601** via `dateparser`, with a common-format fallback when it's unavailable.
 
-To eliminate LLM formatting variance, extracted text fields undergo deterministic normalization:
+Locked by `tests/test_normalize.py` (US/EU/JP/IN/UK/CH/FCFA amounts, ISO currencies, dates).
 
-$$\text{NormAmount}(\text{raw}) \to (\text{float\_value}, \text{ISO\_4217\_code})$$
+## What is NOT built (said plainly, not glossed over)
 
-For example, European currency representations (e.g., `1.234,56 €`), West-African space-grouped formats (`1 003 000 FCFA`), and Swiss formats (`CHF 1'234.56`) are mapped directly to canonical numerical representations (`1234.56`, `EUR`/`XOF`/`CHF`).
+- **No layout/structure model.** DocIntel does not build a bounding-box graph, reading-order
+  edges, or a layout tree of any kind. A prior version of this document claimed otherwise
+  (a "$\mathcal{T}_{layout}=(V,E)$ spatial layout tree" formalism) — that description didn't
+  correspond to any code that exists in this repo and has been removed. The only real per-element
+  bounding-box output anywhere in the codebase is Surya OCR's flat per-line `bbox` list
+  (`services/surya_extractor.py`, an optional fallback path, not installed by default) and
+  pdfplumber's per-table bbox from `/extract-tables` — neither is a graph, neither has edges,
+  and neither feeds into extraction quality; they're incidental output of two specific routes.
+- **No table-structure F1 / layout-hierarchy / character-error-rate benchmark.** What's measured
+  (below) is field-level extraction accuracy: did the model get the vendor, total, date, line
+  items right. That's a different, real, and directly useful metric — it is not layout precision
+  or CER, and this document previously implied numbers existed for the latter that never did.
 
----
+## Real, reproducible results
 
-## 3. Reproducibility & Empirical Benchmarking Protocol
+Full methodology, corpus composition, and scoring rules: [eval/BENCHMARK.md](eval/BENCHMARK.md).
+Reproducible via `python eval/build_corpus.py` + `python eval/run_benchmark.py`, and the same
+numbers are served live (so this document and the running app can't silently diverge) via
+`GET /benchmarks`. See BENCHMARK.md for the current corpus size and per-route numbers — this
+document doesn't duplicate them so there's exactly one place they can go stale.
 
-A prior version of this file and `eval/run_benchmarks.py` reported specific numbers (table F1,
-layout precision, CER, throughput) that were generated by a random-number simulator
-(`random.gauss(...)`), not measured against real documents. That script and those numbers were
-removed rather than left to imply they were empirical.
-
-**What follows instead are the real numbers**, reproduced against actual third-party documents
-with real ground truth (CORD-v2, invoice2data, FUNSD, SROIE) — full methodology, corpus
-breakdown, and scoring rules in [eval/BENCHMARK.md](eval/BENCHMARK.md), reproducible via
-`python eval/build_corpus.py` and `python eval/run_benchmark.py`, and served live (so this
-section and the running app can't silently diverge) via `GET /benchmarks`.
-
-**Robustness at scale** (ingestion + OCR, no LLM; `--scale-only --concurrency 12`): all
-**550/550** documents processed, **100.0%** success rate, 0 unhandled errors, ~1.1 docs/s
-single-threaded on a 4-core CPU.
-
-**Field-level accuracy by route** (ground-truth subset):
-
-| Route | Engine | Document set | Accuracy |
-|-------|--------|---------------|----------|
-| A — vision_premium | Claude Sonnet 4.6 Vision | invoices (6; multilingual, multi-page) | **100%** (39/39) |
-| A — vision_premium | Claude Sonnet 4.6 Vision | receipts (40; CORD phone photos) | **92.5%** (37/40) |
-| C — ocr_fallback | Tesseract + LLM cleanup | invoices (clean PDFs) | **100%** |
-| C — ocr_fallback | Tesseract + LLM cleanup | receipts (200; CORD phone photos) | **28.5%** (57/200) |
-| B — vision_local | Ollama qwen2.5-VL 7B (NVIDIA T4) | receipts (100; CORD phone photos) | **77.0%** (77/100) |
-| B — vision_local | Ollama qwen2.5-VL 7B (NVIDIA T4) | invoices (6; multilingual, multi-page) | **64.1%** (25/39) |
-| B — vision_local | Ollama qwen2.5-VL 7B (NVIDIA T4) | French + FCFA (XOF) sample | **100%** (7/7) |
-
-**Zero-shot SROIE** (ICDAR-2019 Task 3, N=20, no task-specific fine-tuning): **95.0%** overall
-(company 95%, date 90%, total 100%) — see [eval/SROIE_BENCHMARK.md](eval/SROIE_BENCHMARK.md).
-Published SROIE state of the art is ~96-98% F1 from *fine-tuned* LayoutLM-class models, so this
-is near-SOTA zero-shot.
-
-**What these numbers are not**: they are field-level extraction accuracy, not the
-table-structure F1 / layout-hierarchy precision / character-error-rate metrics that a benchmark
-of the spatial-tree formalism in §1-§2 would specifically require. That benchmark still doesn't
-exist — building it (bounding-box-level ground truth, reading-order edges, per-cell table
-scoring) is materially more work than re-running the existing field-accuracy harness, and hasn't
-been done. This paragraph stays until it has.
-
----
-
-## 4. Technical Citation
+## Citation
 
 ```bibtex
 @techreport{siddo2026docintel,
   author      = {Yacine Seybou Siddo},
-  title       = {DocIntel: Vision-LLM Zero-Shot Multi-Modal Document Extraction and Layout Decomposition Engine},
+  title       = {DocIntel: Vision-LLM-First Document Extraction},
   institution = {GitHub Repository},
   year        = {2026},
   url         = {https://github.com/Yacine-ai-tech/DocIntel}

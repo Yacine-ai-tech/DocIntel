@@ -132,16 +132,28 @@ async def extract(route, row):
 
 async def extract_via_api(route, row, api_url, client):
     """Same contract as extract(), but through a real deployed instance's /extract endpoint
-    instead of in-process service calls — see the module docstring's "Remote mode" section."""
+    instead of in-process service calls — see the module docstring's "Remote mode" section.
+
+    In-process extract() never raises — extract_via_vision_llm()/LLMExtractor.extract() catch
+    their own errors and return an {"error": ...} dict, so a single bad doc never takes down
+    the whole asyncio.gather() batch. A real HTTP call over a real network to a real, sometimes
+    slow or momentarily unreachable instance can fail at the transport level (timeout, connection
+    reset) before there's any response to check a status code on — that has to be caught here
+    explicitly to preserve the same "one bad doc doesn't crash the run" guarantee, instead of an
+    unhandled exception propagating out of asyncio.gather() and losing every result already
+    collected in this batch."""
     try:
         pdf = _pdf_for(row)
     except FileNotFoundError:
         return {"error": "image_missing"}
-    resp = await client.post(
-        f"{api_url}/extract",
-        files={"file": (f"{row['doc_type']}.pdf", pdf, "application/pdf")},
-        data={"route": route, "doc_type": row["doc_type"]},
-    )
+    try:
+        resp = await client.post(
+            f"{api_url}/extract",
+            files={"file": (f"{row['doc_type']}.pdf", pdf, "application/pdf")},
+            data={"route": route, "doc_type": row["doc_type"]},
+        )
+    except Exception as e:
+        return {"error": f"request_failed: {type(e).__name__}: {e}"}
     if resp.status_code != 200:
         return {"error": f"http_{resp.status_code}: {resp.text[:200]}"}
     body = resp.json()

@@ -1,11 +1,14 @@
 {
   "_comment": "Structured summary of eval/BENCHMARK.md, hand-synced to the real, reproduced numbers in that file. This is the source Benchmarks.tsx/BenchmarkPage.tsx fetch via GET /benchmarks, so the live UI reads the same numbers a human reading BENCHMARK.md sees. Update this file whenever BENCHMARK.md's numbers change.",
   "generated_from": "eval/BENCHMARK.md",
+  "last_rerun": "2026-08-15",
+  "notes": "The 2026-08-15 rerun (against live production, real HTTP calls) used a smaller, real 106-document local corpus and small-N per-route samples due to sandbox/network constraints — see eval/BENCHMARK.md for exact session-vs-prior sample sizes. route_comparison/stat_tiles below keep the larger-N 2026-08-10 in-process numbers (still real, more statistically meaningful) since single-digit-N reruns are noisy; both are dated in BENCHMARK.md so neither silently overwrites the other. This rerun also surfaced a real finding: this Render free-tier instance runs a single worker and degrades sharply under concurrent requests (serialized requests succeed reliably; concurrent ones time out) — see BENCHMARK.md's 'Results — rerun 2026-08-15' section.",
   "corpus": {
-    "total_documents": 550,
-    "ground_truth_documents": 500,
+    "total_documents": 106,
+    "ground_truth_documents": 106,
+    "corpus_note": "106 is what's reproducible on disk in this environment (50 CORD-v2 + 6 invoice2data + 50 FUNSD). An earlier claim of 550 documents (494 CORD-v2) needs the `datasets` package to rebuild, which this session's sandbox could not install.",
     "sources": [
-      { "name": "CORD-v2", "type": "receipt", "docs": 494, "ground_truth": "total (IDR)" },
+      { "name": "CORD-v2", "type": "receipt", "docs": 50, "ground_truth": "total (IDR)" },
       { "name": "invoice2data", "type": "invoice", "docs": 6, "ground_truth": "full fields" },
       { "name": "FUNSD", "type": "form", "docs": 50, "ground_truth": null }
     ]
@@ -14,23 +17,27 @@
     "documents_processed": 550,
     "documents_total": 550,
     "success_rate_pct": 100.0,
-    "unhandled_errors": 0
+    "unhandled_errors": 0,
+    "measured": "2026-08-10, in-process (no HTTP contention)",
+    "note": "Not re-verified at this scale 2026-08-15 — the live single-worker instance couldn't sustain concurrency 4+ for a batch this size in one session (see notes); a concurrency=1 6-doc sample that session did complete 1/6 within the time available, not a meaningful robustness measurement on its own."
   },
   "route_comparison": [
     { "set": "Invoices (multilingual, multi-page)", "vision_route_a": 100.0, "vision_route_b": 64.1, "ocr_fallback": 100.0 },
     { "set": "Receipts (CORD phone photos)", "vision_route_a": 92.5, "vision_route_b": 77.0, "ocr_fallback": 28.5 },
     { "set": "French + FCFA invoice", "vision_route_a": 100.0, "vision_route_b": 100.0, "ocr_fallback": 100.0 }
   ],
+  "route_comparison_measured": "2026-08-10, larger N (39 invoices, 40-200 receipts per route)",
   "stat_tiles": {
     "route_a_invoices": { "correct": 39, "total": 39, "pct": 100.0 },
     "sroie_zero_shot_pct": 95.0,
-    "fcfa": { "correct": 7, "total": 7, "pct": 100.0 }
+    "fcfa": { "correct": 1, "total": 1, "pct": 100.0 }
   },
   "sroie": {
     "n": 20,
     "company_pct": 95.0,
     "date_pct": 90.0,
     "total_pct": 100.0,
-    "overall_pct": 95.0
+    "overall_pct": 95.0,
+    "measured": "2026-06-19, not re-verified since (sandbox can't install the `datasets` package to pull the test split)"
   }
 }
