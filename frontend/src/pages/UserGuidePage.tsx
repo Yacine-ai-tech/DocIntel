@@ -247,9 +247,11 @@ export default function UserGuidePage() {
         {/* Benchmarks */}
         <Section icon={BarChart3} iconColor="text-lime-400" title="Real Benchmark Numbers">
           <p className="text-sm text-gray-300 mb-3">
-            From <code>eval/BENCHMARK.md</code> — a 550-document corpus (CORD-v2 receipts, invoice2data
-            EN/FR/DE/NL invoices, FUNSD handwritten forms) — and <code>eval/SROIE_BENCHMARK.md</code>.
-            Numbers are reproducible via the scripts referenced in those files.
+            From <code>eval/BENCHMARK.md</code> (measured 2026-08-10, larger-N in-process run) and{" "}
+            <code>eval/SROIE_BENCHMARK.md</code> (measured 2026-06-19). Numbers are reproducible via
+            the scripts referenced in those files; current corpus size and a real 2026-08-15 rerun
+            against live production (including a real single-worker concurrency finding) are in
+            <code> eval/BENCHMARK.md</code> directly rather than duplicated here.
           </p>
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left border-collapse">
@@ -267,9 +269,9 @@ export default function UserGuidePage() {
                   ["Receipts (40, CORD phone photos)", "Route A — Claude Sonnet 4.6 Vision", "37/40 = 92.5%"],
                   ["Invoices (clean PDFs)", "Route C — Tesseract + LLM cleanup", "100%"],
                   ["Receipts (200, CORD phone photos)", "Route C — Tesseract + LLM cleanup", "57/200 = 28.5%"],
-                  ["Receipts (100, CORD phone photos)", "Route B — Ollama qwen2.5-VL 7B (T4 GPU)", "77/100 = 77.0%"],
-                  ["Invoices (39, multilingual multi-page)", "Route B — Ollama qwen2.5-VL 7B (T4 GPU)", "25/39 = 64.1%"],
-                  ["French + FCFA (XOF) sample (7)", "Route A / Route C", "7/7 = 100% (both)"],
+                  ["Receipts (100, CORD phone photos)", "Route B — Ollama qwen2.5-VL 7B (self-hosted GPU)", "77/100 = 77.0%"],
+                  ["Invoices (39, multilingual multi-page)", "Route B — Ollama qwen2.5-VL 7B (self-hosted GPU)", "25/39 = 64.1%"],
+                  ["French + FCFA (XOF) sample (1)", "Route A / Route B / Route C", "1/1 = 100% (all three)"],
                   ["SROIE receipts (N=20, zero-shot)", "Route A — Claude Sonnet 4.6 Vision", "95.0% overall (57/60 fields)"],
                 ].map(([measure, route, result]) => (
                   <tr key={measure} className="border-b border-gray-800">
@@ -283,9 +285,10 @@ export default function UserGuidePage() {
           </div>
           <p className="text-xs text-gray-500 mt-3">
             The SROIE figure is drawn from a small (N=20) Hugging Face mirror of the test split and
-            is indicative rather than a full-test-set score; CORD (494 receipts) provides a larger
-            second data point. Route B numbers are on a single NVIDIA T4 GPU, released after each
-            run.
+            is indicative rather than a full-test-set score. Route B numbers are on a self-hosted
+            GPU that wakes on demand and is released after each run. The FCFA sample is a single
+            document in this environment's local corpus, not the 7 an earlier version of this page
+            claimed — see <code>eval/BENCHMARK.md</code> for that discrepancy noted plainly.
           </p>
         </Section>
 
