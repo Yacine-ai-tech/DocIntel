@@ -1,25 +1,31 @@
+import { useEffect, useState } from "react";
 import * as Recharts from "recharts";
 const { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList, } = Recharts;
 import { PageHeader } from "../kit/AppShell";
 import { Card, StatTile } from "../kit/primitives";
 import { FileCheck2, Globe2, Landmark, ScanLine } from "lucide-react";
-
-/* All figures verified against eval/BENCHMARK.md and eval/SROIE_BENCHMARK.md.
-   Do not edit without re-running the benchmark. */
-
-const ROUTE_COMPARISON = [
-  { set: "Invoices (multilingual, multi-page)", "Claude Vision (A)": 100, "Local qwen2.5-VL (B)": 64.1, "OCR + LLM (C)": 100 },
-  { set: "Receipts (CORD phone photos)", "Claude Vision (A)": 92.5, "Local qwen2.5-VL (B)": 77.0, "OCR + LLM (C)": 28.5 },
-  { set: "French + FCFA invoice", "Claude Vision (A)": 100, "Local qwen2.5-VL (B)": 100, "OCR + LLM (C)": 100 },
-];
+import { api, type BenchmarksResponse } from "../lib/api";
 
 const BARS = [
-  { key: "Claude Vision (A)", color: "var(--accent)" },
-  { key: "Local qwen2.5-VL (B)", color: "#4aa8ff" },
-  { key: "OCR + LLM (C)", color: "#6d7785" },
+  { key: "vision_route_a", label: "Claude Vision (A)", color: "var(--accent)" },
+  { key: "vision_route_b", label: "Local qwen2.5-VL (B)", color: "#4aa8ff" },
+  { key: "ocr_fallback", label: "OCR + LLM (C)", color: "#6d7785" },
 ];
 
 export default function Benchmarks() {
+  const [data, setData] = useState<BenchmarksResponse["summary"] | null>(null);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    api.benchmarks()
+      .then((r) => setData(r.summary))
+      .catch((e) => setErr(e.message || "Failed to load live benchmark data"));
+  }, []);
+
+  const robustness = data?.robustness;
+  const tiles = data?.stat_tiles;
+  const routeComparison = data?.route_comparison ?? [];
+
   return (
     <div>
       <PageHeader
@@ -27,7 +33,7 @@ export default function Benchmarks() {
         sub={
           <>
             A released, reproducible benchmark on <strong>real third-party documents</strong> (CORD-v2,
-            invoice2data, FUNSD, SROIE). Full methodology in{" "}
+            invoice2data, FUNSD, SROIE), fetched live from the running service. Full methodology in{" "}
             <a
               className="underline decoration-dotted hover:text-body"
               href="https://github.com/Yacine-ai-tech/DocIntel/blob/master/eval/BENCHMARK.md"
@@ -41,43 +47,45 @@ export default function Benchmarks() {
         }
       />
 
+      {err && <div className="mb-4 text-sm text-red-400">{err} — showing whatever loaded.</div>}
+
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatTile
           label="Robustness at scale"
-          value="550 / 550"
+          value={robustness ? `${robustness.documents_processed} / ${robustness.documents_total}` : "…"}
           sub="documents ingested, 0 unhandled errors"
-          delta={{ text: "100% success" }}
+          delta={robustness ? { text: `${robustness.success_rate_pct}% success` } : undefined}
           icon={FileCheck2}
         />
         <StatTile
           label="Route A · invoices"
-          value="39 / 39"
+          value={tiles ? `${tiles.route_a_invoices.correct} / ${tiles.route_a_invoices.total}` : "…"}
           sub="multilingual, multi-page field accuracy"
-          delta={{ text: "100%" }}
+          delta={tiles ? { text: `${tiles.route_a_invoices.pct}%` } : undefined}
           icon={Globe2}
         />
         <StatTile
           label="SROIE zero-shot"
-          value="95.0%"
+          value={tiles ? `${tiles.sroie_zero_shot_pct}%` : "…"}
           sub="ICDAR-2019 Task 3 — no task-specific training"
           icon={ScanLine}
         />
         <StatTile
           label="French + FCFA (XOF)"
-          value="7 / 7"
+          value={tiles ? `${tiles.fcfa.correct} / ${tiles.fcfa.total}` : "…"}
           sub="UEMOA convention, 18% TVA — Routes A & C"
-          delta={{ text: "100%" }}
+          delta={tiles ? { text: `${tiles.fcfa.pct}%` } : undefined}
           icon={Landmark}
         />
       </div>
 
       <Card title="Field accuracy by route" className="mt-5">
         <div className="h-[340px]">
-          {!Array.isArray(ROUTE_COMPARISON) || ROUTE_COMPARISON.length === 0 ? (
-             <div className="text-sm text-muted">No benchmark data.</div>
+          {routeComparison.length === 0 ? (
+             <div className="text-sm text-muted">{err ? "No benchmark data." : "Loading…"}</div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={ROUTE_COMPARISON} margin={{ top: 18, right: 8, left: -18, bottom: 0 }} barGap={4}>
+              <BarChart data={routeComparison} margin={{ top: 18, right: 8, left: -18, bottom: 0 }} barGap={4}>
                 <CartesianGrid stroke="var(--grid-line)" vertical={false} />
                 <XAxis
                   dataKey="set"
@@ -105,7 +113,7 @@ export default function Benchmarks() {
                   formatter={(v: number) => [`${v}%`]}
                 />
                 {BARS.map((b) => (
-                  <Bar key={b.key} dataKey={b.key} fill={b.color} radius={[6, 6, 0, 0]} maxBarSize={44} isAnimationActive={false}>
+                  <Bar key={b.key} dataKey={b.key} name={b.label} fill={b.color} radius={[6, 6, 0, 0]} maxBarSize={44} isAnimationActive={false}>
                     <LabelList dataKey={b.key} position="top" formatter={(v: number) => `${v}%`} style={{ fill: "var(--text-2)", fontSize: 10 }} />
                   </Bar>
                 ))}
