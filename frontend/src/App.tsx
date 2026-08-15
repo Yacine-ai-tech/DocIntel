@@ -1,8 +1,7 @@
 import UserGuidePage from './pages/UserGuidePage';
-import BenchmarkPage from './pages/BenchmarkPage';
 import ApiDocs from './pages/ApiDocs';
 import { Component, ReactNode, lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { BrowserRouter, Route, Routes, useLocation } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { Camera, FileScan, Image, Layers, BarChart3, Cpu, History, Workflow, GitCompareArrows, FolderOpen, Settings2, Code2, BookOpen } from "lucide-react";
 import { AppShell } from "./kit/AppShell";
 import { WakingBackend } from "./kit/misc";
@@ -141,7 +140,11 @@ export default function App() {
                     <Route path="/activity" element={<Activity />} />
                     <Route path="/settings" element={<Settings />} />
                     <Route path="/api-docs" element={<ApiDocs />} />
-                    <Route path="/benchmark" element={<BenchmarkPage />} />
+                    {/* /benchmark and /benchmarks used to be two separate pages showing the
+                        same live data two different ways (a raw markdown dump vs. the real
+                        dashboard) — consolidated onto one page; redirect keeps old bookmarks/
+                        links working instead of 404ing or silently landing on Workspace. */}
+                    <Route path="/benchmark" element={<Navigate to="/benchmarks" replace />} />
                     <Route path="/user-guide" element={<UserGuidePage />} />
                     <Route path="*" element={<Workspace />} />
                   </Routes>
