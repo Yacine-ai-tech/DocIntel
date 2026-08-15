@@ -14,6 +14,7 @@ Features:
 from __future__ import annotations
 
 import io
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.logger import get_logger
@@ -479,13 +480,21 @@ class DocumentClassifier:
                 if keyword in text_lower:
                     score += 1
 
-            # Check pattern matches (use simple string search, not regex for speed)
-            for pattern_keywords in patterns_dict.get("patterns", []):
-                # Convert regex pattern to keywords
-                keywords_from_pattern = pattern_keywords.replace(r"\s+", " ").split()
-                for keyword in keywords_from_pattern:
-                    if keyword in text_lower:
-                        score += 2
+            # Check pattern matches — these are real regexes (r"INV[-\s]*\d{4,}" etc.),
+            # so run them as regexes. A prior version of this loop tried to avoid
+            # importing `re` by string-splitting each pattern on its own "\s+"
+            # substring and treating the pieces as literal keywords — patterns without
+            # a literal "\s+" (like this invoice type's own two patterns, which use
+            # "\s*" and "\d{4,}") never got tokenized at all and silently contributed
+            # zero, while patterns that did contain "\s+" (e.g. contract's
+            # "party\s+of\s+the\s+first\s+part") decomposed into generic filler words
+            # ("of", "the") that match almost any document. A real 24-page invoice
+            # whose text said "...following pages... Date: ..." scored higher on
+            # "contract" than "invoice" this way — silently, since neither score ever
+            # looked wrong on its own.
+            for pattern in patterns_dict.get("patterns", []):
+                if re.search(pattern, text_lower, re.IGNORECASE):
+                    score += 2
 
             scores[doc_type] = score
 
