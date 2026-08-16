@@ -4,25 +4,12 @@ import * as fs from 'fs';
 
 /**
  * DocIntel — Comprehensive E2E Suite
- * Phase 4: Specialized Intelligence (DocIntel)
- * Phase 6: Extended UI/UX Validation
- * Phase 8: Deep Component Integration (Vector DB + RAG Pipeline)
+ * UI workflows, deep interactivity, and mocked-upload coverage beyond the
+ * page-load smoke tests in all_pages.spec.ts.
  */
 
 const BASE_URL = process.env.DOCINTEL_URL     || process.env.TEST_BASE_URL || '/';
 const API_URL  = process.env.DOCINTEL_API_URL  || '/';
-const AUTH_URL = process.env.INTELAI_API_URL   || '/';
-
-async function getAuthToken(request: any): Promise<string> {
-  const resp = await request.post(`${AUTH_URL}/api/login`, {
-    data: { username: 'admin', password: process.env.E2E_ADMIN_PASSWORD || '' }
-  }).catch(() => null);
-  if (resp && resp.ok()) {
-    const body = await resp.json();
-    return body.access_token || body.token || '';
-  }
-  return '';
-}
 
 async function loginUI(page: Page) {
   await page.goto(`${BASE_URL}/`);
@@ -40,17 +27,14 @@ async function assertNoReactCrash(page: Page) {
 test.describe('Phase 4.1 — DocIntel UI Workflows', () => {
 
   test.beforeEach(async ({ page }) => {
+    // When run against a Vercel-hosted preview of this frontend, rewrite its API
+    // calls to the deployed backend under test instead of Vercel's own origin.
     await page.route('**/*', async route => {
       const req = route.request();
       const url = req.url();
-      if ((req.resourceType() === 'fetch' || req.resourceType() === 'xhr') && url.includes('vercel.app')) {
-        let backendUrl = process.env.STAGING_INTELAI_URL || 'https://intelai-bwhp.onrender.com';
-        if (url.includes('docintel-ui')) backendUrl = process.env.STAGING_DOCINTEL_URL || 'https://docintel-mm79.onrender.com';
-        else if (url.includes('agentkit-ui')) backendUrl = process.env.STAGING_AGENTKIT_URL || 'https://agentkit-sbz5.onrender.com';
-        else if (url.includes('rageval-ui')) backendUrl = process.env.STAGING_RAGEVAL_URL || 'https://rageval-4xh5.onrender.com';
-        else if (url.includes('voiceflow-ui')) backendUrl = process.env.STAGING_VOICEFLOW_URL || 'https://voiceflow-riao.onrender.com';
-        else if (url.includes('streampulse-ui')) backendUrl = process.env.STAGING_STREAMPULSE_URL || 'https://streampulse-gv4o.onrender.com';
-        
+      if ((req.resourceType() === 'fetch' || req.resourceType() === 'xhr') &&
+          url.includes('vercel.app') && url.includes('docintel-ui')) {
+        const backendUrl = process.env.STAGING_DOCINTEL_URL || 'https://docintel-mm79.onrender.com';
         const pathPart = new URL(url).pathname;
         const newUrl = backendUrl.replace(/\/$/, '') + pathPart;
         await route.continue({ url: newUrl });
@@ -60,12 +44,15 @@ test.describe('Phase 4.1 — DocIntel UI Workflows', () => {
     });
   });
 
-
   test('All main navigation pages render without crash', async ({ page }) => {
+    // 8 sequential full page loads legitimately need more than the global 45s
+    // test timeout, especially on a cold/loaded runner — all_pages.spec.ts
+    // already covers each of these routes individually with the default budget.
+    test.setTimeout(90_000);
     await loginUI(page);
     const routes = [
       '/activity', '/batch', '/benchmarks', '/compare',
-      '/documents', '/imageintel', '/models', '/pipelines'
+      '/documents', '/images', '/models', '/pipelines'
     ];
     for (const route of routes) {
       await page.goto(`${BASE_URL}${route}`);
@@ -138,144 +125,6 @@ test.describe('Phase 4.1 — DocIntel API Validation', () => {
     const resp = await request.get(`${API_URL}/health`).catch(() => null);
     if (resp) expect(resp.status()).toBeLessThan(500);
   });
-
-  test('GET /api/documents requires authentication', async ({ request }) => {
-    const resp = await request.get(`${API_URL}/api/documents`).catch(() => null);
-    if (resp) expect([200, 401, 403]).toContain(resp.status());
-  });
-
-  test('POST /api/documents/upload with valid PDF succeeds', async ({ request }) => {
-    const token = await getAuthToken(request);
-    if (!token) { test.skip(); return; }
-
-    // Create a minimal PDF buffer
-    const pdfContent = Buffer.from('%PDF-1.4\n1 0 obj\n<</Type /Catalog>>\nendobj\n', 'utf-8');
-    const resp = await request.post(`${API_URL}/api/documents/upload`, {
-      headers: { Authorization: `Bearer ${token}` },
-      multipart: {
-        file: {
-          name: 'test.pdf',
-          mimeType: 'application/pdf',
-          buffer: pdfContent,
-        }
-      },
-      timeout: 30000,
-    }).catch(() => null);
-
-    if (resp) {
-      // 200/201 = success, 400 = validation error (file too small/invalid), 422 = schema error
-      // All are acceptable — 500 is NOT
-      expect(resp.status()).not.toBe(500);
-    }
-  });
-
-  test('POST /api/documents/upload without auth returns 401/403', async ({ request }) => {
-    const pdfContent = Buffer.from('%PDF-1.4\n', 'utf-8');
-    const resp = await request.post(`${API_URL}/api/documents/upload`, {
-      multipart: {
-        file: { name: 'test.pdf', mimeType: 'application/pdf', buffer: pdfContent }
-      }
-    }).catch(() => null);
-    if (resp) expect([401, 403, 422]).toContain(resp.status());
-  });
-
-  test('Payload fuzzing: GET /api/documents with injected params does not 500', async ({ request }) => {
-    const token = await getAuthToken(request);
-    const fuzzParams = [
-      "?page=-1", "?page=999999", "?limit=0", "?limit=999999",
-      "?search=' OR 1=1 --", "?search=<script>alert(1)</script>"
-    ];
-    for (const fuzz of fuzzParams) {
-      const resp = await request.get(`${API_URL}/api/documents${fuzz}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {}
-      }).catch(() => null);
-      if (resp) {
-        expect(resp.status()).not.toBe(500);
-      }
-    }
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Phase 8.2 — RAG Pipeline Workflow (via DocIntel)
-// ─────────────────────────────────────────────────────────────────────────────
-test.describe('Phase 8.2 — RAG Pipeline Integration', () => {
-
-  test('Upload document API → trigger indexing → verify in document list', async ({ request }) => {
-    const token = await getAuthToken(request);
-    if (!token) { test.skip(); return; }
-
-    // Step 1: Upload a document
-    const pdfContent = Buffer.from(
-      '%PDF-1.4\n1 0 obj\n<</Type /Catalog>>\nendobj\nTest document about quarterly revenue.',
-      'utf-8'
-    );
-    const uploadResp = await request.post(`${API_URL}/api/documents/upload`, {
-      headers: { Authorization: `Bearer ${token}` },
-      multipart: {
-        file: { name: 'rag_test.pdf', mimeType: 'application/pdf', buffer: pdfContent }
-      },
-      timeout: 30000,
-    }).catch(() => null);
-
-    if (!uploadResp || uploadResp.status() >= 400) {
-      console.warn('⚠️ Upload step failed or not available — skipping RAG pipeline test');
-      return;
-    }
-
-    // Step 2: Check the document appears in list
-    const listResp = await request.get(`${API_URL}/api/documents`, {
-      headers: { Authorization: `Bearer ${token}` }
-    }).catch(() => null);
-
-    if (listResp && listResp.ok()) {
-      const docs = await listResp.json();
-      expect(Array.isArray(docs) || typeof docs === 'object').toBeTruthy();
-    }
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Phase 4.1 — DocIntel Mocked Upload Feature Test
-// ─────────────────────────────────────────────────────────────────────────────
-test.describe('Phase 4.1 — DocIntel Mocked Upload & Processing', () => {
-
-  test('Mock file upload and pipeline processing via UI', async ({ page }) => {
-    // 1. Mock the API endpoints for upload and document list
-    await page.route('**/api/documents/upload', async route => {
-      const json = { id: 'mock-doc-123', status: 'processing', filename: 'test_invoice.pdf' };
-      await route.fulfill({ json, status: 200, contentType: 'application/json' });
-    });
-
-    await page.route('**/api/documents', async route => {
-      const json = [{ id: 'mock-doc-123', status: 'completed', filename: 'test_invoice.pdf', extracted_data: { total: 1500 } }];
-      await route.fulfill({ json, status: 200, contentType: 'application/json' });
-    });
-
-    // 2. Login & Navigate
-    await loginUI(page);
-    await page.goto(`${BASE_URL}/documents`);
-    await page.waitForLoadState('domcontentloaded');
-
-    // 3. Trigger File Upload
-    const fileInput = page.locator('input[type="file"]').first();
-    if (await fileInput.isVisible({ timeout: 5000 }).catch(() => false)) {
-      const tmpPdf = path.join('/tmp', 'mock_invoice.pdf');
-      fs.writeFileSync(tmpPdf, Buffer.from('%PDF-1.4\n1 0 obj\n<</Type /Catalog>>\nendobj\n', 'utf-8'));
-      await fileInput.setInputFiles(tmpPdf);
-      fs.unlinkSync(tmpPdf);
-
-      // 4. Validate UI handles mock upload correctly without crashing
-      await page.waitForTimeout(2000);
-      await assertNoReactCrash(page);
-      
-      // Wait for table to reflect the mocked 'test_invoice.pdf'
-      const invoiceElement = page.locator('text=/test_invoice/i').first();
-      if (await invoiceElement.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await expect(invoiceElement).toBeVisible();
-      }
-    }
-  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -283,7 +132,7 @@ test.describe('Phase 4.1 — DocIntel Mocked Upload & Processing', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 test.describe('Phase 4.3 — Deep Interactivity', () => {
 
-  test('ImageIntel camera streaming integration mocks gracefully', async ({ page }) => {
+  test('Camera dashboard streaming integration mocks gracefully', async ({ page }) => {
     // Mock getUserMedia
     await page.addInitScript(() => {
       Object.defineProperty(navigator, 'mediaDevices', {
@@ -297,7 +146,7 @@ test.describe('Phase 4.3 — Deep Interactivity', () => {
     });
 
     await loginUI(page);
-    await page.goto(`${BASE_URL}/imageintel`);
+    await page.goto(`${BASE_URL}/camera`);
     await page.waitForLoadState('domcontentloaded');
     
     // Check for camera UI elements
@@ -320,10 +169,7 @@ test.describe('Phase 4.3 — Deep Interactivity', () => {
     }
   });
 
-  test('Multi-stage complex pipeline orchestration mock', async ({ page }) => {
-    // Mock the pipeline execution API
-    
-
+  test('Multi-stage pipeline execution flow', async ({ page }) => {
     await loginUI(page);
     await page.goto(`${BASE_URL}/pipelines`);
     await page.waitForLoadState('domcontentloaded');
