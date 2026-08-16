@@ -301,6 +301,9 @@ export default function UserGuidePage() {
             <li><code>ANTHROPIC_API_KEY</code> — required for Route A</li>
             <li><code>OLLAMA_HOST</code> / <code>ROUTE_B_MODE</code> / <code>OLLAMA_MODEL</code> — Route B</li>
             <li><code>OMNIINTEL_INTERNAL_TOKEN</code> + <code>REQUIRE_INTERNAL_TOKEN=true</code> — gate the API</li>
+            <li><code>POSTGRES_URL</code> — optional; batch-job and camera-session state persists
+              here instead of local JSON files when set (durable across restarts/redeploys).
+              Unset works with zero configuration — same behavior, local files instead.</li>
           </ul>
           <p className="text-sm text-gray-300 mt-4">
             See <code>.env.example</code> for the full list. Start the backend with{" "}
