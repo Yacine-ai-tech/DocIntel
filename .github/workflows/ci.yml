@@ -157,7 +157,10 @@ jobs:
     name: "Frontend E2E Tests"
     runs-on: ubuntu-latest
     needs: [test, frontend-test]
-    if: github.event_name != 'pull_request' && env.DOCINTEL_URL != ''
+    # Job-level `if:` can't read the `env` context (only step-level `if:` can) —
+    # unlike e2e-smoke's steps above, which correctly gate on env.DOCINTEL_URL.
+    # Reading secrets.DOCINTEL_URL directly here is what actually parses.
+    if: github.event_name != 'pull_request' && secrets.DOCINTEL_URL != ''
 
     steps:
       - name: Checkout code
