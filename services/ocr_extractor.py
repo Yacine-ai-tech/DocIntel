@@ -14,6 +14,7 @@ Features:
 from __future__ import annotations
 
 import io
+import os as _os
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -40,9 +41,6 @@ try:
     _PDF2IMAGE = True
 except ImportError:
     _PDF2IMAGE = False
-
-
-import os as _os
 
 # Tesseract language packs to try (install the matching tesseract-ocr-<lang> packages).
 # Falls back to "eng" automatically if a pack is missing.
@@ -114,7 +112,9 @@ def _remote_render(pdf_bytes: bytes, dpi: int, max_pages: int) -> Optional[List[
     if n and n <= threshold:
         return None  # small/medium docs: the bounded local renderer handles these fine
     try:
-        import base64, json as _j, urllib.request
+        import base64
+        import json as _j
+        import urllib.request
         max_edge = int(_os.getenv("PDF_MAX_EDGE_PX", "1600"))
         payload = _j.dumps({
             "pdf_b64": base64.b64encode(pdf_bytes).decode(),
@@ -159,7 +159,8 @@ def pdf_to_pngs(pdf_bytes: bytes, dpi: int = 150, max_pages: int = 20) -> List[b
     if not _PDF2IMAGE:
         log.warning("pdf2image/poppler not installed — cannot render PDF to image")
         return []
-    import tempfile, shutil
+    import tempfile
+    import shutil
     max_edge = int(_os.getenv("PDF_MAX_EDGE_PX", "1600"))
     last = max_pages if max_pages and max_pages > 0 else None
     tmp = tempfile.mkdtemp(prefix="docintel_pdf_")
@@ -239,7 +240,7 @@ class PDFTableExtractor:
     def extract_tables(pdf_content: io.BytesIO) -> List[List[List[str]]]:
         """
         Extract all tables from PDF.
-        
+
         Returns: List of tables, each table is a list of rows
         """
         if not _PDFPLUMBER:
@@ -263,7 +264,7 @@ class PDFTableExtractor:
     def detect_table_regions(pdf_content: io.BytesIO) -> List[Dict[str, Any]]:
         """
         Detect table regions in PDF (bounding boxes).
-        
+
         Returns: List of regions with coordinates
         """
         if not _PDFPLUMBER:
@@ -298,7 +299,7 @@ class FormFieldDetector:
     def detect_form_fields(pdf_content: io.BytesIO) -> List[Dict[str, Any]]:
         """
         Detect form fields (text boxes, checkboxes, radio buttons).
-        
+
         Returns: List of detected fields with coordinates and types
         """
         if not _PDFPLUMBER:
@@ -334,7 +335,7 @@ class FormFieldDetector:
     ) -> Dict[str, Any]:
         """
         Extract form field values.
-        
+
         For fillable PDFs, returns field values.
         For non-fillable PDFs, attempts text extraction from field regions.
         """
@@ -375,7 +376,7 @@ class HandwritingOCR:
     def extract_handwriting(image_bytes: io.BytesIO, language: str = "eng") -> str:
         """
         Extract handwritten text from image using Tesseract.
-        
+
         Language codes: 'eng' (English), 'fra' (French), 'deu' (German), etc.
         """
         if not _TESSERACT:
@@ -399,7 +400,7 @@ class HandwritingOCR:
     def detect_handwriting_regions(image_bytes: io.BytesIO) -> List[Dict[str, Any]]:
         """
         Detect regions containing handwritten text.
-        
+
         Returns: List of regions with confidence scores
         """
         if not _TESSERACT:
@@ -439,26 +440,42 @@ class HandwritingOCR:
 class DocumentClassifier:
     """Classify documents by type (invoice, contract, report, etc.)."""
 
+    # English-only keyword lists silently degraded every non-English document to
+    # "general" (0.3 confidence, no doc-type-specific extraction prompt) — a real
+    # gap given this codebase explicitly handles West African CFA franc
+    # normalization elsewhere (services/llm_extractor.py, services/vision_extractor.py),
+    # implying real Francophone-market usage. Added French equivalents per type as
+    # the first non-English language, matching that market; not attempting full
+    # i18n coverage here, just closing the gap the codebase's own currency support
+    # already implied.
     DOCUMENT_TYPES = {
         "invoice": {
-            "keywords": ["invoice", "inv-", "bill", "payment", "amount due", "total"],
-            "patterns": [r"INV[-\s]*\d{4,}", r"Invoice\s*#"],
+            "keywords": ["invoice", "inv-", "bill", "payment", "amount due", "total",
+                         "facture", "facture n", "montant dû", "montant du", "à payer", "a payer"],
+            "patterns": [r"INV[-\s]*\d{4,}", r"Invoice\s*#", r"FACT[-\s]*\d{4,}", r"Facture\s*n[o°]"],
         },
         "contract": {
-            "keywords": ["agreement", "contract", "terms", "conditions", "parties", "obligations"],
-            "patterns": [r"agreement\s+date", r"party\s+of\s+the\s+first\s+part"],
+            "keywords": ["agreement", "contract", "terms", "conditions", "parties", "obligations",
+                         "contrat", "accord", "conditions générales", "conditions generales"],
+            "patterns": [r"agreement\s+date", r"party\s+of\s+the\s+first\s+part",
+                         r"date\s+de\s+l.accord", r"conditions\s+générales"],
         },
         "report": {
-            "keywords": ["report", "summary", "analysis", "findings", "recommendations"],
-            "patterns": [r"annual\s+report", r"financial\s+report"],
+            "keywords": ["report", "summary", "analysis", "findings", "recommendations",
+                         "rapport", "résumé", "resume", "analyse", "constatations", "recommandations"],
+            "patterns": [r"annual\s+report", r"financial\s+report",
+                         r"rapport\s+annuel", r"rapport\s+financier"],
         },
         "receipt": {
-            "keywords": ["receipt", "store", "total", "payment", "items", "thank you"],
-            "patterns": [r"receipt\s*#", r"transaction\s+id"],
+            "keywords": ["receipt", "store", "total", "payment", "items", "thank you",
+                         "reçu", "recu", "magasin", "paiement", "articles", "merci"],
+            "patterns": [r"receipt\s*#", r"transaction\s+id", r"reçu\s*n[o°]", r"n[o°]\s+de\s+transaction"],
         },
         "form": {
-            "keywords": ["form", "complete", "signature", "date", "please"],
-            "patterns": [r"form\s+\d{3,}", r"application\s+form"],
+            "keywords": ["form", "complete", "signature", "date", "please",
+                         "formulaire", "compléter", "completer", "signature", "veuillez"],
+            "patterns": [r"form\s+\d{3,}", r"application\s+form",
+                         r"formulaire\s+\d{3,}", r"formulaire\s+de\s+demande"],
         },
     }
 
@@ -466,7 +483,7 @@ class DocumentClassifier:
     def classify_document(text: str) -> Tuple[str, float]:
         """
         Classify document by analyzing text content.
-        
+
         Returns: (document_type, confidence)
         """
         text_lower = text.lower()
@@ -542,7 +559,7 @@ class EnhancedDocumentProcessor:
     def process_pdf(self, pdf_content: io.BytesIO) -> Dict[str, Any]:
         """
         Comprehensive PDF processing.
-        
+
         Returns: Full document analysis with text, tables, forms, classification
         """
         result = {
@@ -621,4 +638,3 @@ __all__ = [
     "HandwritingOCR",
     "DocumentClassifier",
 ]
-
