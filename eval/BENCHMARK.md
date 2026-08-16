@@ -62,8 +62,8 @@ real queueing delay on this shared, resource-constrained instance.
 |-------|--------|--------------|---------------------|-------------------------------|
 | A — vision_route_a | Claude Sonnet 4.6 Vision | invoices (3) | 3/3 | **100%** (18/18 fields) |
 | A — vision_route_a | Claude Sonnet 4.6 Vision | receipts (6) | 4/6 | **67%** (4/6, `total`) |
-| B — vision_route_b | Ollama qwen2.5-VL 7B (via orchestrator, self-hosted GPU) | invoices (2) | 2/2 | **100%** (14/14 fields) |
-| B — vision_route_b | Ollama qwen2.5-VL 7B (via orchestrator, self-hosted GPU) | receipts (4) | 3/4 | **25%** (1/4, `total`) |
+| B — vision_route_b | Ollama qwen2.5-VL 7B (self-hosted, remote endpoint) | invoices (2) | 2/2 | **100%** (14/14 fields) |
+| B — vision_route_b | Ollama qwen2.5-VL 7B (self-hosted, remote endpoint) | receipts (4) | 3/4 | **25%** (1/4, `total`) |
 | C — ocr_fallback | Tesseract + Claude Haiku | invoices (3) | 0/3 | request failures this session, see below |
 | C — ocr_fallback | Tesseract + Claude Haiku | receipts (6) | 0/6 | request failures this session, see below |
 
@@ -114,10 +114,11 @@ capacity.
 | B | invoices (2) | 138.0s | $0.0021 |
 | B | receipts (4) | 76.6s | $0.0007 |
 
-Route B's latency includes real GPU-Studio wake time where applicable (this is a wake-on-demand
-architecture — see `ARCHITECTURE.md` §5 for the full cold-start behavior). These are *not*
-representative of steady-state, low-contention latency — see the 19.7s warm, uncontended Route B
-timing in `ARCHITECTURE.md` for that number.
+Route B's latency includes real remote-host wake time where applicable — this is a
+wake-on-demand architecture that sleeps when idle rather than paying for always-on GPU capacity
+(cold wake takes roughly 4-5 minutes, see the README). These figures are *not* representative of
+steady-state, low-contention latency: a separate warm, uncontended Route B request completed
+end-to-end in 19.7s with every field correct.
 
 ### French + West-African CFA franc (FCFA → XOF)
 
@@ -129,7 +130,7 @@ routes read it **100% correctly**, including the space-grouped `1 003 000 FCFA` 
 | Route | Engine | Score |
 |-------|--------|-------|
 | A — vision_route_a | Claude Sonnet 4.6 Vision | **1/1 = 100%** |
-| B — vision_route_b | Ollama qwen2.5-VL 7B (via orchestrator) | **1/1 = 100%** |
+| B — vision_route_b | Ollama qwen2.5-VL 7B (self-hosted, remote endpoint) | **1/1 = 100%** |
 | C — ocr_fallback (fra+eng) | Tesseract + LLM | **1/1 = 100%** (isolated test; see Route C note above) |
 
 Full field-level breakdown in [EVAL_REAL.md](EVAL_REAL.md) (from the original, larger run).
@@ -146,14 +147,12 @@ in the Corpus section above). This number is real (measured 2026-06-19), just no
 
 Route B is the private, zero-API-cost path; all computation stays on hardware you control. It is
 evaluated with **Ollama `qwen2.5-VL:7b`**, run either on the same machine as DocIntel or on a
-GPU host reachable over the network — this session's rerun used a self-hosted GPU orchestrator
-reachable via `ROUTE_B_MODE=remote`, confirmed speaking real, unmodified Ollama wire protocol
-(see `ARCHITECTURE.md` §5 for the full account of this — a previous pass had wrongly concluded
-this integration was broken; it wasn't, a diagnostic step had hit the wrong URL).
+GPU host reachable over the network — this session's rerun used a self-hosted remote endpoint via
+`ROUTE_B_MODE=remote`, confirmed speaking real, unmodified Ollama wire protocol end-to-end.
 
-> **Model note.** The strategy lists "Llama 3.2 Vision **or** Qwen 2.5-VL" for the local route. As
-> of Ollama 0.30.x, Llama 3.2 Vision fails to load (its `mllama` architecture is reported as
-> *unknown* by the bundled `llama-server` runner); on the Ollama build where it does load (0.11.x)
+> **Model note.** Llama 3.2 Vision and Qwen 2.5-VL were both evaluated as candidates for the
+> local route. As of Ollama 0.30.x, Llama 3.2 Vision fails to load (its `mllama` architecture is
+> reported as *unknown* by the bundled `llama-server` runner); on the Ollama build where it does load (0.11.x)
 > its key-information-extraction quality on the French/FCFA invoice was unusable (0/7) versus 7/7
 > for Qwen 2.5-VL. **Qwen 2.5-VL is therefore the validated local model.** The route is
 > model-agnostic via `OLLAMA_MODEL`, so any Ollama-served vision model (Llama 3.2 Vision,
