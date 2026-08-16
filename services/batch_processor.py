@@ -1,20 +1,25 @@
 """
-BatchProcessor — job tracking for batch document processing, persisted to disk.
+BatchProcessor — job tracking for batch document processing, persisted durably.
 
 Processes files concurrently with a bounded semaphore so a single job can fan out over
 hundreds/thousands of documents without exhausting memory or hammering the LLM provider.
 Each file is isolated: one failure never aborts the batch.
 
-Job state is kept in memory for fast access but persisted to LOGS_DIR/batch_jobs/*.json
-on every state change, and reloaded on startup. Previously state lived only in the
-in-memory `_jobs` dict: a process restart (deploy, crash, OOM, a host recycling the
-instance) silently dropped every in-flight/completed job — a client polling
-GET /batch/{job_id} afterward got "unknown job" with no indication it ever ran. Completed
-jobs also never left memory at all, growing unbounded for the process's lifetime (jobs
-retain every file's full extracted results, not just metadata). Both are fixed here:
-persistence for durability across restarts, and BATCH_JOB_TTL_SECONDS-based eviction
-(checked lazily on every new_job() call, not a dedicated background loop) so the
-in-memory dict and the on-disk files both stay bounded.
+Job state is kept in memory for fast access but persisted on every state change, and
+reloaded on startup. Previously state lived only in the in-memory `_jobs` dict: a
+process restart (deploy, crash, OOM, a host recycling the instance) silently dropped
+every in-flight/completed job — a client polling GET /batch/{job_id} afterward got
+"unknown job" with no indication it ever ran. Completed jobs also never left memory at
+all, growing unbounded for the process's lifetime (jobs retain every file's full
+extracted results, not just metadata). Both are fixed here: persistence for durability
+across restarts, and BATCH_JOB_TTL_SECONDS-based eviction (checked lazily on every
+new_job() call, not a dedicated background loop) so the in-memory dict and the backing
+store both stay bounded.
+
+Persistence backend: Postgres (core.db) when POSTGRES_URL is set — durable across
+restarts/redeploys and correct if this app ever runs as more than one instance, which a
+local file never was. Falls back to LOGS_DIR/batch_jobs/*.json when unset, so a
+single-container self-hoster needs zero database configuration.
 """
 from __future__ import annotations
 
@@ -27,6 +32,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
+from core import db
 from core.config import settings
 from core.logger import get_logger
 
@@ -47,15 +53,19 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _ts(iso: Optional[str]) -> float:
+def _ts(value) -> float:
     """Parse one of our own _now()-produced ISO timestamps back to epoch seconds.
-    Best-effort: an unparseable/missing timestamp is treated as "just happened"
-    (0 age) rather than raising, so a corrupt field can't crash eviction."""
-    if not iso:
+    The DB backend round-trips these as native datetime objects (psycopg maps
+    TIMESTAMPTZ directly), not strings, so accept either. Best-effort: an
+    unparseable/missing timestamp is treated as "just happened" (0 age) rather
+    than raising, so a corrupt field can't crash eviction."""
+    if not value:
         return time.time()
+    if isinstance(value, datetime):
+        return value.timestamp()
     try:
-        return datetime.fromisoformat(iso).timestamp()
-    except ValueError:
+        return datetime.fromisoformat(value).timestamp()
+    except (ValueError, TypeError):
         return time.time()
 
 
@@ -66,20 +76,36 @@ class BatchProcessor:
     def __init__(self, max_concurrency: int = DEFAULT_CONCURRENCY):
         self._jobs: Dict[str, Dict[str, Any]] = {}
         self.max_concurrency = max(1, max_concurrency)
-        _STATE_DIR.mkdir(parents=True, exist_ok=True)
+        if db.DB_ENABLED:
+            db.ensure_schema()
+        else:
+            _STATE_DIR.mkdir(parents=True, exist_ok=True)
         self._load_persisted_jobs()
 
     def _job_path(self, job_id: str) -> Path:
         return _STATE_DIR / f"{job_id}.json"
 
-    def _persist(self, job_id: str) -> None:
+    def _persist(self, job_id: str, result_idx: Optional[int] = None) -> None:
         """Best-effort: a persistence failure must never break the actual batch
-        processing it's trying to make durable."""
+        processing it's trying to make durable. result_idx, when given, also
+        persists just that one result row (DB backend only — the file backend
+        always rewrites the whole job as one JSON blob either way)."""
         job = self._jobs.get(job_id)
         if job is None:
             return
         try:
-            self._job_path(job_id).write_text(json.dumps(job))
+            if db.DB_ENABLED:
+                db.upsert_batch_job({
+                    "id": job_id, "status": job["status"], "total": job["total"],
+                    "processed": job["processed"], "failed": job["failed"],
+                    "webhook_url": job.get("webhook_url"),
+                    "created_at": job["created_at"], "updated_at": job["updated_at"],
+                    "started_at": job.get("started_at"), "finished_at": job.get("finished_at"),
+                })
+                if result_idx is not None:
+                    db.upsert_batch_result(job_id, result_idx, job["results"][result_idx])
+            else:
+                self._job_path(job_id).write_text(json.dumps(job))
         except Exception as e:
             log.warning("failed to persist job %s: %s", job_id, e)
 
@@ -88,17 +114,26 @@ class BatchProcessor:
         when the process died can never actually resume (the in-process asyncio
         work is gone) — mark it failed rather than leaving it stuck at "running"
         forever, which would look like it's still in progress."""
-        if not _STATE_DIR.exists():
-            return
-        for f in _STATE_DIR.glob("*.json"):
+        jobs: Dict[str, Dict[str, Any]] = {}
+        if db.DB_ENABLED:
             try:
-                job = json.loads(f.read_text())
+                jobs = db.load_all_batch_jobs()
             except Exception as e:
-                log.warning("failed to load persisted job from %s: %s", f, e)
-                continue
-            job_id = job.get("id")
-            if not job_id:
-                continue
+                log.warning("failed to load persisted jobs from Postgres: %s", e)
+        else:
+            if not _STATE_DIR.exists():
+                return
+            for f in _STATE_DIR.glob("*.json"):
+                try:
+                    job = json.loads(f.read_text())
+                except Exception as e:
+                    log.warning("failed to load persisted job from %s: %s", f, e)
+                    continue
+                job_id = job.get("id")
+                if job_id:
+                    jobs[job_id] = job
+
+        for job_id, job in jobs.items():
             if job.get("status") == "running":
                 job["status"] = "failed"
                 job["error"] = "process restarted mid-job"
@@ -115,7 +150,10 @@ class BatchProcessor:
         for jid in expired:
             self._jobs.pop(jid, None)
             try:
-                self._job_path(jid).unlink(missing_ok=True)
+                if db.DB_ENABLED:
+                    db.delete_batch_job(jid)
+                else:
+                    self._job_path(jid).unlink(missing_ok=True)
             except Exception as e:
                 log.warning("failed to evict persisted job %s: %s", jid, e)
 
@@ -161,6 +199,7 @@ class BatchProcessor:
 
         job["status"] = "running"
         job["started_at"] = _now()
+        job["webhook_url"] = webhook_url
         self._persist(job_id)
         sem = asyncio.Semaphore(self.max_concurrency)
 
@@ -177,7 +216,7 @@ class BatchProcessor:
                 # Persist incrementally (not just on final completion) so a restart
                 # mid-batch still recovers whichever files had already finished,
                 # instead of losing the entire job's progress.
-                self._persist(job_id)
+                self._persist(job_id, result_idx=idx)
 
         await asyncio.gather(*(_run(i, fd) for i, fd in enumerate(files)))
         job["status"] = "completed"

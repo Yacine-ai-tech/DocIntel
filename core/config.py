@@ -109,6 +109,17 @@ class Settings:
         if o.strip()
     ]
 
+    # ─── Database (optional) ──────────────────────────────────────────────────
+    # Postgres connection string (e.g. a Neon serverless Postgres instance). When
+    # set, batch-job and camera-pairing-session state persists here instead of
+    # local JSON files under LOGS_DIR — durable across restarts/redeploys and
+    # shared correctly if this app ever runs as more than one instance/worker,
+    # which a local file never was. Unset by default: self-hosters running a
+    # single container don't need Postgres, and the JSON-file fallback (see
+    # services/batch_processor.py, services/camera.py) keeps working exactly as
+    # before with zero configuration.
+    POSTGRES_URL = os.getenv("POSTGRES_URL", "")
+
 
 settings = Settings()
 
@@ -126,5 +137,6 @@ def _apply_gemini_fallback():
         for attr in dir(settings):
             if attr.startswith("LLM_") and isinstance(getattr(settings, attr), str):
                 setattr(settings, attr, fallback(getattr(settings, attr)))
+
 
 _apply_gemini_fallback()

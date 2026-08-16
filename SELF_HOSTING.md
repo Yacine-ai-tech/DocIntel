@@ -7,6 +7,10 @@
    frontend itself (`frontend/dist/`) at `/`, so frontend and backend share one origin by default.
 3. **GPU Note:** If running Surya or Marker natively, a CUDA GPU with 16GB+ VRAM is recommended.
 4. **Hosting:** Render free tier (see `render.yaml`) or a dedicated on-demand GPU cloud host.
+5. **Database (optional):** batch-job and camera-pairing-session state persists to local JSON
+   files by default — zero configuration needed. Set `POSTGRES_URL` (any Postgres, including
+   free-tier serverless providers like Neon or Supabase) if you want that state durable across
+   restarts/redeploys or correct under more than one running instance; see `.env.example`.
 5. **Mobile camera scan:** set `FRONTEND_URL` to wherever your phone can actually reach the app
    (not `localhost` unless the phone and server are the exact same machine). Most mobile browsers
    only allow camera capture on a secure context — **HTTPS**, or `localhost` for same-device

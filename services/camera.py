@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 from datetime import datetime, timedelta, timezone
 
+from core import db
 from core.config import settings
 from core.logger import get_logger
 
@@ -79,7 +80,10 @@ class MobilePairing:
     _token_lock = threading.Lock()
 
     def __post_init__(self):
-        _STATE_DIR.mkdir(parents=True, exist_ok=True)
+        if db.DB_ENABLED:
+            db.ensure_schema()
+        else:
+            _STATE_DIR.mkdir(parents=True, exist_ok=True)
         self._load_persisted_sessions()
 
     def _session_path(self, token: str) -> Path:
@@ -91,20 +95,31 @@ class MobilePairing:
         if session is None:
             return
         try:
-            self._session_path(token).write_text(json.dumps(_session_to_json(session)))
+            if db.DB_ENABLED:
+                # psycopg handles native datetime -> TIMESTAMPTZ directly — no ISO
+                # string conversion needed here (that's only for the JSON file path).
+                db.upsert_camera_session(token, session)
+            else:
+                self._session_path(token).write_text(json.dumps(_session_to_json(session)))
         except Exception as e:
             log.warning("failed to persist camera session %s…: %s", token[:8], e)
 
     def _load_persisted_sessions(self) -> None:
-        if not _STATE_DIR.exists():
-            return
-        for f in _STATE_DIR.glob("*.json"):
+        if db.DB_ENABLED:
             try:
-                data = json.loads(f.read_text())
-                token = f.stem
-                self._sessions[token] = _session_from_json(data)
+                self._sessions.update(db.load_all_camera_sessions())
             except Exception as e:
-                log.warning("failed to load persisted camera session from %s: %s", f, e)
+                log.warning("failed to load persisted camera sessions from Postgres: %s", e)
+        else:
+            if not _STATE_DIR.exists():
+                return
+            for f in _STATE_DIR.glob("*.json"):
+                try:
+                    data = json.loads(f.read_text())
+                    token = f.stem
+                    self._sessions[token] = _session_from_json(data)
+                except Exception as e:
+                    log.warning("failed to load persisted camera session from %s: %s", f, e)
         self._evict_expired()
 
     def _evict_expired(self) -> None:
@@ -113,7 +128,10 @@ class MobilePairing:
         for token in expired:
             self._sessions.pop(token, None)
             try:
-                self._session_path(token).unlink(missing_ok=True)
+                if db.DB_ENABLED:
+                    db.delete_camera_session(token)
+                else:
+                    self._session_path(token).unlink(missing_ok=True)
             except Exception as e:
                 log.warning("failed to evict persisted camera session %s…: %s", token[:8], e)
 
