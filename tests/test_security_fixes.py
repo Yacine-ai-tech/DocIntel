@@ -175,6 +175,10 @@ def test_batch_jobs_are_evicted_after_ttl(monkeypatch, tmp_path):
     import importlib
     import services.batch_processor as bp_module
     importlib.reload(bp_module)
+    # Force the JSON-file backend regardless of whether POSTGRES_URL is configured
+    # in this environment's .env — this test is specifically about file-based
+    # eviction under an isolated tmp_path, not the real (possibly production) DB.
+    monkeypatch.setattr(bp_module.db, "DB_ENABLED", False)
     bp_module._STATE_DIR = tmp_path / "batch_jobs"
     bp = bp_module.BatchProcessor()
     job_id = bp.new_job(total=1)
@@ -190,6 +194,7 @@ async def test_batch_job_state_survives_process_restart(tmp_path, monkeypatch):
     import importlib
     import services.batch_processor as bp_module
     importlib.reload(bp_module)
+    monkeypatch.setattr(bp_module.db, "DB_ENABLED", False)
     bp_module._STATE_DIR = tmp_path / "batch_jobs"
 
     bp1 = bp_module.BatchProcessor(max_concurrency=2)
@@ -215,6 +220,7 @@ def test_camera_sessions_are_evicted_after_expiry(monkeypatch, tmp_path):
     import importlib
     import services.camera as camera_module
     importlib.reload(camera_module)
+    monkeypatch.setattr(camera_module.db, "DB_ENABLED", False)
     camera_module._STATE_DIR = tmp_path / "camera_sessions"
     pairing = camera_module.MobilePairing()
     token = pairing.create_session("alice")
