@@ -9,6 +9,11 @@ matter for production document extraction:
 All datasets are publicly available; the downloaded artifacts are git-ignored and rebuilt by the
 scripts below.
 
+For how these numbers compare against independently-published 2026 benchmarks (LayoutLMv3,
+DocMamba, published Claude Sonnet invoice-extraction studies) — and an honest answer to whether
+any of this is novel — see [RESEARCH.md](../RESEARCH.md). This document stays focused on
+DocIntel's own methodology and measured results.
+
 ## Corpus (106 documents on disk this session; 106 with field-level ground truth)
 
 | Source | Type | Docs | Ground truth | Rationale |
