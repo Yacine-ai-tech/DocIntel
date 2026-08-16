@@ -44,14 +44,16 @@ from services.llm_extractor import LLMExtractor
 from services.marker_extractor import MarkerExtractor
 from services.webhook import WebhookURLRejected, _validate_webhook_url
 
-# Import centralized logging for Omni-Admin visibility
+# Optional: if this checkout sits alongside a shared logging helper in a sibling
+# directory (not part of this repo, absent on a standalone clone), hook into it
+# for centralized log aggregation. No-ops cleanly otherwise.
 try:
     import sys
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "global_scripts"))
-    from omni_logging import get_logger as get_omni_logger
-    omni_logger = get_omni_logger("DocIntel")
+    from omni_logging import get_logger as get_workspace_logger
+    workspace_logger = get_workspace_logger("DocIntel")
 except ImportError:
-    omni_logger = None
+    workspace_logger = None
 
 from services.vision_extractor import classify_image, extract_via_vision_llm
 
@@ -141,9 +143,10 @@ threading.Thread(target=_send_telemetry, daemon=True).start()
 # the token" is the whole point, not a trap to route around. (Previously
 # /extract, /classify*, /process, and the entire /camera/ and /batch/
 # prefixes were bypassed here regardless of the flag — REQUIRE_INTERNAL_TOKEN
-# protected almost nothing that actually mattered. First-party integrations
-# — n8n, IntelAI's document delegation, StreamPulse — should send
-# X-OmniIntel-Internal-Token like any other caller once hardening is on.)
+# protected almost nothing that actually mattered. Any server-to-server
+# integration — n8n, a workflow automation tool, another service you run —
+# should send X-OmniIntel-Internal-Token like any other caller once
+# hardening is on.)
 _PUBLIC_PATHS = {
     "/", "/health", "/benchmarks", "/docs", "/openapi.json", "/api/redoc",
     "/favicon.png", "/favicon.ico", "/mark.png", "/logo.png",
@@ -281,8 +284,8 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
         model_tag = os.getenv("OLLAMA_MODEL", "qwen2.5vl:7b")
         log.info("Route B: mode=%s model=%s", mode, model_tag)
 
-        if omni_logger:
-            omni_logger.log_route_selection("vision_route_b", f"{mode}/{model_tag}")
+        if workspace_logger:
+            workspace_logger.log_route_selection("vision_route_b", f"{mode}/{model_tag}")
 
         images = pdf_to_pngs(data, max_pages=settings.MAX_PDF_PAGES) if pdf else [data]
         fields = None
@@ -298,8 +301,8 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
                 fallback_used = True
                 used_route = "ocr_fallback"
 
-                if omni_logger:
-                    omni_logger.log_fallback("vision_route_b", "ocr_fallback", f"{mode}/{model_tag} failed: {e}")
+                if workspace_logger:
+                    workspace_logger.log_fallback("vision_route_b", "ocr_fallback", f"{mode}/{model_tag} failed: {e}")
 
         if fields is None or fallback_used:
             log.info("Route C: Using OCR fallback (Tesseract + LLM cleanup)")
@@ -332,8 +335,8 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
     # Legacy route names for backward compatibility
     elif route in ("vision_premium", "vision_local"):
         log.warning(f"Legacy route name '{route}' used, mapping to new architecture")
-        if omni_logger:
-            omni_logger.log_fallback(route, "vision_route_a" if route == "vision_premium" else "vision_route_b", "Legacy route name mapping")
+        if workspace_logger:
+            workspace_logger.log_fallback(route, "vision_route_a" if route == "vision_premium" else "vision_route_b", "Legacy route name mapping")
 
         if route == "vision_premium":
             return await _run_route(data, "vision_route_a", doc_type)
@@ -626,10 +629,9 @@ async def extract_text(
 
     Every other extraction endpoint returns *typed fields* (invoice-shaped: vendor,
     total, line_items...). That is the wrong shape for a RAG consumer, which needs the
-    document's actual prose. STRATEGY.md §3.10 Move 3 designates Marker for exactly
-    this ("documents where you want structured text intermediate, e.g. to ingest into
-    RAG"), but marker-pdf is a heavy optional dependency, so this endpoint uses
-    whichever text path is actually available. See _extract_text_core for the routes.
+    document's actual prose — a structured-text intermediate to ingest into RAG. Marker is
+    the ideal tool for this, but marker-pdf is a heavy optional dependency, so this endpoint
+    uses whichever text path is actually available. See _extract_text_core for the routes.
 
     A synchronous call to this endpoint on a large/complex document can outlast a
     reverse-proxy's edge timeout even though the extraction itself would have
@@ -699,13 +701,13 @@ async def extract(
     t0 = time.time()
     data = await _read_upload(file)
 
-    if omni_logger:
-        omni_logger.log_request("/extract", {"route": route, "doc_type": doc_type})
+    if workspace_logger:
+        workspace_logger.log_request("/extract", {"route": route, "doc_type": doc_type})
 
     out = await _run_route(data, route, doc_type)
 
-    if omni_logger:
-        omni_logger.log_response("/extract", 200, (time.time() - t0) * 1000)
+    if workspace_logger:
+        workspace_logger.log_response("/extract", 200, (time.time() - t0) * 1000)
 
     return ProcessResponse(
         doc_type=doc_type,

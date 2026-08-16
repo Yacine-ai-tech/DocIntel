@@ -1,12 +1,12 @@
 name: Weekly Accuracy Regression Eval
 
-# STRATEGY.md §3.4: iterate prompts until accuracy on key fields (total, vendor, date,
-# invoice number) reaches 90%+ on the eval set, and re-check weekly. Entirely optional to
+# Goal: catch prompt/model regressions on key fields (total, vendor, date, invoice
+# number) by re-checking accuracy against the eval set weekly. Entirely optional to
 # enable: skips cleanly (no failure) if ANTHROPIC_API_KEY isn't configured as a repo
-# secret, so this doesn't break CI for forks/clones without an API key. Reports the
-# result to the omni-admin gateway's /eval-report endpoint (visible in its Overview
-# stats + Entity Matrix event log under event_type=eval) when OMNIINTEL_INTERNAL_TOKEN
-# is also configured — reporting is best-effort and never fails the job.
+# secret, so this doesn't break CI for forks/clones without an API key. Optionally
+# reports the result to an external monitoring endpoint (env-configurable — see
+# OMNIINTEL_INTERNAL_TOKEN below) when that token is also configured — reporting is
+# best-effort and never fails the job.
 
 on:
   schedule:
@@ -54,13 +54,13 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python eval/run_eval.py --route vision_route_a --threshold 0.85
 
-      - name: Report to omni-admin monitoring
+      - name: Report to external monitoring endpoint
         if: always() && steps.check.outputs.configured == 'true'
         env:
           INTERNAL_TOKEN: ${{ secrets.OMNIINTEL_INTERNAL_TOKEN }}
         run: |
           if [ -z "$INTERNAL_TOKEN" ]; then
-            echo "::notice::OMNIINTEL_INTERNAL_TOKEN not set — skipping omni-admin report (eval results above still count for pass/fail)."
+            echo "::notice::OMNIINTEL_INTERNAL_TOKEN not set — skipping external report (eval results above still count for pass/fail)."
             exit 0
           fi
           python3 - <<'EOF'
@@ -95,7 +95,7 @@ jobs:
           )
           try:
               with urllib.request.urlopen(req, timeout=10) as r:
-                  print(f"omni-admin report: {r.status} {r.read().decode()}")
+                  print(f"external report: {r.status} {r.read().decode()}")
           except Exception as e:
-              print(f"omni-admin report failed (non-fatal): {e}")
+              print(f"external report failed (non-fatal): {e}")
           EOF
