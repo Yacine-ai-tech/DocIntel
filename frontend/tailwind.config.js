@@ -1,5 +1,5 @@
-/** Tokens come from CSS variables (src/theme/tokens.css) so the config is portable
- *  across all six portfolio projects unchanged. */
+/** Tokens come from CSS variables (src/theme/tokens.css) so this config stays portable
+ *  and doesn't need per-project edits if the palette changes. */
 export default {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {

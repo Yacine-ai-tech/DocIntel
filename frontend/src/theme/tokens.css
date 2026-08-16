@@ -1,5 +1,4 @@
-/* Portfolio design tokens — shared base + this project's theme.
-   Source of truth: credentials_redesign_prompts/v2/design-tokens.css */
+/* Design tokens — shared base palette/spacing scale + this project's own theme values. */
 
 :root {
   --border: rgba(255, 255, 255, 0.06);
