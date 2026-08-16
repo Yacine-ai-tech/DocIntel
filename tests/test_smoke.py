@@ -37,10 +37,15 @@ def test_classify_endpoint_no_file():
     assert r.status_code in (401, 403, 422)  # 422=validation, 401/403=auth required
 
 
-def test_batch_processor_lifecycle():
+def test_batch_processor_lifecycle(monkeypatch, tmp_path):
     """BatchProcessor: new job → status → results."""
-    from services.batch_processor import BatchProcessor
-    bp = BatchProcessor()
+    import services.batch_processor as bp_module
+    # Force the JSON-file backend for isolation, regardless of whether this
+    # environment's .env has a real POSTGRES_URL configured — a smoke test must
+    # not write to (and leave rows in) a real database.
+    monkeypatch.setattr(bp_module.db, "DB_ENABLED", False)
+    monkeypatch.setattr(bp_module, "_STATE_DIR", tmp_path / "batch_jobs")
+    bp = bp_module.BatchProcessor()
     job_id = bp.new_job(total=3)
     status = bp.get_status(job_id)
     assert status["status"] == "pending"
