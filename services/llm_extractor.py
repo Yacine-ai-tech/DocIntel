@@ -12,6 +12,7 @@ import os
 import re
 from typing import Any, Dict, Optional
 
+from core.config import settings
 from core.logger import get_logger
 from services.doc_merge import merge_doc_fields
 from services.normalize import normalize_fields
@@ -118,6 +119,8 @@ class LLMExtractor:
                         {"role": "user", "content": text},
                     ],
                     temperature=0.1,
+                    timeout=settings.LLM_CALL_TIMEOUT,
+                    num_retries=settings.LLM_CALL_RETRIES,
                 )
                 cost += _completion_cost_usd(response)
                 content = response.choices[0].message.content or "{}"
@@ -184,7 +187,7 @@ class LLMExtractor:
         merged["_chunks"] = len(chunks)
         merged["_cost_usd"] = round(total_cost, 6)
         return merged
-        
+
     def _apply_regex_fallback(self, text: str, result: Dict[str, Any], doc_type: str) -> None:
         """Fallback to regex extraction for numerical totals if LLM returned null."""
         if doc_type in ("invoice", "receipt") and not result.get("total"):
