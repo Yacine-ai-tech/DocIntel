@@ -1,6 +1,6 @@
 """Scale + accuracy benchmark over the 500+ document corpus (eval/benchmark/).
 
-Two things matter for the pitch: ACCURACY (field-level, on the ground-truth subset) and
+Two things matter for production use: ACCURACY (field-level, on the ground-truth subset) and
 ROBUSTNESS AT SCALE (process hundreds/thousands of mixed real documents concurrently without
 falling over). This runner measures both, with cost controls so a full run is affordable.
 
