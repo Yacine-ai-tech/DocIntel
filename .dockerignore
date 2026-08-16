@@ -1,0 +1,72 @@
+# Docker's COPY is governed by .dockerignore, not .gitignore — a real .env
+# with real secrets (ANTHROPIC_API_KEY, GROQ_API_KEY, SURYA_REMOTE_TOKEN, ...)
+# sitting in this directory during `docker build .` used to get baked straight
+# into the image's layers with no exclusion at all. This file closes that gap.
+# frontend/dist/ is intentionally NOT excluded here — Render's build has no
+# separate Node stage, so the pre-built SPA bundle has to ship in this context.
+
+# Secrets — the whole point of this file
+.env
+*.env
+!.env.example
+.env.bak*
+.env.local
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+build/
+.eggs/
+.pytest_cache/
+.coverage
+
+# Data / runtime — never needed in the image, and uploads/logs could contain
+# real document content from local runs
+chroma_db/
+*.db
+*.sqlite
+uploads/
+logs/
+*.log
+tmp/
+
+# Git
+.git/
+.gitignore
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+Zone.Identifier
+*.Zone.Identifier
+
+# Node — node_modules is huge and irrelevant to the Python image; frontend/dist
+# (the built bundle) is what actually gets served, and is NOT excluded
+frontend/node_modules/
+frontend/playwright-report/
+frontend/test-results/
+frontend/e2e/
+
+# Eval / benchmark artifacts — large, reproducible, not needed at runtime
+eval/synthetic_invoices/
+eval/invoices_eval.jsonl
+eval/results.json
+eval/real_invoices/
+eval/benchmark/
+eval/fcfa_sample/
+eval/large_doc/
+
+# Internal-only docs never meant to ship in the image
+ARCHITECTURE.md
+STATUS.md
+drafts/
+steps.md
+scripts/gpu_activate.py
