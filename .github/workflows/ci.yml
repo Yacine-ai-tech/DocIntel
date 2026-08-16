@@ -157,35 +157,44 @@ jobs:
     name: "Frontend E2E Tests"
     runs-on: ubuntu-latest
     needs: [test, frontend-test]
-    # Job-level `if:` can't read the `env` context (only step-level `if:` can) —
-    # unlike e2e-smoke's steps above, which correctly gate on env.DOCINTEL_URL.
-    # Reading secrets.DOCINTEL_URL directly here is what actually parses.
-    if: github.event_name != 'pull_request' && secrets.DOCINTEL_URL != ''
+    # Job-level `if:` only has access to github/needs/vars/inputs — not env, and
+    # not secrets either (confirmed via `gh workflow run` dry-run rejecting both
+    # env.DOCINTEL_URL and secrets.DOCINTEL_URL here with "Unrecognized
+    # named-value"). So this job always runs on non-PR events, and the actual
+    # DOCINTEL_URL gate lives on each step below instead (step-level `if:` CAN
+    # read env — same pattern e2e-smoke's steps already use correctly).
+    if: github.event_name != 'pull_request'
 
     steps:
       - name: Checkout code
+        if: env.DOCINTEL_URL != ''
         uses: actions/checkout@v4
 
       - name: Set up Node ${{ env.NODE_VERSION }}
+        if: env.DOCINTEL_URL != ''
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Install dependencies
+        if: env.DOCINTEL_URL != ''
         working-directory: ./frontend
         run: npm ci
 
       - name: Install Playwright browsers
+        if: env.DOCINTEL_URL != ''
         working-directory: ./frontend
         run: npx playwright install --with-deps chromium
 
       - name: Build frontend against the deployed backend
+        if: env.DOCINTEL_URL != ''
         working-directory: ./frontend
         env:
           VITE_API_BASE_URL: ${{ env.DOCINTEL_URL }}
         run: npm run build
 
       - name: Serve the built bundle
+        if: env.DOCINTEL_URL != ''
         working-directory: ./frontend
         run: |
           npx vite preview --port 4173 --strictPort &
@@ -200,13 +209,14 @@ jobs:
       # vitest file (`expect(true).toBe(true)`) ran in CI, giving zero real
       # frontend coverage. This is that wiring.
       - name: Run Playwright E2E suite
+        if: env.DOCINTEL_URL != ''
         working-directory: ./frontend
         env:
           TEST_BASE_URL: http://localhost:4173
         run: npm run test:e2e
 
       - name: Upload Playwright report
-        if: always()
+        if: always() && env.DOCINTEL_URL != ''
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report
