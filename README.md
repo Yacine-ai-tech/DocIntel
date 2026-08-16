@@ -116,7 +116,7 @@ local model.
 
 ## Tests
 
-88 test functions across smoke, API, security, AI-pipeline, extraction, batch, and benchmark scripts:
+91 test functions across smoke, API, security, AI-pipeline, database, extraction, batch, and benchmark scripts:
 
 ```bash
 pytest tests/ -q

@@ -25,6 +25,7 @@ export default function Benchmarks() {
   const robustness = data?.robustness;
   const tiles = data?.stat_tiles;
   const routeComparison = data?.route_comparison ?? [];
+  const corpus = data?.corpus;
 
   return (
     <div>
@@ -131,11 +132,19 @@ export default function Benchmarks() {
 
       <div className="mt-5 grid gap-4 lg:grid-cols-3">
         <Card title="Corpus">
-          <ul className="space-y-2 text-[13px] text-dim">
-            <li><strong className="text-body">494</strong> CORD-v2 phone-photo receipts (IDR ground truth)</li>
-            <li><strong className="text-body">6</strong> invoice2data invoices — EN/FR/DE/NL, multi-page</li>
-            <li><strong className="text-body">50</strong> FUNSD noisy scanned forms (handwriting)</li>
-          </ul>
+          {corpus ? (
+            <ul className="space-y-2 text-[13px] text-dim">
+              {corpus.sources.map((s) => (
+                <li key={s.name}>
+                  <strong className="text-body">{s.docs}</strong> {s.name}
+                  {s.type ? ` ${s.type}${s.docs === 1 ? "" : "s"}` : ""}
+                  {s.ground_truth ? ` (${s.ground_truth} ground truth)` : ""}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="text-sm text-muted">{err ? "No corpus data." : "Loading…"}</div>
+          )}
         </Card>
         <Card title="Scoring">
           <p className="text-[13px] leading-6 text-dim">
