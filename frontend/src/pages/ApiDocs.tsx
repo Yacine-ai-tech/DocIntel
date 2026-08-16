@@ -114,10 +114,10 @@ const ENDPOINTS: Endpoint[] = [
     method: "POST",
     path: "/classify-image",
     group: "Classification",
-    desc: "Vision-first object classification against a caller-supplied category list (the auction-listing pattern) — Route A (Claude Sonnet 4.6 Vision) only.",
+    desc: "Vision-first object classification against a caller-supplied category list (the auction-listing pattern) — Route A (Claude Sonnet 4.6 Vision) only. Also extracts any quantitative/key-value data visible in the image into an optional metrics object.",
     auth: true,
     body: "multipart/form-data\n  file: <image>\n  categories: \"tractor,lathe,crane\"  (comma-separated string, required)",
-    response: "{\n  \"category\": \"tractor\",\n  \"confidence\": 0.93,\n  \"reasoning\": \"Visible tracked chassis and front loader arm.\",\n  \"processing_time_ms\": 780.5\n}",
+    response: "{\n  \"category\": \"tractor\",\n  \"confidence\": 0.93,\n  \"reasoning\": \"Visible tracked chassis and front loader arm.\",\n  \"metrics\": { \"engine_hours\": \"4,200\" },\n  \"processing_time_ms\": 780.5\n}",
   },
   // ── Batch processing ─────────────────────────────────────────────────────
   {

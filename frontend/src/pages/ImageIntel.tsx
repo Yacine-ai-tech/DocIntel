@@ -144,6 +144,19 @@ export default function ImageIntel() {
                     </p>
                   </div>
                 )}
+                {result.metrics && Object.keys(result.metrics).length > 0 && (
+                  <div className="mt-5">
+                    <div className="text-xs font-medium uppercase tracking-wide text-muted">Extracted Metrics</div>
+                    <div className="mt-2 rounded-xl border border-line bg-surface-2 p-4">
+                      {Object.entries(result.metrics).map(([key, value]) => (
+                        <div key={key} className="flex justify-between border-b border-line py-2 last:border-0 last:pb-0">
+                          <span className="text-[13px] font-medium text-dim">{key}</span>
+                          <span className="text-[13px] text-body">{String(value)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </motion.div>
             </AnimatePresence>
           )}

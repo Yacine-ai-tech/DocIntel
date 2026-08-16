@@ -18,6 +18,7 @@ export type ClassifyImageResponse = {
   category?: string;
   confidence?: number;
   reasoning?: string;
+  metrics?: Record<string, unknown>;
   processing_time_ms?: number;
   error?: string;
 };
