@@ -3,13 +3,17 @@ Camera integration — live feed, mobile pairing, QR scanning.
 """
 from __future__ import annotations
 
+import json
+import os
 import secrets
 import threading
 import base64
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional, List
+from pathlib import Path
+from typing import Any, Dict, Optional
 from datetime import datetime, timedelta, timezone
 
+from core.config import settings
 from core.logger import get_logger
 
 log = get_logger(__name__)
@@ -17,6 +21,7 @@ log = get_logger(__name__)
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
 
 try:
     import cv2
@@ -30,15 +35,91 @@ try:
 except ImportError:
     _QR = False
 
+# How long a pairing session (and its persisted state) stays around after
+# creation. Matches the session's own 24h expiry, plus slack so an expired-
+# but-recently-active session's last result is still visible for a short
+# window after expiry, rather than vanishing at the exact same moment.
+SESSION_TTL_SECONDS = int(os.getenv("CAMERA_SESSION_TTL_SECONDS", str(48 * 3600)))
+
+_STATE_DIR = Path(settings.LOGS_DIR) / "camera_sessions"
+
+
+def _session_to_json(session: Dict[str, Any]) -> Dict[str, Any]:
+    """datetime fields aren't JSON-serializable — convert to ISO strings for
+    persistence only; the in-memory copy keeps real datetime objects."""
+    out = dict(session)
+    for k in ("created_at", "expires_at", "last_upload"):
+        v = out.get(k)
+        out[k] = v.isoformat() if isinstance(v, datetime) else v
+    return out
+
+
+def _session_from_json(data: Dict[str, Any]) -> Dict[str, Any]:
+    out = dict(data)
+    for k in ("created_at", "expires_at", "last_upload"):
+        v = out.get(k)
+        out[k] = datetime.fromisoformat(v) if isinstance(v, str) else v
+    return out
+
 
 @dataclass
 class MobilePairing:
-    """Pair mobile devices for remote document capture."""
+    """Pair mobile devices for remote document capture.
+
+    Session state is persisted to LOGS_DIR/camera_sessions/*.json on every
+    change and reloaded on startup, with TTL-based eviction on every new
+    session creation. Previously state lived only in the in-memory _sessions
+    dict: a process restart silently dropped every pairing (a paired phone
+    mid-scan would find its token suddenly invalid with no explanation), and
+    expired sessions were never actually removed — validate() only flipped
+    active=False, leaving the dict entry (and, before this, nothing on disk to
+    even worry about) growing unbounded for the process's lifetime.
+    """
     _sessions: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     _token_lock = threading.Lock()
 
+    def __post_init__(self):
+        _STATE_DIR.mkdir(parents=True, exist_ok=True)
+        self._load_persisted_sessions()
+
+    def _session_path(self, token: str) -> Path:
+        return _STATE_DIR / f"{token}.json"
+
+    def _persist(self, token: str) -> None:
+        """Best-effort: a persistence failure must never break pairing itself."""
+        session = self._sessions.get(token)
+        if session is None:
+            return
+        try:
+            self._session_path(token).write_text(json.dumps(_session_to_json(session)))
+        except Exception as e:
+            log.warning("failed to persist camera session %s…: %s", token[:8], e)
+
+    def _load_persisted_sessions(self) -> None:
+        if not _STATE_DIR.exists():
+            return
+        for f in _STATE_DIR.glob("*.json"):
+            try:
+                data = json.loads(f.read_text())
+                token = f.stem
+                self._sessions[token] = _session_from_json(data)
+            except Exception as e:
+                log.warning("failed to load persisted camera session from %s: %s", f, e)
+        self._evict_expired()
+
+    def _evict_expired(self) -> None:
+        cutoff = _utcnow() - timedelta(seconds=SESSION_TTL_SECONDS)
+        expired = [t for t, s in self._sessions.items() if s.get("created_at", _utcnow()) < cutoff]
+        for token in expired:
+            self._sessions.pop(token, None)
+            try:
+                self._session_path(token).unlink(missing_ok=True)
+            except Exception as e:
+                log.warning("failed to evict persisted camera session %s…: %s", token[:8], e)
+
     def create_session(self, user: str, device_name: str = "Mobile Device") -> str:
         """Create a new pairing session with expiry."""
+        self._evict_expired()
         token = secrets.token_urlsafe(16)
         with self._token_lock:
             self._sessions[token] = {
@@ -51,6 +132,7 @@ class MobilePairing:
                 "last_result": None,
                 "active": True,
             }
+        self._persist(token)
         log.info("Mobile session for %s on %s (token=%s…)", user, device_name, token[:8])
         return token
 
@@ -63,6 +145,7 @@ class MobilePairing:
             if _utcnow() > session["expires_at"]:
                 session["active"] = False
                 log.info("Token expired: %s…", token[:8])
+                self._persist(token)
                 return None
             if not session["active"]:
                 return None
@@ -78,6 +161,7 @@ class MobilePairing:
                 session["last_upload"] = _utcnow()
                 if result is not None:
                     session["last_result"] = result
+                self._persist(token)
                 return True
         return False
 
@@ -96,39 +180,11 @@ class MobilePairing:
                 "last_result": session.get("last_result"),
             }
 
-    def revoke(self, token: str) -> bool:
-        """Revoke a pairing token."""
-        with self._token_lock:
-            session = self._sessions.get(token)
-            if session:
-                session["active"] = False
-                log.info("Token revoked: %s…", token[:8])
-                return True
-        return False
-
-    def list_sessions(self, user: str) -> List[Dict[str, Any]]:
-        """List all active sessions for a user."""
-        with self._token_lock:
-            return [
-                {
-                    "token": token[:8] + "...",
-                    "device_name": s["device_name"],
-                    "created_at": s["created_at"].isoformat(),
-                    "expires_at": s["expires_at"].isoformat(),
-                    "uploads": s["uploads"],
-                    "last_upload": s["last_upload"].isoformat() if s["last_upload"] else None,
-                    "active": s["active"],
-                }
-                for token, s in self._sessions.items()
-                if s["user"] == user
-            ]
-
     def qr_bytes(self, token: str) -> Optional[bytes]:
         """Generate QR code for pairing token."""
         if not _QR:
             return None
         import io
-        import os
         # FRONTEND_URL is the only reliable source here — the backend can't know its own
         # public-facing origin (behind a proxy/tunnel, different host than the frontend in
         # split deployments, etc.). Falls back to localhost:8001 for local single-container dev.
@@ -184,10 +240,17 @@ class CameraManager:
             log.info("Camera stopped")
 
     # ---- pairing helpers --------------------------------------------------
+    # list_mobile_sessions/revoke_mobile_session (and MobilePairing.list_sessions/
+    # revoke underneath them) were removed here — dead code, unreachable from any
+    # route. If a sessions-list/revoke route is ever added, note that `user` is
+    # entirely self-declared by the caller (/camera/pair's `user` form field,
+    # defaulting to "demo_user") with no real authentication tying it to an
+    # identity — wiring either of those up naively would let anyone list or
+    # revoke another user's sessions by guessing/reusing their `user` string.
+    # Don't reintroduce them without real auth alongside.
 
     def pair_mobile(self, user: str, device_name: str = "Mobile Device") -> Dict[str, Any]:
         """Create pairing session and return token + QR code."""
-        import os
         token = self.pairing.create_session(user, device_name)
         qr_b64 = self.pairing.qr_base64(token)
         return {
@@ -210,11 +273,3 @@ class CameraManager:
     def record_mobile_upload(self, token: str, result: Optional[Dict[str, Any]] = None) -> bool:
         """Record successful upload from paired device, with its extraction result."""
         return self.pairing.record_upload(token, result)
-
-    def revoke_mobile_session(self, token: str) -> bool:
-        """Revoke a pairing session."""
-        return self.pairing.revoke(token)
-
-    def list_mobile_sessions(self, user: str) -> List[Dict[str, Any]]:
-        """List all pairing sessions for a user."""
-        return self.pairing.list_sessions(user)
