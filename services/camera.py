@@ -205,7 +205,12 @@ class MobilePairing:
         import io
         # FRONTEND_URL is the only reliable source here — the backend can't know its own
         # public-facing origin (behind a proxy/tunnel, different host than the frontend in
-        # split deployments, etc.). Falls back to localhost:8001 for local single-container dev.
+        # split deployments, etc.). Falls back to localhost:8001 for local single-container
+        # dev — deliberately NOT a live hosted URL: for anyone self-hosting, defaulting to
+        # this project's own public demo would silently send their users' camera-pairing QR
+        # codes to someone else's frontend/backend pair (a confusing, broken pairing attempt
+        # dressed up as a working QR code) instead of failing obviously. See SELF_HOSTING.md —
+        # this is the one env var every split frontend/backend deployment must set correctly.
         frontend_url = os.getenv("FRONTEND_URL", "http://localhost:8001").rstrip("/")
         url = f"{frontend_url}/camera/mobile?token={token}"
         img = qrcode.make(url)
