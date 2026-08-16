@@ -77,7 +77,7 @@ const ENDPOINTS: Endpoint[] = [
     method: "POST",
     path: "/extract/text",
     group: "Core extraction",
-    desc: "Full document text — the RAG-ingestion path (used by IntelAI's document delegation). Every other endpoint returns typed, invoice-shaped fields; this returns the document's actual prose, which is the wrong/right shape depending on whether you're populating a form or a knowledge base.",
+    desc: "Full document text — the RAG-ingestion path for downstream consumers that need raw prose rather than typed fields. Every other endpoint returns typed, invoice-shaped fields; this returns the document's actual text, which is the wrong/right shape depending on whether you're populating a form or a knowledge base.",
     auth: true,
     body: "multipart/form-data\n  file: <pdf | png | jpg | jpeg | tiff>\n  route: auto | marker | ocr  (form field, default \"auto\" — Marker if installed, else the native text layer / per-page OCR)\n  max_pages: <int>  (form field, default 0 = MAX_PDF_PAGES)",
     response: "{\n  \"text\": \"FACTURE\\n\\nTECHNOLOGIE DAKAR SARL...\",\n  \"method\": \"native_or_ocr\",\n  \"page_count\": 1,\n  \"chars\": 412,\n  \"processing_time_ms\": 640.1\n}",
@@ -269,7 +269,7 @@ export default function ApiDocs() {
         <div>
           <h1 style={{ fontSize: "1.5rem", fontWeight: 700, margin: 0 }}>DocIntel API Reference</h1>
           <p style={{ margin: 0, fontSize: "0.85rem", color: "#94a3b8" }}>
-            Vision-first document extraction — 15 endpoints across extraction, classification, batch and mobile capture
+            Vision-first document extraction — 19 endpoints across extraction, classification, batch and mobile capture
           </p>
         </div>
       </div>
