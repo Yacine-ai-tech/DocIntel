@@ -25,8 +25,9 @@ LayoutLM-class models, so this is near-SOTA out of the box — supporting the vi
 
 ## Limitations
 - **N = 20:** this Hugging Face mirror's test split is small; the figure is indicative, not a
-  full-test-set F1. DocIntel is additionally evaluated on **CORD** (494 receipts; 92.5% Route A) —
-  see [BENCHMARK.md](BENCHMARK.md) — providing a second standard receipt dataset at larger scale.
+  full-test-set F1. DocIntel is additionally evaluated on **CORD** (40 receipts; 92.5% Route A) —
+  see [BENCHMARK.md](BENCHMARK.md) — providing a second standard receipt dataset; BENCHMARK.md's
+  own corpus notes explain why this figure isn't from a larger sample size.
 - **Date scoring:** an initial run scored date at 0% due to an ISO-vs-DD/MM/YYYY digit-order
   mismatch; switching to component-set matching corrected this (the reported 90% reflects genuine
   format-agnostic accuracy).
