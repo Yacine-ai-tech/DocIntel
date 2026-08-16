@@ -49,9 +49,20 @@ export default function Workspace() {
   const inputRef = useRef<HTMLInputElement>(null);
   const timers = useRef<number[]>([]);
   const elapsedInterval = useRef<number | undefined>(undefined);
+  // Bumped on every run() call; a resolved/rejected fetch only applies its result if
+  // it's still the most recent run. Previously: drop file A, click Analyze, drop file
+  // B before it finishes — the UI reset to file B looking idle/ready, but the in-flight
+  // request for file A still held its own closures and, with no guard at all, silently
+  // populated the results panel with file A's data while the preview showed file B. A
+  // real data-integrity bug (extracted fields attributed to the wrong document), not
+  // just a UX glitch. pickFile's phase==="working" guard below stops this at the source
+  // (matches the pattern Batch.tsx's submit button already got right); this ref is the
+  // belt-and-suspenders backstop in case a future code path calls run() again before an
+  // earlier one resolves.
+  const runIdRef = useRef(0);
 
   const pickFile = useCallback((f: File | null) => {
-    if (!f) return;
+    if (!f || phase === "working") return;
     setFile(f);
     setPreviewURL((old) => {
       if (old) URL.revokeObjectURL(old);
@@ -60,10 +71,11 @@ export default function Workspace() {
     setPhase("idle");
     setResult(null);
     setEdited({});
-  }, []);
+  }, [phase]);
 
   const run = useCallback(async () => {
     if (!file) return;
+    const myRunId = ++runIdRef.current;
     setPhase("working");
     setStage(0);
     setErrMsg("");
@@ -85,6 +97,7 @@ export default function Workspace() {
     elapsedInterval.current = window.setInterval(() => setElapsedMs(Date.now() - startedAt), 250);
     try {
       const res = await api.process(file, route, docType);
+      if (runIdRef.current !== myRunId) return; // superseded by a newer run — discard
       timers.current.forEach(clearTimeout);
       window.clearInterval(elapsedInterval.current);
       setStage(STAGES.length - 1);
@@ -101,6 +114,7 @@ export default function Workspace() {
         },
       });
     } catch (e) {
+      if (runIdRef.current !== myRunId) return; // superseded by a newer run — discard
       timers.current.forEach(clearTimeout);
       window.clearInterval(elapsedInterval.current);
       setErrMsg(e instanceof Error ? e.message : String(e));
@@ -148,12 +162,29 @@ export default function Workspace() {
         )}
       </div>
 
-      {/* upload zone */}
+      {/* upload zone — role/tabIndex/onKeyDown make this reachable and operable from the
+          keyboard alone. Previously a plain div with a hidden <input>: a keyboard-only
+          user had no way to reach the app's primary/landing workflow at all, since Tab
+          skipped straight past it and the actual file input was removed from the tab
+          order by className="hidden". */}
       <div
+        // Only a "button" while empty — once a file is picked this becomes a plain
+        // content container holding its own nested interactive children ("Choose
+        // another file", etc.), and role="button" on a container that wraps other
+        // interactive elements is invalid ARIA even with tabIndex={-1}.
+        role={!file ? "button" : undefined}
+        tabIndex={!file ? 0 : undefined}
+        aria-label={!file ? "Upload a document — click or press Enter to browse, or drop a file here" : undefined}
         onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
         onDragLeave={() => setDragging(false)}
         onDrop={(e) => { e.preventDefault(); setDragging(false); pickFile(e.dataTransfer.files[0] ?? null); }}
         onClick={() => !file && inputRef.current?.click()}
+        onKeyDown={(e) => {
+          if (!file && (e.key === "Enter" || e.key === " ")) {
+            e.preventDefault();
+            inputRef.current?.click();
+          }
+        }}
         className={`relative overflow-hidden rounded-panel border transition-all duration-200 ${
           dragging ? "border-[var(--accent)] shadow-card" : "border-line"
         } ${!file ? "cursor-pointer hover:border-line-strong" : ""} bg-surface`}
@@ -190,7 +221,7 @@ export default function Workspace() {
                   <div className="text-xs text-muted">{(file.size / 1024).toFixed(0)} KB</div>
                 </div>
               </div>
-              <Button variant="ghost" onClick={() => inputRef.current?.click()}>
+              <Button variant="ghost" disabled={phase === "working"} onClick={() => inputRef.current?.click()}>
                 Choose another file
               </Button>
             </div>
