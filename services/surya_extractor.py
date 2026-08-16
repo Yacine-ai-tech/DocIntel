@@ -133,7 +133,9 @@ class SuryaExtractor:
             return {"text": "", "lines": [], "error": "surya_remote_endpoint_not_set", "method": "surya"}
         token = os.environ.get("SURYA_REMOTE_TOKEN", "").strip()
         try:
-            import base64, json as _json, urllib.request
+            import base64
+            import json as _json
+            import urllib.request
             payload = _json.dumps({"image_b64": base64.b64encode(image_bytes).decode()}).encode()
             headers = {"Content-Type": "application/json", "User-Agent": "DocIntel/1.0 Surya-Remote"}
             if token:
