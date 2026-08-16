@@ -5,9 +5,12 @@
 DocIntel extracts structured data from documents (invoices, receipts, contracts, forms,
 financial reports) using a **vision-LLM-first** approach: page images go directly to a
 vision-capable LLM, which returns structured JSON — no OCR text layer in between. This is the
-2026 shift the project is built around (see `global_docs/STRATEGY.md` §3.10): pure-OCR pipelines
-throw away layout, table structure, and handwriting the moment they flatten a page into a string
-of characters; a vision model reasons over the page image itself.
+industry shift the project is built around: pure-OCR pipelines throw away layout, table
+structure, and handwriting the moment they flatten a page into a string of characters; a vision
+model reasons over the page image itself. By 2026, multimodal vision-language models routinely
+outperform traditional OCR-then-NER pipelines on real-world documents precisely because they
+never lose that layout information in the first place — the field has largely converged on this
+approach for anything beyond clean, born-digital text extraction.
 
 Three extraction routes, chosen per-request or via env default:
 
@@ -36,8 +39,8 @@ represented:
   parenthesised negatives all convert to a plain float — conservatively: a value that doesn't
   match a known pattern is left unchanged rather than guessed at.
 - **Currency → ISO-4217**: symbols and codes for ~40+ currencies, including West/Central African
-  CFA franc (`FCFA`/`CFA` → `XOF` or `XAF` depending on context) — a currency STRATEGY.md's
-  original v1 design didn't cover and general-purpose LLM normalization gets wrong by default.
+  CFA franc (`FCFA`/`CFA` → `XOF` or `XAF` depending on context) — a currency pair
+  general-purpose LLM normalization gets wrong by default and the initial design didn't cover.
 - **Dates → ISO-8601** via `dateparser`, with a common-format fallback when it's unavailable.
 
 Locked by `tests/test_normalize.py` (US/EU/JP/IN/UK/CH/FCFA amounts, ISO currencies, dates).
@@ -56,6 +59,29 @@ Locked by `tests/test_normalize.py` (US/EU/JP/IN/UK/CH/FCFA amounts, ISO currenc
   (below) is field-level extraction accuracy: did the model get the vendor, total, date, line
   items right. That's a different, real, and directly useful metric — it is not layout precision
   or CER, and this document previously implied numbers existed for the latter that never did.
+
+## Where this sits in the field, 2026
+
+Document AI has moved through three broad phases: classical OCR + rule-based parsing, then
+OCR + a fine-tuned layout/NER model (the LayoutLM family and its successors), and now
+vision-language models reasoning directly over page images. By 2026 that third phase is the
+default starting point for new document-extraction work rather than a novelty — general-purpose
+multimodal models (proprietary and open-weight alike) are commonly strong enough on real-world
+invoices, receipts, and forms that a dedicated layout model is no longer a prerequisite for
+production-quality key-information extraction. Two effects of that shift show up directly in this
+project's design:
+
+- **Open-weight vision-language models are now viable as a primary route, not just a fallback.**
+  Route B's use of Qwen 2.5-VL is only credible because open-weight VLMs have closed enough of the
+  accuracy gap with proprietary models on common document types — see the head-to-head numbers
+  below rather than taking that as a given.
+- **Classic OCR benchmarks (SROIE, CORD, FUNSD) remain the standard reference sets** even as the
+  *methods* being evaluated against them have shifted from OCR-then-NER to vision-native
+  extraction — which is why this project still scores against them rather than inventing a new,
+  incomparable benchmark.
+
+None of this is a substitute for measuring DocIntel's own numbers on its own corpus, which is
+what the rest of this document and `eval/BENCHMARK.md` do.
 
 ## Real, reproducible results
 
