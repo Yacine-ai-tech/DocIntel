@@ -21,21 +21,28 @@ from __future__ import annotations
 
 import asyncio
 import json
-import time
 import os
+import os as _os
+import secrets as _secrets
+import threading
+import time
+import uuid as _uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from core.config import settings
 from core.logger import get_logger
 from services.batch_processor import BatchProcessor
+from services.camera import CameraManager
 from services.llm_extractor import LLMExtractor
+from services.marker_extractor import MarkerExtractor
+from services.webhook import WebhookURLRejected, _validate_webhook_url
 
 # Import centralized logging for Omni-Admin visibility
 try:
@@ -52,10 +59,6 @@ log = get_logger(__name__)
 
 app = FastAPI(title="DocIntel", version="0.1.0",
               description="Vision-first document AI pipeline.")
-
-
-import threading
-import uuid as _uuid
 
 
 def _warm_up_models():
@@ -130,37 +133,42 @@ threading.Thread(target=_warm_up_models, daemon=True).start()
 threading.Thread(target=_send_telemetry, daemon=True).start()
 # -------------------------
 
+# Genuinely public: static assets, health/docs, and the homepage. Everything
+# that costs money or touches user data (extraction, classification, batch,
+# camera) is intentionally NOT here — REQUIRE_INTERNAL_TOKEN is opt-in and
+# defaults to false, so this list only matters once an operator has
+# explicitly asked for hardening, at which point "expensive route requires
+# the token" is the whole point, not a trap to route around. (Previously
+# /extract, /classify*, /process, and the entire /camera/ and /batch/
+# prefixes were bypassed here regardless of the flag — REQUIRE_INTERNAL_TOKEN
+# protected almost nothing that actually mattered. First-party integrations
+# — n8n, IntelAI's document delegation, StreamPulse — should send
+# X-OmniIntel-Internal-Token like any other caller once hardening is on.)
+_PUBLIC_PATHS = {
+    "/", "/health", "/benchmarks", "/docs", "/openapi.json", "/api/redoc",
+    "/favicon.png", "/favicon.ico", "/mark.png", "/logo.png",
+}
+_PUBLIC_PREFIXES = ("/api/v1/auth/", "/assets/", "/static/")
 
-from fastapi import Request
-from fastapi.responses import JSONResponse
-import os as _os
 
 @app.middleware("http")
 async def verify_internal_token(request: Request, call_next):
-    # Allow health checks, public auth routes, and frontend static assets
-    # /extract/text and /extract/marker are the same class of public extraction endpoint
-    # as /extract and /process and must be listed alongside them. Leaving them out is a
-    # latent trap rather than a visible one: REQUIRE_INTERNAL_TOKEN defaults to false, so
-    # everything works until someone hardens the deployment — at which point a client
-    # (e.g. IntelAI's document delegation) gets 403 on /extract/text while /process keeps
-    # working, which looks like a broken endpoint rather than an auth policy.
-    # /extract/text/batch and its polling routes (/batch/{id}, /batch/{id}/results) are the
-    # same trap: /batch/upload was already public so job creation worked, but without
-    # /batch/ covered here, polling that same public job for its result 403s in hardened mode.
-    if request.method == "OPTIONS" or request.url.path in ["/", "/health", "/benchmarks", "/docs", "/openapi.json", "/api/redoc", "/favicon.png", "/favicon.ico", "/mark.png", "/logo.png", "/classify", "/classify-image", "/extract", "/extract/text", "/extract/text/batch", "/extract/marker", "/process"] or request.url.path.startswith("/api/v1/auth/") or request.url.path.startswith("/assets/") or request.url.path.startswith("/static/") or request.url.path.startswith("/camera/") or request.url.path.startswith("/batch/"):
+    is_options = request.method == "OPTIONS"
+    is_public_path = request.url.path in _PUBLIC_PATHS
+    is_public_prefix = request.url.path.startswith(_PUBLIC_PREFIXES)
+    if is_options or is_public_path or is_public_prefix:
         return await call_next(request)
-        
-    token = request.headers.get("X-OmniIntel-Internal-Token")
-    valid_tokens = {_os.environ.get("OMNIINTEL_INTERNAL_TOKEN")}
-    valid_tokens.discard(None)
 
     req_token_setting = _os.environ.get("REQUIRE_INTERNAL_TOKEN", "false").lower()
     if req_token_setting in ("true", "1", "yes"):
-        if token not in valid_tokens:
-            # Also check Authorization header fallback
-            auth_h = request.headers.get("Authorization", "")
-            if not any(t in auth_h for t in valid_tokens if t):
-                return JSONResponse(status_code=403, content={"detail": "Missing or invalid X-OmniIntel-Internal-Token"})
+        correct_token = _os.environ.get("OMNIINTEL_INTERNAL_TOKEN", "")
+        token = request.headers.get("X-OmniIntel-Internal-Token", "")
+        auth_h = request.headers.get("Authorization", "")
+        bearer_token = auth_h[len("Bearer "):] if auth_h.startswith("Bearer ") else ""
+        header_token_ok = _secrets.compare_digest(token, correct_token)
+        bearer_token_ok = _secrets.compare_digest(bearer_token, correct_token)
+        if not correct_token or not (header_token_ok or bearer_token_ok):
+            return JSONResponse(status_code=403, content={"detail": "Missing or invalid X-OmniIntel-Internal-Token"})
     return await call_next(request)
 
 
@@ -172,13 +180,42 @@ app.add_middleware(
 )
 
 
-
 try:
     _assets_dir = _os.path.join(_os.path.dirname(__file__), "frontend", "dist", "assets")
     if _os.path.exists(_assets_dir):
         app.mount("/assets", StaticFiles(directory=_assets_dir), name="assets")
 except Exception as e:
     log.warning("assets mount failed: %s", e)
+
+_MAX_UPLOAD_BYTES = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+
+
+async def _read_upload(file: UploadFile) -> bytes:
+    """Read an uploaded file's bytes with a size cap.
+
+    Every upload route used to read the whole body in one bare call — no
+    Content-Length check, no cap — buffering the entire upload into memory
+    regardless of size.
+    An oversized upload (or many concurrent ones, especially via unauthenticated
+    routes) could exhaust process memory. Reads in chunks so a request can be
+    rejected as soon as it exceeds the cap, without ever buffering the full
+    oversized body first.
+    """
+    chunks: List[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(1024 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > _MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File exceeds the {settings.MAX_UPLOAD_SIZE_MB}MB upload limit",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
 
 batch = BatchProcessor(max_concurrency=settings.BATCH_MAX_CONCURRENCY)
 # Route C text→JSON cleanup uses the cheaper model by default (cost-optimized).
@@ -237,7 +274,7 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
                 fields = {"error": f"Route A extraction failed: {e}"}
         if fields is None:
             fields = {"error": "Route A extraction failed"}
-    
+
     # Route B: Ollama vision (local GPU or remote Ollama-compatible endpoint)
     elif route == "vision_route_b":
         mode = os.getenv("ROUTE_B_MODE", "local")
@@ -281,7 +318,7 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
             else:
                 fields = {"error": "No text extracted for OCR", "_route_b_fallback": True,
                           "_route_b_mode": mode, "_route_b_model": model_tag}
-    
+
     # Route C: OCR fallback
     elif route == "ocr_fallback":
         log.info("Route C: Using OCR fallback (Tesseract + LLM cleanup)")
@@ -291,18 +328,18 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
             fields = await extractor.extract(text, doc_type=doc_type)
         else:
             fields = {"error": "No text extracted for OCR"}
-    
+
     # Legacy route names for backward compatibility
     elif route in ("vision_premium", "vision_local"):
         log.warning(f"Legacy route name '{route}' used, mapping to new architecture")
         if omni_logger:
             omni_logger.log_fallback(route, "vision_route_a" if route == "vision_premium" else "vision_route_b", "Legacy route name mapping")
-        
+
         if route == "vision_premium":
             return await _run_route(data, "vision_route_a", doc_type)
         else:
             return await _run_route(data, "vision_route_b", doc_type)
-    
+
     else:
         raise ValueError(f"Unknown route: {route}")
 
@@ -312,9 +349,8 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
     elif isinstance(fields, dict):
         fields["_used_route"] = used_route
         fields["_fallback_used"] = fallback_used
-    
-    return {"fields": fields, "page_count": page_count}
 
+    return {"fields": fields, "page_count": page_count}
 
 
 def _confidence_of(fields: Any) -> Optional[float]:
@@ -322,11 +358,11 @@ def _confidence_of(fields: Any) -> Optional[float]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Marker-PDF Route A 
+# Marker-PDF Route A
 # ─────────────────────────────────────────────────────────────────────────────
 
-from services.marker_extractor import MarkerExtractor
 _marker = MarkerExtractor()
+
 
 @app.post("/extract/marker")
 async def extract_marker(file: UploadFile = File(...)):
@@ -335,7 +371,7 @@ async def extract_marker(file: UploadFile = File(...)):
     import os
     suffix = ".pdf" if file.filename.lower().endswith(".pdf") else ""
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        data = await file.read()
+        data = await _read_upload(file)
         tmp.write(data)
         tmp_path = tmp.name
     try:
@@ -348,13 +384,14 @@ async def extract_marker(file: UploadFile = File(...)):
 # Camera QR / Mobile Uploads
 # ─────────────────────────────────────────────────────────────────────────────
 
-from services.camera import CameraManager
 _camera = CameraManager()
+
 
 @app.post("/camera/pair")
 async def camera_pair(user: str = Form("demo_user"), device: str = Form("Mobile")):
     """Generate a pairing token and QR base64 for mobile uploads."""
     return _camera.pair_mobile(user, device)
+
 
 @app.get("/camera/qr/{token}")
 async def camera_qr_image(token: str):
@@ -365,6 +402,7 @@ async def camera_qr_image(token: str):
     from fastapi.responses import Response
     return Response(content=qr_bytes, media_type="image/png")
 
+
 @app.post("/camera/upload")
 async def camera_upload(token: str = Form(...), file: UploadFile = File(...), doc_type: str = Form("default")):
     """Mobile device uploads photo; processes via Route B (local/self-hosted Ollama vision),
@@ -373,7 +411,7 @@ async def camera_upload(token: str = Form(...), file: UploadFile = File(...), do
     session = _camera.validate_mobile(token)
     if not session:
         raise HTTPException(403, "Invalid or expired token")
-    data = await file.read()
+    data = await _read_upload(file)
     t0 = time.time()
     out = await _run_route(data, route="vision_route_b", doc_type=doc_type)
     result = {
@@ -397,6 +435,7 @@ async def camera_status(token: str) -> Dict[str, Any]:
 
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @app.get("/", include_in_schema=False)
 async def dashboard():
     """Serve the DocIntel UI at the root — the built SPA when present, else the legacy demo."""
@@ -410,7 +449,25 @@ async def dashboard():
 
 @app.get("/health")
 async def health() -> Dict[str, Any]:
-    return {"status": "ok", "service": "docintel", "version": "0.1.0"}
+    # DocIntel has no database — LOGS_DIR/UPLOADS_DIR writability is the one real
+    # runtime dependency worth checking; every route that persists anything
+    # (telemetry state, uploaded files) needs it. Previously this endpoint was an
+    # unconditional 200 with no dependency check at all — Docker's HEALTHCHECK and
+    # CI's e2e-smoke both rely on it as their signal the service is actually fine.
+    checks: Dict[str, bool] = {}
+    try:
+        probe = Path(settings.LOGS_DIR) / ".health_write_probe"
+        probe.write_text(str(time.time()))
+        probe.unlink(missing_ok=True)
+        checks["logs_dir_writable"] = True
+    except Exception:
+        checks["logs_dir_writable"] = False
+
+    ok = all(checks.values())
+    body = {"status": "ok" if ok else "degraded", "service": "docintel", "version": "0.1.0", "checks": checks}
+    # curl -f (Dockerfile's HEALTHCHECK) and most uptime monitors only look at the
+    # HTTP status, not the JSON body — a degraded check has to be a real non-2xx.
+    return body if ok else JSONResponse(status_code=503, content=body)
 
 
 @app.get("/benchmarks")
@@ -447,7 +504,7 @@ async def benchmarks() -> Dict[str, Any]:
 async def classify(file: UploadFile = File(...)) -> ProcessResponse:
     """Fast doc-type classification — content-based (a text sample + the same classifier
     ``/process`` uses), falling back to a filename heuristic when content is inconclusive."""
-    data = await file.read()
+    data = await _read_upload(file)
     doc_type: Optional[str] = None
     confidence: Optional[float] = None
     # 1) Content-based classification (matches /process behaviour).
@@ -466,13 +523,15 @@ async def classify(file: UploadFile = File(...)) -> ProcessResponse:
     name = (file.filename or "").lower()
     fname_type: Optional[str] = None
     fname_conf: Optional[float] = None
-    if any(k in name for k in ("invoice", "inv")):
+    # French filename keywords added alongside the English ones — same gap as
+    # DocumentClassifier's content keywords (services/ocr_extractor.py), same fix.
+    if any(k in name for k in ("invoice", "inv", "facture")):
         fname_type, fname_conf = "invoice", 0.85
-    elif any(k in name for k in ("contract", "agreement")):
+    elif any(k in name for k in ("contract", "agreement", "contrat", "accord")):
         fname_type, fname_conf = "contract", 0.8
-    elif any(k in name for k in ("receipt",)):
+    elif any(k in name for k in ("receipt", "recu", "reçu")):
         fname_type, fname_conf = "receipt", 0.8
-    elif any(k in name for k in ("report", "statement")):
+    elif any(k in name for k in ("report", "statement", "rapport")):
         fname_type, fname_conf = "financial_report", 0.7
     # Prefer a confident filename match when the content signal is missing, 'default',
     # or low-confidence (the text heuristic is weak on scanned/short docs).
@@ -497,7 +556,7 @@ async def classify_image_endpoint(
     cats = [c.strip() for c in categories.split(",") if c.strip()]
     if not cats:
         raise HTTPException(status_code=400, detail="categories required")
-    img = await file.read()
+    img = await _read_upload(file)
     t0 = time.time()
     result = await classify_image(img, cats)
     result["processing_time_ms"] = round((time.time() - t0) * 1000, 1)
@@ -524,7 +583,8 @@ async def _extract_text_core(data: bytes, route: str, max_pages: int) -> Dict[st
     text, method = "", ""
 
     if pdf and route in ("auto", "marker"):
-        import tempfile, os as _o
+        import tempfile
+        import os as _o
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
             tmp.write(data)
             tmp_path = tmp.name
@@ -576,7 +636,7 @@ async def extract_text(
     succeeded — see /extract/text/batch below for the async path built for exactly
     that case.
     """
-    data = await file.read()
+    data = await _read_upload(file)
     return await _extract_text_core(data, route, max_pages)
 
 
@@ -595,8 +655,13 @@ async def extract_text_batch(
     layer, which is the wrong tradeoff to force just to dodge a timeout. Poll the same
     way as /batch/upload: GET /batch/{job_id} for status, GET /batch/{job_id}/results
     for the {text, method, page_count, chars} shape per file once complete."""
+    if webhook_url:
+        try:
+            _validate_webhook_url(webhook_url)
+        except WebhookURLRejected as e:
+            raise HTTPException(status_code=400, detail=str(e))
     file_data: List[Dict[str, Any]] = [
-        {"filename": f.filename, "bytes": await f.read()} for f in files
+        {"filename": f.filename, "bytes": await _read_upload(f)} for f in files
     ]
     job_id = batch.new_job(total=len(file_data))
 
@@ -632,16 +697,16 @@ async def extract(
     Route B automatically falls back to Route C on any failure, with detailed logging.
     """
     t0 = time.time()
-    data = await file.read()
-    
+    data = await _read_upload(file)
+
     if omni_logger:
         omni_logger.log_request("/extract", {"route": route, "doc_type": doc_type})
-    
+
     out = await _run_route(data, route, doc_type)
-    
+
     if omni_logger:
         omni_logger.log_response("/extract", 200, (time.time() - t0) * 1000)
-    
+
     return ProcessResponse(
         doc_type=doc_type,
         route=route,
@@ -664,14 +729,14 @@ async def process(
     `doc_type="auto"` content-classifies the document first (text-based heuristic), then runs
     the chosen route. Tables are included for PDFs. Returns doc_type, fields, confidence,
     page_count.
-    
+
     Routes:
       - vision_route_a: Claude Sonnet 4.6 Vision (high quality)
       - vision_route_b: Ollama vision, local or self-hosted-remote, auto-fallback to Route C
       - ocr_fallback: Route C (Tesseract OCR + LLM cleanup)
     """
     t0 = time.time()
-    data = await file.read()
+    data = await _read_upload(file)
 
     from services.ocr_extractor import (
         DocumentClassifier, extract_text_from_image, extract_text_from_pdf, is_pdf,
@@ -735,7 +800,7 @@ async def extract_fields(
     prompt (handles checkboxes and handwritten entries on the vision routes).
     """
     t0 = time.time()
-    data = await file.read()
+    data = await _read_upload(file)
     out = await _run_route(data, route, doc_type="form")
     fields = out["fields"] if isinstance(out["fields"], dict) else {}
     return {
@@ -768,7 +833,7 @@ async def extract_tables(file: UploadFile = File(...)) -> Dict[str, Any]:
     try:
         import pdfplumber
         import io
-        pdf_bytes = await file.read()
+        pdf_bytes = await _read_upload(file)
         tables: List[Any] = []
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
             for page in pdf.pages:
@@ -798,11 +863,16 @@ async def batch_upload(
     Zapier/Make/any HTTP-triggered automation): point webhook_url at an n8n Webhook
     node's URL. See docs/n8n/README.md for a worked example.
     """
+    if webhook_url:
+        try:
+            _validate_webhook_url(webhook_url)
+        except WebhookURLRejected as e:
+            raise HTTPException(status_code=400, detail=str(e))
     file_data: List[Dict[str, Any]] = []
     for f in files:
         file_data.append({
             "filename": f.filename,
-            "bytes": await f.read(),
+            "bytes": await _read_upload(f),
             "doc_type": doc_type,
             "route": route,
         })
@@ -857,5 +927,3 @@ async def spa_fallback(full_path: str):
     if _os.path.exists(spa):
         return FileResponse(spa)
     raise HTTPException(status_code=404, detail="Not Found")
-
-
