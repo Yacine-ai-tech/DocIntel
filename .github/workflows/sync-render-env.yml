@@ -1,0 +1,78 @@
+name: Sync Render Env Vars
+
+# Manual, one-off utility: syncs a fixed allowlist of env vars from GitHub repo
+# secrets onto the live Render service, without touching any other env var
+# already set there. Render's API only offers a full-replace PUT for the env
+# var list, so this GETs the current list first and merges into it rather than
+# overwriting it outright — a naive PUT with just the new var would wipe every
+# other configured secret (API keys, tokens, etc.) on the live service.
+#
+# Run via: gh workflow run sync-render-env.yml
+# Or the Actions tab -> "Sync Render Env Vars" -> Run workflow.
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    name: "Sync allowlisted env vars to Render"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Merge and push env vars
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          POSTGRES_URL: ${{ secrets.POSTGRES_URL }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$RENDER_API_KEY" ] || [ -z "$RENDER_SERVICE_ID" ]; then
+            echo "::error::RENDER_API_KEY / RENDER_SERVICE_ID not configured — cannot sync."
+            exit 1
+          fi
+          if [ -z "$POSTGRES_URL" ]; then
+            echo "::notice::POSTGRES_URL secret not set — nothing to sync."
+            exit 0
+          fi
+
+          echo "Fetching current env vars from Render..."
+          curl -fsS -H "Authorization: Bearer $RENDER_API_KEY" \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars" \
+            -o current.json
+
+          # Render's GET returns [{"envVar": {"key": ..., "value": ...}}, ...].
+          # Flatten to the [{"key":..,"value":..}, ...] shape PUT expects, then
+          # upsert POSTGRES_URL into that list without touching any other entry.
+          jq '[.[].envVar]' current.json > flattened.json
+
+          already_set=$(jq -r --arg v "$POSTGRES_URL" \
+            '.[] | select(.key == "POSTGRES_URL") | (.value == $v)' flattened.json)
+          if [ "$already_set" = "true" ]; then
+            echo "POSTGRES_URL on Render already matches the secret — nothing to do."
+            exit 0
+          fi
+
+          jq --arg v "$POSTGRES_URL" '
+            (map(.key == "POSTGRES_URL") | any) as $exists
+            | if $exists
+              then map(if .key == "POSTGRES_URL" then .value = $v else . end)
+              else . + [{"key": "POSTGRES_URL", "value": $v}]
+              end
+          ' flattened.json > payload.json
+
+          echo "Pushing updated env var list to Render (keys only, values not printed)..."
+          jq -r '.[].key' payload.json
+
+          status=$(curl -fsS -o response.json -w "%{http_code}" \
+            -X PUT "https://api.render.com/v1/services/$RENDER_SERVICE_ID/env-vars" \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d @payload.json)
+
+          echo "Render responded HTTP $status"
+          if [ "$status" -ge 300 ]; then
+            echo "::error::Render env-var sync failed"
+            cat response.json
+            exit 1
+          fi
+          echo "POSTGRES_URL synced. Render will redeploy the service to pick it up."
