@@ -22,9 +22,9 @@ async function assertNoReactCrash(page: Page) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Phase 4.1 — DocIntel UI Workflows
+// DocIntel UI Workflows
 // ─────────────────────────────────────────────────────────────────────────────
-test.describe('Phase 4.1 — DocIntel UI Workflows', () => {
+test.describe('DocIntel UI Workflows', () => {
 
   test.beforeEach(async ({ page }) => {
     // When run against a Vercel-hosted preview of this frontend, rewrite its API
@@ -117,9 +117,9 @@ test.describe('Phase 4.1 — DocIntel UI Workflows', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Phase 4.1 — DocIntel API Tests
+// DocIntel API Tests
 // ─────────────────────────────────────────────────────────────────────────────
-test.describe('Phase 4.1 — DocIntel API Validation', () => {
+test.describe('DocIntel API Validation', () => {
 
   test('GET /health returns 200', async ({ request }) => {
     const resp = await request.get(`${API_URL}/health`).catch(() => null);
@@ -128,9 +128,9 @@ test.describe('Phase 4.1 — DocIntel API Validation', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Phase 4.3 — DocIntel Deep Interactivity & Mocked Features
+// DocIntel Deep Interactivity & Mocked Features
 // ─────────────────────────────────────────────────────────────────────────────
-test.describe('Phase 4.3 — Deep Interactivity', () => {
+test.describe('Deep Interactivity', () => {
 
   test('Camera dashboard streaming integration mocks gracefully', async ({ page }) => {
     // Mock getUserMedia
