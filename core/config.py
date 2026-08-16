@@ -85,10 +85,24 @@ class Settings:
     HF_TOKEN = os.getenv("HF_TOKEN", "")
     # Optional
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+    # Optional — enables the OpenAI→Gemini model-string fallback below.
+    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+
+    # Route A/C LLM call timeout + retry count. Route A is documented as having
+    # no fallback on failure (unlike B→C), so a hung or transiently-erroring
+    # call previously had no recovery at all — same reasoning as ROUTE_B_TIMEOUT.
+    LLM_CALL_TIMEOUT = int(os.getenv("LLM_CALL_TIMEOUT", "120"))
+    LLM_CALL_RETRIES = int(os.getenv("LLM_CALL_RETRIES", "1"))
 
     # ─── Multi-page handling ──────────────────────────────────────────────────
     MAX_PDF_PAGES = int(os.getenv("MAX_PDF_PAGES", "200"))
     BATCH_MAX_CONCURRENCY = int(os.getenv("BATCH_MAX_CONCURRENCY", "8"))
+
+    # ─── Upload limits ────────────────────────────────────────────────────────
+    # Every upload route buffers the full file into memory (`await file.read()`)
+    # with no cap before this existed — an unauthenticated client could exhaust
+    # process memory with one oversized upload, or many concurrent ones.
+    MAX_UPLOAD_SIZE_MB = int(os.getenv("MAX_UPLOAD_SIZE_MB", "100"))
 
     CORS_ALLOWED_ORIGINS = [
         o.strip() for o in os.getenv("CORS_ALLOWED_ORIGINS", "*").split(",")
@@ -103,10 +117,7 @@ settings = Settings()
 # present, any LLM model string referencing OpenAI/GPT is remapped to Gemini
 # Flash automatically, requiring no code changes when switching providers.
 def _apply_gemini_fallback():
-    openai_key = getattr(settings, "OPENAI_API_KEY", "") or os.getenv("OPENAI_API_KEY", "")
-    gemini_key = getattr(settings, "GEMINI_API_KEY", "") or os.getenv("GEMINI_API_KEY", "")
-
-    if not openai_key and gemini_key:
+    if not settings.OPENAI_API_KEY and settings.GEMINI_API_KEY:
         def fallback(model_str):
             if model_str and ("openai" in model_str.lower() or "gpt-" in model_str.lower()):
                 return "gemini/gemini-2.5-flash"
@@ -115,8 +126,5 @@ def _apply_gemini_fallback():
         for attr in dir(settings):
             if attr.startswith("LLM_") and isinstance(getattr(settings, attr), str):
                 setattr(settings, attr, fallback(getattr(settings, attr)))
-
-        if hasattr(settings, "JUDGE_MODELS") and isinstance(settings.JUDGE_MODELS, list):
-            settings.JUDGE_MODELS = [fallback(m) for m in settings.JUDGE_MODELS]
 
 _apply_gemini_fallback()
