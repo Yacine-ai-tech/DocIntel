@@ -23,3 +23,9 @@ dateparser>=1.2.0
 
 # QR code generation for mobile-scan pairing (services/camera.py)
 qrcode>=7.4.2
+
+# Postgres persistence (core/db.py) — only actually connects when POSTGRES_URL is
+# set; unused otherwise (services/batch_processor.py, services/camera.py fall back
+# to local JSON files with zero configuration when it's unset).
+psycopg[binary]>=3.2.0
+psycopg-pool>=3.2.0
