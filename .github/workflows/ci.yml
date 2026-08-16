@@ -75,7 +75,16 @@ jobs:
       - name: Run frontend tests
         working-directory: ./frontend
         run: |
-          npm test -- --passWithNoTests
+          npm test
+
+      - name: Type-check (tsc)
+        working-directory: ./frontend
+        run: |
+          # The build script itself runs `tsc -b --noCheck ... || true` — deliberately
+          # fast for local iteration, but that means "the build succeeded" carries zero
+          # information about type correctness in CI. Real type errors here as a
+          # separate, non-suppressed step, so they actually fail the pipeline.
+          npx tsc -b
 
   # ═══════════════════════════════════════════════════════════════════════════
   # PHASE 3 — E2E Smoke Tests (against deployed service)
@@ -123,17 +132,120 @@ jobs:
           python -c "
           import httpx
           headers = {'X-OmniIntel-Internal-Token': '${{ env.OMNIINTEL_INTERNAL_TOKEN }}'}
-          
-          # Test health endpoint
+
+          # Previously this step only printed status codes with no assert anywhere —
+          # it reported success even on a 500 or 404, structurally incapable of
+          # catching a real regression. Real assertions now.
           response = httpx.get('${{ env.DOCINTEL_URL }}/health', timeout=10)
           print(f'Health: {response.status_code}')
-          
-          # Test classify endpoint
+          assert response.status_code == 200, f'expected 200, got {response.status_code}'
+
+          # /classify with no file is a client error (422, missing required upload),
+          # not a server error — the route is reachable and validating input, which
+          # is what this check is actually verifying.
           response = httpx.post('${{ env.DOCINTEL_URL }}/classify', timeout=10)
           print(f'Classify: {response.status_code}')
-          
-          print('All endpoints accessible')
+          assert response.status_code == 422, f'expected 422 (missing file), got {response.status_code}'
+
+          print('All endpoints accessible and responding as expected')
           "
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # PHASE 3.5 — Frontend E2E (Playwright, against the deployed backend)
+  # ═══════════════════════════════════════════════════════════════════════════
+  frontend-e2e:
+    name: "Frontend E2E Tests"
+    runs-on: ubuntu-latest
+    needs: [test, frontend-test]
+    if: github.event_name != 'pull_request' && env.DOCINTEL_URL != ''
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: ./frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Build frontend against the deployed backend
+        working-directory: ./frontend
+        env:
+          VITE_API_BASE_URL: ${{ env.DOCINTEL_URL }}
+        run: npm run build
+
+      - name: Serve the built bundle
+        working-directory: ./frontend
+        run: |
+          npx vite preview --port 4173 --strictPort &
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:4173 > /dev/null && exit 0
+            sleep 1
+          done
+          echo "preview server did not come up in time" && exit 1
+
+      # 656 lines of real Playwright specs (frontend/e2e/*.spec.ts) previously
+      # existed but were never wired into any workflow — only a tautological
+      # vitest file (`expect(true).toBe(true)`) ran in CI, giving zero real
+      # frontend coverage. This is that wiring.
+      - name: Run Playwright E2E suite
+        working-directory: ./frontend
+        env:
+          TEST_BASE_URL: http://localhost:4173
+        run: npm run test:e2e
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 14
+
+  # NOTE: `deploy` below intentionally does NOT depend on frontend-e2e (only on
+  # e2e-smoke, as before). This suite has never run in CI until now — making it
+  # a hard deploy gate immediately risks locking out every deploy on day one
+  # over pre-existing spec flakiness that predates this fix and hasn't been
+  # observed to pass reliably yet. Once it's been green for a while, add
+  # frontend-e2e to deploy's `needs:` below to make it a real gate.
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # PHASE 3.6 — .dockerignore regression check
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Dockerfile does `COPY . .` with no separate build-context allowlist — the
+  # .dockerignore file added this session is the only thing standing between a
+  # `docker build` and a real .env (with live API keys/tokens) landing inside a
+  # published image layer. This job proves that holds, on every push, without
+  # needing DockerHub credentials (no push — build-only, local to the runner).
+  dockerignore-check:
+    name: "Docker image excludes .env"
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create a dummy .env (simulating a real local/prod secrets file)
+        run: echo "OMNIINTEL_INTERNAL_TOKEN=should-never-ship-in-an-image" > .env
+
+      - name: Build image (no push)
+        run: docker build -t docintel-dockerignore-check:test .
+
+      - name: Assert .env did not make it into the image
+        run: |
+          if docker run --rm docintel-dockerignore-check:test test -f /app/.env; then
+            echo "::error::.env was found inside the built image — .dockerignore is not excluding it"
+            exit 1
+          fi
+          echo ".env correctly excluded from the built image"
 
   # ═══════════════════════════════════════════════════════════════════════════
   # PHASE 4 — Deploy: Trigger Render deploy

@@ -1,15 +1,24 @@
 name: Deploy to Render
 
-# Repo recreation dropped the GitHub→Render push webhook, so this workflow
-# restores auto-deploy: every push to main/master triggers a Render deploy via the API.
+# Runs after "DocIntel CI & Deploy" (ci.yml) finishes on this same push, not on
+# push directly. Previously both this workflow and ci.yml triggered off the same
+# push event independently — a commit that failed pytest/lint in ci.yml could
+# still have its Docker image built and pushed as :latest here, since GitHub
+# Actions doesn't serialize independent workflow files by default. workflow_run
+# + the conclusion check below closes that gap: this only runs, and only
+# deploys/publishes, once ci.yml's own test/frontend-test/e2e-smoke jobs have
+# actually succeeded on this commit.
 on:
-  push:
+  workflow_run:
+    workflows: ["DocIntel CI & Deploy"]
+    types: [completed]
     branches: [main, master, develop]
   workflow_dispatch: {}
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     steps:
       - name: Trigger Render deploy
         run: |
@@ -27,9 +36,14 @@ jobs:
   # account. Set both in Settings → Secrets → Actions to enable.
   docker-publish:
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    if: |
+      (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
+      && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+          || github.event.workflow_run.head_branch == 'main' || github.event.workflow_run.head_branch == 'master')
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Check DockerHub credentials are configured
         id: check
