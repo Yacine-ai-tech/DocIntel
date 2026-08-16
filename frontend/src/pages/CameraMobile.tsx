@@ -73,8 +73,20 @@ export default function CameraMobile() {
 
         {status === "idle" && (
           <div className="relative pt-8">
-            <label 
+            {/* A <label htmlFor> triggers its input on mouse click natively, but labels
+                aren't in the default tab order and Enter/Space on a focused one doesn't
+                activate the input — same keyboard-inaccessibility gap as Workspace.tsx's
+                dropzone. tabIndex + onKeyDown close it. */}
+            <label
               htmlFor="camera-input"
+              tabIndex={0}
+              role="button"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  document.getElementById("camera-input")?.click();
+                }
+              }}
               className="flex flex-col items-center justify-center w-full aspect-square rounded-full bg-emerald-500 hover:bg-emerald-600 transition-colors cursor-pointer shadow-[0_0_40px_rgba(16,185,129,0.3)] active:scale-95"
             >
               <Camera size={64} className="text-white mb-2" />

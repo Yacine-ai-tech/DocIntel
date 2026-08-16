@@ -324,7 +324,10 @@ export default function UserGuidePage() {
               <span className="text-sm text-gray-300">
                 Set <code>REQUIRE_INTERNAL_TOKEN=true</code> and a strong{" "}
                 <code>OMNIINTEL_INTERNAL_TOKEN</code> before exposing the API beyond localhost —
-                without it, extraction routes are unauthenticated.
+                without it, extraction/batch/camera routes are unauthenticated. If you're using
+                this shipped frontend against a hardened backend, also set{" "}
+                <code>VITE_OMNIINTEL_INTERNAL_TOKEN</code> (same value) at build time, or the UI
+                itself will get 403s from its own backend.
               </span>
             </li>
             <li className="flex items-start gap-2">

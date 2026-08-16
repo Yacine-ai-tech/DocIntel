@@ -61,13 +61,37 @@ export type CameraUploadResponse = CameraUploadResult;
 
 const BASE = import.meta.env.VITE_API_BASE_URL || "";
 
+// Sent as X-OmniIntel-Internal-Token on every request when set. The backend's
+// REQUIRE_INTERNAL_TOKEN production-hardening flag (see UserGuidePage) has no
+// effect on this app unless this is configured at build time — previously
+// there was no way for this shipped frontend to send that token at all, so
+// following the backend's own documented hardening step broke the app's own
+// UI outright. Optional: leave unset for the common case where the frontend
+// and backend are same-origin/trusted-network and REQUIRE_INTERNAL_TOKEN
+// stays off.
+const INTERNAL_TOKEN = import.meta.env.VITE_OMNIINTEL_INTERNAL_TOKEN || "";
+
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+// Only GET (the default fetch method, and the only one used read-only by this
+// client) is safe to auto-retry. A POST that already reached the server can
+// have done real, costly work (a paid vision/LLM call, a new batch job) before
+// a 5xx or dropped connection on the *response* — retrying blindly risked
+// silently doubling that cost/work. Mutating calls now fail visibly instead;
+// the caller decides whether to retry.
+function isIdempotent(init?: RequestInit): boolean {
+  const method = (init?.method || "GET").toUpperCase();
+  return method === "GET" || method === "HEAD";
+}
+
 async function req<T>(path: string, init?: RequestInit, retryCount = 0): Promise<T> {
+  const headers = new Headers(init?.headers);
+  if (INTERNAL_TOKEN) headers.set("X-OmniIntel-Internal-Token", INTERNAL_TOKEN);
+  const finalInit: RequestInit = { ...init, headers };
   try {
-    const res = await fetch(BASE + path, init);
+    const res = await fetch(BASE + path, finalInit);
     if (!res.ok) {
-      if (res.status >= 500 && retryCount < 5) {
+      if (res.status >= 500 && isIdempotent(init) && retryCount < 5) {
         await delay(2000 * (retryCount + 1));
         return req<T>(path, init, retryCount + 1);
       }
@@ -80,7 +104,7 @@ async function req<T>(path: string, init?: RequestInit, retryCount = 0): Promise
     }
     return res.json() as Promise<T>;
   } catch (err: any) {
-    if ((err instanceof TypeError || err.message === 'Failed to fetch') && retryCount < 5) {
+    if ((err instanceof TypeError || err.message === 'Failed to fetch') && isIdempotent(init) && retryCount < 5) {
       await delay(2000 * (retryCount + 1));
       return req<T>(path, init, retryCount + 1);
     }
