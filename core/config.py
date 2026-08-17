@@ -26,7 +26,7 @@ class Settings:
 
     # ─── Route A: Claude Sonnet Vision (premium) ─────────────────────────────
     LLM_VISION_ROUTE_A = os.getenv("LLM_VISION_ROUTE_A", "anthropic/claude-sonnet-4-6")
-    LLM_DEFAULT = os.getenv("LLM_DEFAULT", "groq/llama-3.3-70b-versatile")
+    LLM_DEFAULT = os.getenv("LLM_DEFAULT", "groq/openai/gpt-oss-120b")
     LLM_REASONING = os.getenv("LLM_REASONING", "anthropic/claude-sonnet-4-6")
 
     # ─── Route B: Ollama Vision (local / self-hosted only — never a third-party API) ──
