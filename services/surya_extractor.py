@@ -18,7 +18,7 @@ local/remote split exactly (services/route_b.py):
                                     {"text": "...", "lines": [...]} back — the exact shape this
                                     class already returns locally, so callers can't tell local
                                     from remote from the response. Generic contract: any server
-                                    implementing it works, no orchestrator-specific concept here.
+                                    implementing it works, no vendor-specific concept here.
       SURYA_REMOTE_TOKEN         — optional bearer token, if your endpoint requires auth
       SURYA_REMOTE_TIMEOUT       — seconds, default 60
 """
