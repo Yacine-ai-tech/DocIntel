@@ -81,7 +81,16 @@ class MobilePairing:
 
     def __post_init__(self):
         if db.DB_ENABLED:
-            db.ensure_schema()
+            try:
+                db.ensure_schema()
+            except Exception as e:
+                # Same reasoning as BatchProcessor.__init__: this runs at module
+                # import time, so an unhandled exception here crashed the whole
+                # app on any Postgres connectivity hiccup, not just camera
+                # pairing. Falls back to disk persistence, consistent with
+                # core.db's own "optional" contract.
+                log.error("Postgres unavailable at startup (%s) — falling back to disk persistence for camera sessions", e)
+                _STATE_DIR.mkdir(parents=True, exist_ok=True)
         else:
             _STATE_DIR.mkdir(parents=True, exist_ok=True)
         self._load_persisted_sessions()

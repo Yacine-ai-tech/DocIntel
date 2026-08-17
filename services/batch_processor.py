@@ -77,7 +77,17 @@ class BatchProcessor:
         self._jobs: Dict[str, Dict[str, Any]] = {}
         self.max_concurrency = max(1, max_concurrency)
         if db.DB_ENABLED:
-            db.ensure_schema()
+            try:
+                db.ensure_schema()
+            except Exception as e:
+                # A Postgres connectivity hiccup at import time must not take down
+                # the whole app — this constructor runs at module import (`batch =
+                # BatchProcessor(...)` in api.py), so an unhandled exception here
+                # crashed every request, not just batch processing. Falls back to
+                # the same disk-persistence path used when POSTGRES_URL isn't set
+                # at all, consistent with core.db's own "optional" contract.
+                log.error("Postgres unavailable at startup (%s) — falling back to disk persistence for batch jobs", e)
+                _STATE_DIR.mkdir(parents=True, exist_ok=True)
         else:
             _STATE_DIR.mkdir(parents=True, exist_ok=True)
         self._load_persisted_jobs()
