@@ -112,15 +112,23 @@ class LLMExtractor:
         cost = 0.0
         for attempt in (1, 2):
             try:
-                response = await acompletion(
-                    model=self.model,
-                    messages=[
-                        {"role": "system", "content": prompt},
-                        {"role": "user", "content": text},
-                    ],
-                    temperature=0.1,
+                # litellm's own num_retries applies inside acompletion() even to
+                # non-transient errors (e.g. a billing/credit-exhausted BadRequestError),
+                # so a single call can silently take num_retries+1 * LLM_CALL_TIMEOUT
+                # instead of failing fast — wrapping with our own bound caps the total
+                # wait regardless of what litellm decides is worth retrying.
+                response = await asyncio.wait_for(
+                    acompletion(
+                        model=self.model,
+                        messages=[
+                            {"role": "system", "content": prompt},
+                            {"role": "user", "content": text},
+                        ],
+                        temperature=0.1,
+                        timeout=settings.LLM_CALL_TIMEOUT,
+                        num_retries=settings.LLM_CALL_RETRIES,
+                    ),
                     timeout=settings.LLM_CALL_TIMEOUT,
-                    num_retries=settings.LLM_CALL_RETRIES,
                 )
                 cost += _completion_cost_usd(response)
                 content = response.choices[0].message.content or "{}"
@@ -134,6 +142,9 @@ class LLMExtractor:
                     prompt += " Your previous reply was not valid JSON. Output ONLY the JSON object."
                     continue
                 return {"error": "non_json_response", "raw": content[:500], "_cost_usd": cost}
+            except asyncio.TimeoutError:
+                log.error("LLM extraction timed out after %ss", settings.LLM_CALL_TIMEOUT)
+                return {"error": f"llm_call_timed_out_after_{settings.LLM_CALL_TIMEOUT}s", "_cost_usd": cost}
             except Exception as e:
                 log.exception("LLM extraction failed: %s", e)
                 return {"error": str(e), "_cost_usd": cost}
