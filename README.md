@@ -1,8 +1,8 @@
 # DocIntel
 [![CI](https://github.com/Yacine-ai-tech/DocIntel/actions/workflows/ci.yml/badge.svg)](https://github.com/Yacine-ai-tech/DocIntel/actions/workflows/ci.yml) [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 
-**Vision-first document AI. Drop a PDF or image, get structured JSON in under 2 seconds. Local or cloud.**
-> 🔗 **Live dashboard:** https://docintel.ysiddo-ai-projects.app/  ·  drag-drop a PDF/image.
+**Vision-first document AI. Drop a PDF, image, or Office file, get structured JSON in under 2 seconds. Local or cloud.**
+> 🔗 **Live dashboard:** https://docintel.ysiddo-ai-projects.app/  ·  drag-drop a PDF/image/PPTX/DOCX/XLSX.
 > On-demand backend (first request ~30–60 s to wake).
 > Self-hosting: see [SELF_HOSTING.md](SELF_HOSTING.md). Route B local vision spins up a GPU on demand (~4–5 min cold).
 
@@ -10,7 +10,7 @@
 
 - **3 extraction routes**: Claude Sonnet 4.6 Vision (Route A), **Ollama vision** (Route B - private/`$0`-per-page — only Llama 3.2 Vision 11B or Qwen 2.5-VL 7B via Ollama, never a third-party inference API; `ROUTE_B_MODE=local` runs Ollama on the same host as the app, `ROUTE_B_MODE=remote` points at Ollama on hardware you control elsewhere — LAN or over the internet), Tesseract+LLM (Route C fallback)
 - **Multi-currency & multi-locale**: amounts in US/EU/spaced/Swiss formats and 45+ currencies (USD, EUR, GBP, JPY, INR, CNY, XOF/FCFA, …) are normalized to ISO 4217 + float; dates to ISO 8601 — a deterministic layer (`services/normalize.py`) on top of the LLM. OCR runs `eng+fra+deu+nld+spa+ita`.
-- **Inputs**: PDF (native or scanned), PNG, JPEG — auto-detected. PDFs are rendered per page; images flow straight through.
+- **Inputs**: PDF (native or scanned), PNG, JPEG, PPTX, DOCX, XLSX — auto-detected. PDFs are rendered per page; images flow straight through to OCR/vision; PPTX/DOCX/XLSX are read natively (`services/ocr_extractor.py`: `extract_text_native_office`) since they're ZIP archives of real XML text, not renderable images — routing one through the image OCR path fails outright (PIL can't open a zip as a raster image) rather than just extracting badly, which is why this has its own dedicated path instead of falling through the vision routes.
 - **Multi-page & large documents**: every page is processed and fields aggregated across pages (a total on a later page, multi-page contracts). **100+ page PDFs** are handled via map-reduce — pages are split into chunks, extracted concurrently, and merged (`MAX_PDF_PAGES` default 200). The OCR route concatenates/chunks full-document text the same way.
 - **Handwriting & mixed languages**: the vision routes read handwritten entries and EN/FR/DE/NL/ES/IT documents; numbers are normalized (EU `1.234,56` → `1234.56`; West-African `1 003 000 FCFA` → `1003000`) and currencies to ISO-4217, including the West-African CFA franc (**FCFA/CFA → XOF**, Central-African → XAF).
 - **Doc-type-aware schemas**: invoice, contract, receipt, financial_report, auction_listing, form
@@ -74,6 +74,14 @@ PDF / IMG ───►│   api.py    │───►    or extract full-documen
                                   ▼
             structured JSON  { ..fields.., _confidence, _pages }
 ```
+
+PPTX/DOCX/XLSX skip that whole diagram: they're detected before the PDF/image branch
+(ZIP signature + internal `ppt/`/`word/`/`xl/` part check, since all three OOXML
+formats share the same ZIP signature) and read directly via `python-pptx` /
+`python-docx` / `openpyxl` — real text runs off the XML, not pixels through OCR.
+There's no page image to render and no vision model in the loop; sending one of
+these through the image path instead fails outright rather than just badly,
+since PIL can't open a ZIP archive as a raster image.
 
 ## Validation
 
