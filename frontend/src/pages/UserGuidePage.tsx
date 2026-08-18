@@ -300,7 +300,7 @@ export default function UserGuidePage() {
           <ul className="list-disc list-inside text-sm font-mono text-green-300 space-y-2 ml-2 bg-gray-950 p-4 rounded-lg">
             <li><code>ANTHROPIC_API_KEY</code> — required for Route A</li>
             <li><code>OLLAMA_HOST</code> / <code>ROUTE_B_MODE</code> / <code>OLLAMA_MODEL</code> — Route B</li>
-            <li><code>OMNIINTEL_INTERNAL_TOKEN</code> + <code>REQUIRE_INTERNAL_TOKEN=true</code> — gate the API</li>
+            <li><code>DOCINTEL_INTERNAL_TOKEN</code> + <code>REQUIRE_INTERNAL_TOKEN=true</code> — gate the API</li>
             <li><code>POSTGRES_URL</code> — optional; batch-job and camera-session state persists
               here instead of local JSON files when set (durable across restarts/redeploys).
               Unset works with zero configuration — same behavior, local files instead.</li>
@@ -326,10 +326,10 @@ export default function UserGuidePage() {
               <CheckCircle className="w-5 h-5 text-green-400 shrink-0 mt-0.5" />
               <span className="text-sm text-gray-300">
                 Set <code>REQUIRE_INTERNAL_TOKEN=true</code> and a strong{" "}
-                <code>OMNIINTEL_INTERNAL_TOKEN</code> before exposing the API beyond localhost —
+                <code>DOCINTEL_INTERNAL_TOKEN</code> before exposing the API beyond localhost —
                 without it, extraction/batch/camera routes are unauthenticated. If you're using
                 this shipped frontend against a hardened backend, also set{" "}
-                <code>VITE_OMNIINTEL_INTERNAL_TOKEN</code> (same value) at build time, or the UI
+                <code>VITE_DOCINTEL_INTERNAL_TOKEN</code> (same value) at build time, or the UI
                 itself will get 403s from its own backend.
               </span>
             </li>

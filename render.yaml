@@ -65,7 +65,7 @@ services:
 
       # Shared bearer secret required on non-exempt routes when
       # REQUIRE_INTERNAL_TOKEN=true — set to any value you choose, keep it secret.
-      - key: OMNIINTEL_INTERNAL_TOKEN
+      - key: DOCINTEL_INTERNAL_TOKEN
         sync: false
       - key: REQUIRE_INTERNAL_TOKEN
         value: "false"

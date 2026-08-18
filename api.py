@@ -145,7 +145,7 @@ threading.Thread(target=_send_telemetry, daemon=True).start()
 # prefixes were bypassed here regardless of the flag — REQUIRE_INTERNAL_TOKEN
 # protected almost nothing that actually mattered. Any server-to-server
 # integration — n8n, a workflow automation tool, another service you run —
-# should send X-OmniIntel-Internal-Token like any other caller once
+# should send X-DocIntel-Internal-Token like any other caller once
 # hardening is on.)
 _PUBLIC_PATHS = {
     "/", "/health", "/benchmarks", "/docs", "/openapi.json", "/api/redoc",
@@ -164,14 +164,14 @@ async def verify_internal_token(request: Request, call_next):
 
     req_token_setting = _os.environ.get("REQUIRE_INTERNAL_TOKEN", "false").lower()
     if req_token_setting in ("true", "1", "yes"):
-        correct_token = _os.environ.get("OMNIINTEL_INTERNAL_TOKEN", "")
-        token = request.headers.get("X-OmniIntel-Internal-Token", "")
+        correct_token = _os.environ.get("DOCINTEL_INTERNAL_TOKEN", "")
+        token = request.headers.get("X-DocIntel-Internal-Token", "")
         auth_h = request.headers.get("Authorization", "")
         bearer_token = auth_h[len("Bearer "):] if auth_h.startswith("Bearer ") else ""
         header_token_ok = _secrets.compare_digest(token, correct_token)
         bearer_token_ok = _secrets.compare_digest(bearer_token, correct_token)
         if not correct_token or not (header_token_ok or bearer_token_ok):
-            return JSONResponse(status_code=403, content={"detail": "Missing or invalid X-OmniIntel-Internal-Token"})
+            return JSONResponse(status_code=403, content={"detail": "Missing or invalid X-DocIntel-Internal-Token"})
     return await call_next(request)
 
 

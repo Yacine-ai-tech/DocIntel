@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // Regression tests for two frontend audit findings fixed this session:
 //   - api.ts retried ALL methods (including POST) on 5xx/network failure,
 //     risking a duplicate paid vision/LLM call or duplicate batch job
-//   - VITE_OMNIINTEL_INTERNAL_TOKEN was never actually sent by the shipped
+//   - VITE_DOCINTEL_INTERNAL_TOKEN was never actually sent by the shipped
 //     UI, so enabling the backend's REQUIRE_INTERNAL_TOKEN hardening broke
 //     the app's own requests to itself
 //
@@ -72,8 +72,8 @@ describe('api.ts req() — internal token header attachment', () => {
     vi.resetModules();
   });
 
-  it('attaches X-OmniIntel-Internal-Token when VITE_OMNIINTEL_INTERNAL_TOKEN is set at build time', async () => {
-    vi.stubEnv('VITE_OMNIINTEL_INTERNAL_TOKEN', 'secret-abc');
+  it('attaches X-DocIntel-Internal-Token when VITE_DOCINTEL_INTERNAL_TOKEN is set at build time', async () => {
+    vi.stubEnv('VITE_DOCINTEL_INTERNAL_TOKEN', 'secret-abc');
     vi.resetModules();
     const { api } = await import('../src/lib/api');
 
@@ -86,11 +86,11 @@ describe('api.ts req() — internal token header attachment', () => {
 
     const [, init] = fetchMock.mock.calls[0];
     const headers = new Headers(init.headers);
-    expect(headers.get('X-OmniIntel-Internal-Token')).toBe('secret-abc');
+    expect(headers.get('X-DocIntel-Internal-Token')).toBe('secret-abc');
   });
 
   it('omits the header entirely when no token is configured', async () => {
-    vi.stubEnv('VITE_OMNIINTEL_INTERNAL_TOKEN', '');
+    vi.stubEnv('VITE_DOCINTEL_INTERNAL_TOKEN', '');
     vi.resetModules();
     const { api } = await import('../src/lib/api');
 
@@ -103,6 +103,6 @@ describe('api.ts req() — internal token header attachment', () => {
 
     const [, init] = fetchMock.mock.calls[0];
     const headers = new Headers(init.headers);
-    expect(headers.has('X-OmniIntel-Internal-Token')).toBe(false);
+    expect(headers.has('X-DocIntel-Internal-Token')).toBe(false);
   });
 });

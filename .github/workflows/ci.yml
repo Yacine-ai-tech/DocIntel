@@ -13,7 +13,7 @@ env:
   PYTHON_VERSION: "3.12"
   NODE_VERSION:   "20"
   DOCINTEL_URL:    ${{ secrets.DOCINTEL_URL   || '' }}
-  OMNIINTEL_INTERNAL_TOKEN: ${{ secrets.OMNIINTEL_INTERNAL_TOKEN  }}
+  DOCINTEL_INTERNAL_TOKEN: ${{ secrets.DOCINTEL_INTERNAL_TOKEN  }}
   TELEMETRY_OPT_OUT: "false"
 
 jobs:
@@ -123,7 +123,7 @@ jobs:
         if: env.DOCINTEL_URL != ''
         env:
           TEST_BASE_URL: ${{ env.DOCINTEL_URL }}
-          OMNIINTEL_INTERNAL_TOKEN: ${{ env.OMNIINTEL_INTERNAL_TOKEN }}
+          DOCINTEL_INTERNAL_TOKEN: ${{ env.DOCINTEL_INTERNAL_TOKEN }}
         run: |
           pytest tests/test_exhaustive_api.py -v --tb=short
       
@@ -131,7 +131,7 @@ jobs:
         run: |
           python -c "
           import httpx
-          headers = {'X-OmniIntel-Internal-Token': '${{ env.OMNIINTEL_INTERNAL_TOKEN }}'}
+          headers = {'X-DocIntel-Internal-Token': '${{ env.DOCINTEL_INTERNAL_TOKEN }}'}
 
           # Previously this step only printed status codes with no assert anywhere —
           # it reported success even on a 500 or 404, structurally incapable of
@@ -255,7 +255,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Create a dummy .env (simulating a real local/prod secrets file)
-        run: echo "OMNIINTEL_INTERNAL_TOKEN=should-never-ship-in-an-image" > .env
+        run: echo "DOCINTEL_INTERNAL_TOKEN=should-never-ship-in-an-image" > .env
 
       - name: Build image (no push)
         run: docker build -t docintel-dockerignore-check:test .

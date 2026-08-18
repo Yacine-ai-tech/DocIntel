@@ -27,7 +27,7 @@ TINY_PNG = bytes.fromhex(
 
 def _set_internal_token(monkeypatch, token: str = "test-secret-token"):
     monkeypatch.setenv("REQUIRE_INTERNAL_TOKEN", "true")
-    monkeypatch.setenv("OMNIINTEL_INTERNAL_TOKEN", token)
+    monkeypatch.setenv("DOCINTEL_INTERNAL_TOKEN", token)
     return token
 
 
@@ -58,7 +58,7 @@ def test_require_internal_token_allows_with_correct_token(monkeypatch):
     outright, not just enforced."""
     token = _set_internal_token(monkeypatch)
     resp = client.post("/camera/pair", data={"user": "alice"},
-                        headers={"X-OmniIntel-Internal-Token": token})
+                        headers={"X-DocIntel-Internal-Token": token})
     assert resp.status_code == 200
 
 
