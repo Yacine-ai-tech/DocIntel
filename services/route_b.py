@@ -31,6 +31,22 @@ GPU incompatibility handling:
   Llama 3.2 Vision uses the mllama runner which is not supported on all NVIDIA GPUs
   (requires compute capability >= 7.5). If Ollama returns an mllama-related error,
   DocIntel automatically retries with OLLAMA_FALLBACK_MODEL (default: qwen2.5vl:7b).
+
+Cold-start / on-demand hosts:
+  Some Ollama-compatible endpoints run on-demand hardware that isn't already running —
+  a GPU box that spins up on first request rather than sitting warm 24/7. Route B doesn't
+  assume anything about what's behind ROUTE_B_REMOTE_ENDPOINT (it could be your own
+  orchestration layer, a bare Ollama install, or something else entirely), but it DOES
+  recognize one convention if the endpoint chooses to use it: answering a request that
+  arrives while it's still starting up with an error body containing `{"_woke": true}`
+  (or a message mentioning "waking"/"cold"/HTTP 530) instead of just hanging the
+  connection until boot finishes. When that's seen, Route B retries the same request
+  against the same endpoint with backoff, budgeted by ROUTE_B_WAKE_TIMEOUT (default
+  420s total) / ROUTE_B_RETRY_DELAY (default 15s between attempts) — a longer single
+  socket timeout wouldn't help here, since the "still starting" response comes back
+  fast, not after a long hang. An endpoint that never emits this signal (e.g. a plain
+  always-on Ollama server) is unaffected: the first non-matching failure is raised
+  immediately, exactly as before this existed.
 """
 from __future__ import annotations
 
@@ -40,6 +56,8 @@ import io
 import json
 import logging
 import os
+import time
+import urllib.error
 import urllib.request
 from typing import List
 
@@ -48,6 +66,11 @@ log = logging.getLogger(__name__)
 # Ollama errors that indicate the model runner is unsupported on this GPU.
 _MLLAMA_ERRORS = ("no such file", "not found", "mllama", "llama3.2 vision",
                   "not supported", "runner", "ggml_backend")
+
+# Generic "still booting" signals — deliberately not tied to any specific stack.
+# `_woke` is the structured flag; the rest are best-effort text matches for hosts
+# that signal the same thing in plain prose instead.
+_WAKING_HINTS = ("waking", "still starting", "cold start", " 530", "not ready yet")
 
 
 def _downscale_image(image_bytes: bytes, max_edge: int = 2200) -> bytes:
@@ -114,13 +137,59 @@ def _ollama_chat_sync(
     return resp["message"]["content"]
 
 
+def _is_still_waking(exc: Exception) -> bool:
+    """True when the endpoint answered "not ready yet, I'm starting" rather than
+    genuinely failing. See the module docstring's "Cold-start / on-demand hosts"
+    section — this makes no assumption about what's actually behind the endpoint."""
+    body = ""
+    if isinstance(exc, urllib.error.HTTPError):
+        try:
+            raw = exc.read()
+            data = json.loads(raw)
+            if isinstance(data, dict) and data.get("_woke"):
+                return True
+            body = json.dumps(data)
+        except Exception:
+            try:
+                body = raw.decode(errors="replace")  # type: ignore[possibly-undefined]
+            except Exception:
+                body = ""
+    text = f"{body} {exc}".lower()
+    return "_woke" in text or any(hint in text for hint in _WAKING_HINTS)
+
+
+async def _call_with_wake_retry(*args, **kwargs) -> str:
+    """Retry _ollama_chat_sync while the endpoint reports it's still waking up.
+
+    Total budget ROUTE_B_WAKE_TIMEOUT, polled every ROUTE_B_RETRY_DELAY. An endpoint
+    that never signals "still waking" (the common case — most Ollama-compatible hosts
+    are just already running) gets exactly one attempt, same as before this existed.
+    """
+    budget = float(os.getenv("ROUTE_B_WAKE_TIMEOUT", "420"))
+    delay = float(os.getenv("ROUTE_B_RETRY_DELAY", "15"))
+    deadline = time.monotonic() + budget
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            result = await asyncio.to_thread(_ollama_chat_sync, *args, **kwargs)
+            if attempt > 1:
+                log.info("Route B: endpoint ready after %d attempt(s)", attempt)
+            return result
+        except Exception as e:
+            if not _is_still_waking(e) or time.monotonic() + delay > deadline:
+                raise
+            log.info("Route B: endpoint still waking (attempt %d), retrying in %.0fs", attempt, delay)
+            await asyncio.sleep(delay)
+
+
 async def _call_local(model: str, prompt: str, imgs: List[bytes]) -> str:
     """Ollama on this machine/LAN (OLLAMA_HOST, default http://localhost:11434)."""
     host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
     timeout = int(os.getenv("ROUTE_B_TIMEOUT", "60"))
     fallback_model = os.getenv("OLLAMA_FALLBACK_MODEL", "qwen2.5vl:7b")
     try:
-        return await asyncio.to_thread(_ollama_chat_sync, host, model, prompt, imgs, timeout)
+        return await _call_with_wake_retry(host, model, prompt, imgs, timeout)
     except Exception as e:
         err_str = str(e).lower()
         if any(kw in err_str for kw in _MLLAMA_ERRORS) and fallback_model != model:
@@ -128,7 +197,7 @@ async def _call_local(model: str, prompt: str, imgs: List[bytes]) -> str:
                 "Route B local: model %s failed with runner error (%s). "
                 "Retrying with fallback model %s.", model, e, fallback_model
             )
-            return await asyncio.to_thread(_ollama_chat_sync, host, fallback_model, prompt, imgs, timeout)
+            return await _call_with_wake_retry(host, fallback_model, prompt, imgs, timeout)
         raise
 
 
@@ -146,14 +215,12 @@ async def _call_remote(model: str, prompt: str, imgs: List[bytes]) -> str:
 
     log.info("Route B remote: endpoint=%s model=%s", endpoint, model)
     try:
-        return await asyncio.to_thread(_ollama_chat_sync, endpoint, model, prompt, imgs, timeout, token)
+        return await _call_with_wake_retry(endpoint, model, prompt, imgs, timeout, token)
     except Exception as e:
         err_str = str(e).lower()
         if any(kw in err_str for kw in _MLLAMA_ERRORS) and fallback_model != model:
             log.warning("Route B remote: %s failed (%s), retrying with %s", model, e, fallback_model)
-            return await asyncio.to_thread(
-                _ollama_chat_sync, endpoint, fallback_model, prompt, imgs, timeout, token
-            )
+            return await _call_with_wake_retry(endpoint, fallback_model, prompt, imgs, timeout, token)
         raise
 
 
