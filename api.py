@@ -794,6 +794,22 @@ async def process(
 
     out = await _run_route(data, route, doc_type)
     fields = out["fields"]
+
+    # raw_text above is ALWAYS plain OCR/native-text-layer extraction, regardless of
+    # `route` — for an image, that's extract_text_from_image (Tesseract/Surya) every
+    # time, even when route="vision_route_a/b" and the vision model read the image
+    # correctly into `fields`. A chart PNG is the clearest case: OCR recovers the
+    # title and axis labels (a few dozen characters), while the vision model reads
+    # the actual plotted values into structured fields — and until now, an ingester
+    # reading only raw_text (as IntelAI's RAG pipeline does) never saw that. When OCR
+    # came back thin and a vision/structured route found real fields, fold a plain-text
+    # rendering of those fields into raw_text so the fuller extraction isn't discarded.
+    if (not raw_text or len(raw_text.strip()) < 80) and isinstance(fields, dict) and not fields.get("error"):
+        rendered = "; ".join(f"{k}: {v}" for k, v in fields.items()
+                              if not k.startswith("_") and v not in (None, "", []))
+        if rendered:
+            raw_text = f"{raw_text}\n{rendered}".strip() if raw_text else rendered
+
     if isinstance(fields, dict) and is_pdf(data):
         try:
             import io as _io
