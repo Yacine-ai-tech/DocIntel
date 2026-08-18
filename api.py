@@ -30,7 +30,7 @@ import uuid as _uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -116,11 +116,11 @@ def _send_telemetry():
     except Exception:
         pass
 
+    telemetry_url = os.environ.get("TELEMETRY_URL", "")
+    if not telemetry_url:
+        return
     try:
         import httpx
-        telemetry_url = os.environ.get(
-            "TELEMETRY_URL", "https://gateway.ysiddo-ai-projects.app/telemetry"
-        )
         log.info("Anonymous telemetry ping to %s (set TELEMETRY_OPT_OUT=true to disable).", telemetry_url)
         httpx.post(
             telemetry_url,
@@ -801,7 +801,7 @@ async def process(
     # correctly into `fields`. A chart PNG is the clearest case: OCR recovers the
     # title and axis labels (a few dozen characters), while the vision model reads
     # the actual plotted values into structured fields — and until now, an ingester
-    # reading only raw_text (as IntelAI's RAG pipeline does) never saw that. When OCR
+    # reading only raw_text (as a downstream RAG pipeline typically would) never saw that. When OCR
     # came back thin and a vision/structured route found real fields, fold a plain-text
     # rendering of those fields into raw_text so the fuller extraction isn't discarded.
     if (not raw_text or len(raw_text.strip()) < 80) and isinstance(fields, dict) and not fields.get("error"):
@@ -897,6 +897,7 @@ async def batch_upload(
     route: str = Form("vision_premium"),
     doc_type: str = Form("invoice"),
     webhook_url: Optional[str] = Form(None),
+    x_demo_session_id: Optional[str] = Header(default=None, alias="X-Demo-Session-Id"),
 ) -> Dict[str, Any]:
     """
     Start a background batch process and return a job_id.
@@ -905,6 +906,11 @@ async def batch_upload(
     batch completes — no polling needed. This is the integration point for n8n (or
     Zapier/Make/any HTTP-triggered automation): point webhook_url at an n8n Webhook
     node's URL. See docs/n8n/README.md for a worked example.
+
+    x_demo_session_id: the visitor's browser id (if any) — set by the frontend, absent
+    for service-to-service callers like an n8n workflow. Scopes GET /batch/{job_id}
+    and /batch/{job_id}/results to the session that created the job; see
+    BatchProcessor.new_job's docstring.
     """
     if webhook_url:
         try:
@@ -920,7 +926,7 @@ async def batch_upload(
             "route": route,
         })
 
-    job_id = batch.new_job(total=len(file_data))
+    job_id = batch.new_job(total=len(file_data), owner_session_id=x_demo_session_id)
 
     async def _process_one(fd: Dict[str, Any]) -> Dict[str, Any]:
         out = await _run_route(fd["bytes"], fd["route"], fd["doc_type"])
@@ -936,16 +942,22 @@ async def batch_upload(
 
 
 @app.get("/batch/{job_id}")
-async def batch_status(job_id: str) -> Dict[str, Any]:
-    status = batch.get_status(job_id)
+async def batch_status(
+    job_id: str,
+    x_demo_session_id: Optional[str] = Header(default=None, alias="X-Demo-Session-Id"),
+) -> Dict[str, Any]:
+    status = batch.get_status(job_id, owner_session_id=x_demo_session_id)
     if not status:
         raise HTTPException(status_code=404, detail="job_not_found")
     return status
 
 
 @app.get("/batch/{job_id}/results")
-async def batch_results(job_id: str) -> Dict[str, Any]:
-    results = batch.get_results(job_id)
+async def batch_results(
+    job_id: str,
+    x_demo_session_id: Optional[str] = Header(default=None, alias="X-Demo-Session-Id"),
+) -> Dict[str, Any]:
+    results = batch.get_results(job_id, owner_session_id=x_demo_session_id)
     if results is None:
         raise HTTPException(status_code=404, detail="job_not_found")
     return {"job_id": job_id, "results": results}

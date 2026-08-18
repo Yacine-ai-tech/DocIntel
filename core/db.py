@@ -59,7 +59,8 @@ CREATE TABLE IF NOT EXISTS batch_jobs (
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     started_at   TIMESTAMPTZ,
-    finished_at  TIMESTAMPTZ
+    finished_at  TIMESTAMPTZ,
+    owner_session_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS batch_results (
@@ -90,6 +91,8 @@ def ensure_schema() -> None:
         return
     with get_conn() as conn:
         conn.execute(_SCHEMA)
+        # Idempotent migration for tables created before owner_session_id existed.
+        conn.execute("ALTER TABLE batch_jobs ADD COLUMN IF NOT EXISTS owner_session_id TEXT")
         conn.commit()
     _schema_ready = True
     log.info("Postgres schema ready (batch_jobs, batch_results, camera_sessions)")
@@ -107,9 +110,11 @@ def upsert_batch_job(job: Dict[str, Any]) -> None:
         conn.execute(
             """
             INSERT INTO batch_jobs (id, status, total, processed, failed, webhook_url,
-                                     created_at, updated_at, started_at, finished_at)
+                                     created_at, updated_at, started_at, finished_at,
+                                     owner_session_id)
             VALUES (%(id)s, %(status)s, %(total)s, %(processed)s, %(failed)s, %(webhook_url)s,
-                    %(created_at)s, %(updated_at)s, %(started_at)s, %(finished_at)s)
+                    %(created_at)s, %(updated_at)s, %(started_at)s, %(finished_at)s,
+                    %(owner_session_id)s)
             ON CONFLICT (id) DO UPDATE SET
                 status = EXCLUDED.status,
                 processed = EXCLUDED.processed,
@@ -118,7 +123,7 @@ def upsert_batch_job(job: Dict[str, Any]) -> None:
                 started_at = EXCLUDED.started_at,
                 finished_at = EXCLUDED.finished_at
             """,
-            job,
+            {**job, "owner_session_id": job.get("owner_session_id")},
         )
         conn.commit()
 
