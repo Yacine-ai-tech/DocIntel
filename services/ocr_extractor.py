@@ -42,6 +42,24 @@ try:
 except ImportError:
     _PDF2IMAGE = False
 
+try:
+    import pptx as _pptx_module
+    _PPTX = True
+except ImportError:
+    _PPTX = False
+
+try:
+    import docx as _docx_module
+    _DOCX = True
+except ImportError:
+    _DOCX = False
+
+try:
+    import openpyxl as _openpyxl_module
+    _OPENPYXL = True
+except ImportError:
+    _OPENPYXL = False
+
 # Tesseract language packs to try (install the matching tesseract-ocr-<lang> packages).
 # Falls back to "eng" automatically if a pack is missing.
 _OCR_LANGS = _os.getenv("OCR_LANGS", "eng+fra+deu+nld+spa+ita")
@@ -78,6 +96,117 @@ def extract_text_from_image(image_bytes: bytes, lang: Optional[str] = None) -> s
 
 def is_pdf(data: bytes) -> bool:
     return data[:5] == b"%PDF-"
+
+
+def _ooxml_kind(data: bytes) -> Optional[str]:
+    """PPTX/DOCX/XLSX are all ZIP archives (signature 'PK\\x03\\x04') containing
+    OOXML parts — the ZIP signature alone can't tell them apart, so this opens
+    the archive and checks which top-level part directory it has
+    (ppt/ vs word/ vs xl/), the same way any OOXML-aware reader identifies the
+    subtype. Returns None for anything that isn't a readable OOXML zip,
+    including a genuine non-Office zip file."""
+    if data[:4] != b"PK\x03\x04":
+        return None
+    try:
+        import zipfile
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            names = z.namelist()
+    except Exception:
+        return None
+    if any(n.startswith("ppt/") for n in names):
+        return "pptx"
+    if any(n.startswith("word/") for n in names):
+        return "docx"
+    if any(n.startswith("xl/") for n in names):
+        return "xlsx"
+    return None
+
+
+def extract_text_from_pptx(data: bytes) -> str:
+    """Native OOXML text extraction — every shape's text frame on every slide,
+    plus speaker notes. Real text runs read directly from the XML, not pixels
+    read through OCR: a PPTX has no rendering to OCR in the first place (it's a
+    ZIP of XML, not an image), which is why routing one through
+    extract_text_from_image failed outright rather than just extracting badly."""
+    if not _PPTX:
+        log.warning("python-pptx not installed — native PPTX extraction unavailable")
+        return ""
+    try:
+        prs = _pptx_module.Presentation(io.BytesIO(data))
+    except Exception as e:
+        log.error("PPTX open failed: %s", e)
+        return ""
+    parts: List[str] = []
+    for i, slide in enumerate(prs.slides, 1):
+        slide_lines: List[str] = []
+        for shape in slide.shapes:
+            if shape.has_text_frame and shape.text_frame.text.strip():
+                slide_lines.append(shape.text_frame.text.strip())
+            if shape.has_table:
+                for row in shape.table.rows:
+                    slide_lines.append(" | ".join(c.text.strip() for c in row.cells))
+        if slide.has_notes_slide:
+            notes = (slide.notes_slide.notes_text_frame.text or "").strip()
+            if notes:
+                slide_lines.append(f"[Notes] {notes}")
+        if slide_lines:
+            parts.append(f"--- Slide {i} ---\n" + "\n".join(slide_lines))
+    return "\n\n".join(parts)
+
+
+def extract_text_from_docx(data: bytes) -> str:
+    """Native OOXML text extraction for Word documents: paragraphs and table cells."""
+    if not _DOCX:
+        log.warning("python-docx not installed — native DOCX extraction unavailable")
+        return ""
+    try:
+        doc = _docx_module.Document(io.BytesIO(data))
+    except Exception as e:
+        log.error("DOCX open failed: %s", e)
+        return ""
+    parts = [p.text for p in doc.paragraphs if p.text.strip()]
+    for table in doc.tables:
+        for row in table.rows:
+            parts.append(" | ".join(c.text.strip() for c in row.cells))
+    return "\n".join(parts)
+
+
+def extract_text_from_xlsx(data: bytes) -> str:
+    """Native OOXML text extraction for Excel workbooks: every sheet's cell values,
+    row by row. Skips fully-empty rows so a large sparse sheet doesn't turn into
+    thousands of blank lines."""
+    if not _OPENPYXL:
+        log.warning("openpyxl not installed — native XLSX extraction unavailable")
+        return ""
+    try:
+        wb = _openpyxl_module.load_workbook(io.BytesIO(data), data_only=True, read_only=True)
+    except Exception as e:
+        log.error("XLSX open failed: %s", e)
+        return ""
+    parts: List[str] = []
+    for ws in wb.worksheets:
+        parts.append(f"--- Sheet: {ws.title} ---")
+        for row in ws.iter_rows(values_only=True):
+            cells = [str(c) for c in row if c is not None and str(c).strip()]
+            if cells:
+                parts.append(" | ".join(cells))
+    return "\n".join(parts)
+
+
+def extract_text_native_office(data: bytes) -> Optional[str]:
+    """Entry point for the OOXML family: detect the subtype and dispatch to its
+    native extractor. Returns None (not '') when `data` isn't an OOXML file at
+    all, so callers can distinguish "not this format" from "this format,
+    genuinely no text" — extract_text_from_image should still run for the
+    former (a real image) but never for the latter (an empty slide deck)."""
+    kind = _ooxml_kind(data)
+    if kind == "pptx":
+        return extract_text_from_pptx(data)
+    if kind == "docx":
+        return extract_text_from_docx(data)
+    if kind == "xlsx":
+        return extract_text_from_xlsx(data)
+    return None
 
 
 def pdf_page_count(pdf_bytes: bytes) -> int:

@@ -577,13 +577,29 @@ async def _extract_text_core(data: bytes, route: str, max_pages: int) -> Dict[st
     Images always go through OCR (no text layer to read).
     """
     from services.ocr_extractor import (
-        extract_text_from_image, extract_text_from_pdf, is_pdf, pdf_page_count,
+        extract_text_from_image, extract_text_from_pdf, extract_text_native_office,
+        is_pdf, pdf_page_count,
     )
     t0 = time.time()
     pdf = is_pdf(data)
     pages = pdf_page_count(data) if pdf else 1
     limit = max_pages or settings.MAX_PDF_PAGES
     text, method = "", ""
+
+    # PPTX/DOCX/XLSX are ZIP archives of XML with real text runs, not renderable
+    # images — routing them into extract_text_from_image made PIL raise
+    # "cannot identify image file" (caught, silently returns ''), which is why
+    # these previously came back at 20-40 chars instead of a real transcript.
+    # Checked before the pdf branch: None here means "not this format", not
+    # "no text", so a genuine PDF/image still falls through normally below.
+    if not pdf:
+        office_text = extract_text_native_office(data)
+        if office_text is not None:
+            return {
+                "text": office_text, "method": "native_office", "page_count": pages,
+                "chars": len(office_text),
+                "processing_time_ms": round((time.time() - t0) * 1000, 1),
+            }
 
     if pdf and route in ("auto", "marker"):
         import tempfile
@@ -741,7 +757,8 @@ async def process(
     data = await _read_upload(file)
 
     from services.ocr_extractor import (
-        DocumentClassifier, extract_text_from_image, extract_text_from_pdf, is_pdf,
+        DocumentClassifier, extract_text_from_image, extract_text_from_pdf,
+        extract_text_native_office, is_pdf,
     )
 
     # raw_text has always been declared on ProcessResponse but was never populated —
@@ -754,10 +771,18 @@ async def process(
     # document twice per call (once for a 2-page classify sample, once again for the
     # full raw_text), which on a single-page image is the exact same Tesseract call
     # made back to back for no reason. One extraction is always <= the cost of two.
+    #
+    # PPTX/DOCX/XLSX get native extraction here too, for the same reason as
+    # _extract_text_core: they're XML archives, not images — extract_text_from_image
+    # would fail on them outright (PIL can't open a zip as a raster image).
     raw_text = None
     try:
-        raw_text = extract_text_from_pdf(data, max_pages=settings.MAX_PDF_PAGES) if is_pdf(data) \
-            else extract_text_from_image(data)
+        office_text = None if is_pdf(data) else extract_text_native_office(data)
+        if office_text is not None:
+            raw_text = office_text
+        else:
+            raw_text = extract_text_from_pdf(data, max_pages=settings.MAX_PDF_PAGES) if is_pdf(data) \
+                else extract_text_from_image(data)
     except Exception:
         log.exception("raw_text extraction failed (non-fatal)")
 
