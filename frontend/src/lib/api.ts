@@ -62,7 +62,7 @@ export type CameraUploadResponse = CameraUploadResult;
 
 const BASE = import.meta.env.VITE_API_BASE_URL || "";
 
-// Sent as X-OmniIntel-Internal-Token on every request when set. The backend's
+// Sent as X-DocIntel-Internal-Token on every request when set. The backend's
 // REQUIRE_INTERNAL_TOKEN production-hardening flag (see UserGuidePage) has no
 // effect on this app unless this is configured at build time — previously
 // there was no way for this shipped frontend to send that token at all, so
@@ -70,7 +70,7 @@ const BASE = import.meta.env.VITE_API_BASE_URL || "";
 // UI outright. Optional: leave unset for the common case where the frontend
 // and backend are same-origin/trusted-network and REQUIRE_INTERNAL_TOKEN
 // stays off.
-const INTERNAL_TOKEN = import.meta.env.VITE_OMNIINTEL_INTERNAL_TOKEN || "";
+const INTERNAL_TOKEN = import.meta.env.VITE_DOCINTEL_INTERNAL_TOKEN || "";
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -87,7 +87,7 @@ function isIdempotent(init?: RequestInit): boolean {
 
 async function req<T>(path: string, init?: RequestInit, retryCount = 0): Promise<T> {
   const headers = new Headers(init?.headers);
-  if (INTERNAL_TOKEN) headers.set("X-OmniIntel-Internal-Token", INTERNAL_TOKEN);
+  if (INTERNAL_TOKEN) headers.set("X-DocIntel-Internal-Token", INTERNAL_TOKEN);
   const finalInit: RequestInit = { ...init, headers };
   try {
     const res = await fetch(BASE + path, finalInit);
