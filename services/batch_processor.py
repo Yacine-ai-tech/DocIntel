@@ -111,6 +111,7 @@ class BatchProcessor:
                     "webhook_url": job.get("webhook_url"),
                     "created_at": job["created_at"], "updated_at": job["updated_at"],
                     "started_at": job.get("started_at"), "finished_at": job.get("finished_at"),
+                    "owner_session_id": job.get("owner_session_id"),
                 })
                 if result_idx is not None:
                     db.upsert_batch_result(job_id, result_idx, job["results"][result_idx])
@@ -167,8 +168,17 @@ class BatchProcessor:
             except Exception as e:
                 log.warning("failed to evict persisted job %s: %s", jid, e)
 
-    def new_job(self, total: int) -> str:
-        """Create a new job and return its ID."""
+    def new_job(self, total: int, owner_session_id: Optional[str] = None) -> str:
+        """Create a new job and return its ID.
+
+        owner_session_id (from the X-Demo-Session-Id header, set by the frontend)
+        scopes get_status/get_results to the browser session that created the job.
+        job_id is already an unguessable full uuid4 — this isn't closing a real
+        enumeration hole, it's letting a caller *list/manage only their own* jobs
+        instead of every job being equally readable by anyone who has (or guesses) an
+        id. None (service-to-service calls with no browser session, e.g. a direct API
+        integration) means unscoped, same "no session, no restriction" default used
+        everywhere else."""
         self._evict_expired()
         job_id = str(uuid.uuid4())
         self._jobs[job_id] = {
@@ -180,6 +190,7 @@ class BatchProcessor:
             "results": [None] * total,  # index-aligned for stable ordering
             "created_at": _now(),
             "updated_at": _now(),
+            "owner_session_id": owner_session_id,
         }
         self._persist(job_id)
         return job_id
@@ -245,10 +256,20 @@ class BatchProcessor:
                 "results": job["results"],
             })
 
-    def get_status(self, job_id: str) -> Optional[Dict[str, Any]]:
+    def _owned(self, job: Dict[str, Any], owner_session_id: Optional[str]) -> bool:
+        """A job created with no session (owner_session_id is None) is unscoped and
+        readable by anyone with the id — matches new_job's "no session, no
+        restriction" default. A job created *with* a session is only readable by
+        that same session; a mismatched/missing session gets treated as not-found
+        below, same as a bad id, rather than a distinguishable 403 (which would
+        confirm the job exists to someone who isn't its owner)."""
+        job_owner = job.get("owner_session_id")
+        return job_owner is None or job_owner == owner_session_id
+
+    def get_status(self, job_id: str, owner_session_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Return the job status (no results)."""
         job = self._jobs.get(job_id)
-        if not job:
+        if not job or not self._owned(job, owner_session_id):
             return None
         total = max(job["total"], 1)
         return {
@@ -264,7 +285,9 @@ class BatchProcessor:
             "finished_at": job.get("finished_at"),
         }
 
-    def get_results(self, job_id: str) -> Optional[List[Dict[str, Any]]]:
+    def get_results(self, job_id: str, owner_session_id: Optional[str] = None) -> Optional[List[Dict[str, Any]]]:
         """Return the list of per-file results (None entries = not yet processed)."""
         job = self._jobs.get(job_id)
-        return job["results"] if job else None
+        if not job or not self._owned(job, owner_session_id):
+            return None
+        return job["results"]
