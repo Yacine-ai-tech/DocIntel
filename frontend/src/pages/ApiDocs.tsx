@@ -216,21 +216,21 @@ const SNIPPETS = {
     if (ep.body.startsWith("multipart")) {
       const hasFile = /\bfile:/.test(ep.body) || /files:/.test(ep.body);
       const fileFlag = ep.path === "/extract-llm" ? "" : hasFile ? ` -F "file=@document.pdf"` : "";
-      return `curl -X ${ep.method} "${BASE_URL}${ep.path}" \\\n  -H "X-OmniIntel-Internal-Token: $OMNIINTEL_INTERNAL_TOKEN"${fileFlag} \\\n  -F "route=vision_route_a"`;
+      return `curl -X ${ep.method} "${BASE_URL}${ep.path}" \\\n  -H "X-DocIntel-Internal-Token: $DOCINTEL_INTERNAL_TOKEN"${fileFlag} \\\n  -F "route=vision_route_a"`;
     }
     return `curl -X ${ep.method} "${BASE_URL}${ep.path}" \\\n  -H "Content-Type: application/json" \\\n  -d '${ep.body}'`;
   },
   python: (ep: Endpoint) => {
     if (!ep.body) return `import requests\n\nresp = requests.get("${BASE_URL}${ep.path}")\nprint(resp.json())`;
     if (ep.body.startsWith("multipart")) {
-      return `import requests\n\nwith open("document.pdf", "rb") as f:\n    resp = requests.post(\n        "${BASE_URL}${ep.path}",\n        headers={"X-OmniIntel-Internal-Token": OMNIINTEL_INTERNAL_TOKEN},\n        files={"file": f},\n        data={"route": "vision_route_a", "doc_type": "invoice"},\n    )\nprint(resp.json())`;
+      return `import requests\n\nwith open("document.pdf", "rb") as f:\n    resp = requests.post(\n        "${BASE_URL}${ep.path}",\n        headers={"X-DocIntel-Internal-Token": DOCINTEL_INTERNAL_TOKEN},\n        files={"file": f},\n        data={"route": "vision_route_a", "doc_type": "invoice"},\n    )\nprint(resp.json())`;
     }
     return `import requests\n\nresp = requests.${ep.method.toLowerCase()}(\n    "${BASE_URL}${ep.path}",\n    json=...,  # see request body\n)\nprint(resp.json())`;
   },
   node: (ep: Endpoint) => {
     if (!ep.body) return `const res = await fetch("${BASE_URL}${ep.path}");\nconst data = await res.json();\nconsole.log(data);`;
     if (ep.body.startsWith("multipart")) {
-      return `const form = new FormData();\nform.append("file", fileInput.files[0]);\nform.append("route", "vision_route_a");\n\nconst res = await fetch("${BASE_URL}${ep.path}", {\n  method: "${ep.method}",\n  headers: { "X-OmniIntel-Internal-Token": OMNIINTEL_INTERNAL_TOKEN },\n  body: form,\n});\nconst data = await res.json();`;
+      return `const form = new FormData();\nform.append("file", fileInput.files[0]);\nform.append("route", "vision_route_a");\n\nconst res = await fetch("${BASE_URL}${ep.path}", {\n  method: "${ep.method}",\n  headers: { "X-DocIntel-Internal-Token": DOCINTEL_INTERNAL_TOKEN },\n  body: form,\n});\nconst data = await res.json();`;
     }
     return `const res = await fetch("${BASE_URL}${ep.path}", {\n  method: "${ep.method}",\n  headers: { "Content-Type": "application/json" },\n  body: JSON.stringify(/* see request body */),\n});\nconst data = await res.json();`;
   },
@@ -277,7 +277,7 @@ export default function ApiDocs() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 12, margin: "20px 0" }}>
         {[
           { icon: Globe, label: "Base URL", value: BASE_URL, color: "#38bdf8" },
-          { icon: Shield, label: "Auth", value: "X-OmniIntel-Internal-Token", color: "#4ade80" },
+          { icon: Shield, label: "Auth", value: "X-DocIntel-Internal-Token", color: "#4ade80" },
           { icon: Zap, label: "Format", value: "REST · multipart / JSON", color: "#f59e0b" },
           { icon: BookOpen, label: "Interactive docs", value: "/docs (Swagger)", color: "#a78bfa" },
         ].map(({ icon: Icon, label, value, color }) => (
@@ -294,8 +294,8 @@ export default function ApiDocs() {
       <div style={{ background: "rgba(167,139,250,0.08)", border: "1px solid rgba(167,139,250,0.25)", borderRadius: 10, padding: "12px 16px", marginBottom: 20, fontSize: "0.8rem", color: "#c4b5fd", lineHeight: 1.6 }}>
         <strong style={{ color: "#e2e8f0" }}>Auth:</strong> when <code>REQUIRE_INTERNAL_TOKEN=true</code> on the server, every
         route except <code>/</code>, <code>/health</code>, <code>/docs</code>, <code>/openapi.json</code> and the static asset
-        paths requires an <code>X-OmniIntel-Internal-Token</code> header (or an <code>Authorization</code> header containing the
-        token) matching the server's <code>OMNIINTEL_INTERNAL_TOKEN</code>. Requests without a valid token get{" "}
+        paths requires an <code>X-DocIntel-Internal-Token</code> header (or an <code>Authorization</code> header containing the
+        token) matching the server's <code>DOCINTEL_INTERNAL_TOKEN</code>. Requests without a valid token get{" "}
         <code>403</code>.
         <br />
         <strong style={{ color: "#e2e8f0" }}>Vision route selection:</strong> the extraction endpoints take a{" "}

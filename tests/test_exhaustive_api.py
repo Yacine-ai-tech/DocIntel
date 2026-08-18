@@ -12,8 +12,8 @@ import os
 import httpx
 import pytest
 
-TOKEN = os.getenv('OMNIINTEL_INTERNAL_TOKEN', '')
-HEADERS = {'X-OmniIntel-Internal-Token': TOKEN}
+TOKEN = os.getenv('DOCINTEL_INTERNAL_TOKEN', '')
+HEADERS = {'X-DocIntel-Internal-Token': TOKEN}
 TEST_BASE_URL = os.getenv('TEST_BASE_URL', '').strip()
 
 token = 'dummy_token'
