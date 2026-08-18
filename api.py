@@ -9,6 +9,7 @@ Endpoints:
   POST /extract-tables   PDF → tables list
   POST /extract-fields   file → generic form label/value pairs
   POST /extract-llm      text + doc_type → structured dict
+  POST /process/async    same pipeline as /process, job-based (see /batch/{id} below)
   POST /batch/upload     list of files → job_id (optional webhook_url callback on completion)
   GET  /batch/{id}
   GET  /batch/{id}/results
@@ -735,26 +736,14 @@ async def extract(
     )
 
 
-@app.post("/process", response_model=ProcessResponse)
-async def process(
-    file: UploadFile = File(...),
-    route: str = Form("vision_route_a"),
-    doc_type: str = Form("auto"),
-) -> ProcessResponse:
+async def _process_full(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
     """
-    One-shot pipeline: upload → (auto-classify) → multi-page extract → structured JSON.
-
-    `doc_type="auto"` content-classifies the document first (text-based heuristic), then runs
-    the chosen route. Tables are included for PDFs. Returns doc_type, fields, confidence,
-    page_count.
-
-    Routes:
-      - vision_route_a: Claude Sonnet 4.6 Vision (high quality)
-      - vision_route_b: Ollama vision, local or self-hosted-remote, auto-fallback to Route C
-      - ocr_fallback: Route C (Tesseract OCR + LLM cleanup)
+    The complete one-shot pipeline: (auto-classify) → multi-page extract → structured JSON
+    → raw_text → table count. Shared by POST /process (blocks until done) and POST
+    /process/async (same pipeline, runs as a background job instead — see its docstring
+    for why that variant exists). Returns a dict shaped like ProcessResponse's fields.
     """
     t0 = time.time()
-    data = await _read_upload(file)
 
     from services.ocr_extractor import (
         DocumentClassifier, extract_text_from_image, extract_text_from_pdf,
@@ -821,15 +810,74 @@ async def process(
             log.exception("Unexpected error")
             pass
 
-    return ProcessResponse(
-        doc_type=doc_type,
-        route=route,
-        fields=fields,
-        confidence=_confidence_of(fields),
-        page_count=out["page_count"],
-        processing_time_ms=round((time.time() - t0) * 1000, 1),
-        raw_text=raw_text or None,
-    )
+    return {
+        "doc_type": doc_type,
+        "route": route,
+        "fields": fields,
+        "confidence": _confidence_of(fields),
+        "page_count": out["page_count"],
+        "processing_time_ms": round((time.time() - t0) * 1000, 1),
+        "raw_text": raw_text or None,
+    }
+
+
+@app.post("/process", response_model=ProcessResponse)
+async def process(
+    file: UploadFile = File(...),
+    route: str = Form("vision_route_a"),
+    doc_type: str = Form("auto"),
+) -> ProcessResponse:
+    """
+    One-shot pipeline: upload → (auto-classify) → multi-page extract → structured JSON.
+
+    `doc_type="auto"` content-classifies the document first (text-based heuristic), then runs
+    the chosen route. Tables are included for PDFs. Returns doc_type, fields, confidence,
+    page_count.
+
+    Routes:
+      - vision_route_a: Claude Sonnet 4.6 Vision (high quality)
+      - vision_route_b: Ollama vision, local or self-hosted-remote, auto-fallback to Route C
+      - ocr_fallback: Route C (Tesseract OCR + LLM cleanup)
+
+    Blocks until the pipeline finishes — a slow route (Route B waking a cold/on-demand host
+    especially) can take minutes, which is fine for a direct caller but too long for a
+    request sitting behind a reverse proxy with its own timeout. See POST /process/async
+    for the same pipeline without that constraint.
+    """
+    data = await _read_upload(file)
+    result = await _process_full(data, route, doc_type)
+    return ProcessResponse(**result)
+
+
+@app.post("/process/async")
+async def process_async(
+    background: BackgroundTasks,
+    file: UploadFile = File(...),
+    route: str = Form("vision_route_a"),
+    doc_type: str = Form("auto"),
+    x_demo_session_id: Optional[str] = Header(default=None, alias="X-Demo-Session-Id"),
+) -> Dict[str, Any]:
+    """
+    Same pipeline as POST /process, but returns a job_id immediately and runs the actual
+    extraction as a background task, instead of blocking the request until it's done.
+
+    Exists because a slow route sitting behind a reverse proxy risks the proxy's own
+    timeout cutting the connection before the (otherwise successful) response comes back —
+    a cold/on-demand Route B host especially, since waking real hardware isn't instant.
+    Polling in short, fast requests instead means no single request can ever run long
+    enough to hit that ceiling. Reuses the exact same job store as /batch/upload — poll
+    GET /batch/{job_id} for status and GET /batch/{job_id}/results (a one-item list) once
+    it completes, no separate endpoints needed.
+    """
+    data = await _read_upload(file)
+    file_data = [{"filename": file.filename, "bytes": data, "doc_type": doc_type, "route": route}]
+    job_id = batch.new_job(total=1, owner_session_id=x_demo_session_id)
+
+    async def _process_one(fd: Dict[str, Any]) -> Dict[str, Any]:
+        return await _process_full(fd["bytes"], fd["route"], fd["doc_type"])
+
+    background.add_task(batch.process, job_id, file_data, _process_one, None)
+    return {"job_id": job_id}
 
 
 @app.post("/extract-fields")
