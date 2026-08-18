@@ -36,6 +36,18 @@ export type BatchResults = {
   results: { filename: string; fields: Record<string, unknown> | null; confidence: number | null; page_count: number | null }[];
 };
 
+type ProcessJobResult = {
+  doc_type?: string | null;
+  route?: string;
+  fields?: Record<string, unknown> | null;
+  confidence?: number | null;
+  page_count?: number | null;
+  processing_time_ms?: number | null;
+  raw_text?: string | null;
+  error?: string;
+  filename?: string;
+};
+
 export type CameraPairResponse = {
   token: string;
   qr_available: boolean;
@@ -113,6 +125,45 @@ async function req<T>(path: string, init?: RequestInit, retryCount = 0): Promise
   }
 }
 
+const PROCESS_POLL_INTERVAL_MS = 1500;
+
+// Generous enough to cover Route B waking a cold/on-demand host (retry-with-backoff
+// budget plus a single long attempt on the backend, see route_b.py) end-to-end, so the
+// UI doesn't give up on a slow-but-successful run before the backend actually finishes.
+const PROCESS_POLL_BUDGET_MS = 20 * 60 * 1000;
+
+// POST /process blocks until the whole pipeline finishes, which for a slow route (a
+// cold-starting Route B host especially) can run long enough for a reverse proxy sitting
+// in front of this app to cut the connection before the response comes back — even though
+// the extraction itself would have succeeded. POST /process/async runs the same pipeline
+// as a background job and returns immediately instead; this polls it with short, fast
+// requests so no single request can ever run long enough to hit that ceiling.
+async function pollProcessJob(jobId: string, route: string, docType: string): Promise<ProcessResponse> {
+  const deadline = Date.now() + PROCESS_POLL_BUDGET_MS;
+  while (Date.now() < deadline) {
+    const status = await req<BatchStatus>(`/batch/${jobId}`);
+    if (status.status === "failed") {
+      throw new ApiError(500, "Processing job failed");
+    }
+    if (status.status === "completed" || status.processed + status.failed >= Math.max(status.total, 1)) {
+      const { results } = await req<{ job_id: string; results: ProcessJobResult[] }>(`/batch/${jobId}/results`);
+      const r = results[0] ?? {};
+      return {
+        doc_type: r.doc_type ?? docType,
+        route: r.route ?? route,
+        confidence: r.confidence ?? null,
+        page_count: r.page_count ?? null,
+        processing_time_ms: r.processing_time_ms ?? null,
+        fields: r.fields ?? null,
+        raw_text: r.raw_text ?? null,
+        error: r.error ?? null,
+      };
+    }
+    await delay(PROCESS_POLL_INTERVAL_MS);
+  }
+  throw new ApiError(504, "Processing is taking longer than expected — please try again.");
+}
+
 export type BenchmarksResponse = {
   summary: {
     corpus?: { total_documents: number; ground_truth_documents: number; sources: { name: string; type: string; docs: number; ground_truth: string | null }[] };
@@ -129,12 +180,13 @@ export const api = {
 
   benchmarks: () => req<BenchmarksResponse>("/benchmarks"),
 
-  process(file: File, route: string, docType: string) {
+  async process(file: File, route: string, docType: string): Promise<ProcessResponse> {
     const fd = new FormData();
     fd.append("file", file);
     fd.append("route", route);
     fd.append("doc_type", docType);
-    return req<ProcessResponse>("/process", { method: "POST", body: fd });
+    const { job_id } = await req<{ job_id: string }>("/process/async", { method: "POST", body: fd });
+    return pollProcessJob(job_id, route, docType);
   },
 
   classifyImage(file: File, categories: string[]) {
