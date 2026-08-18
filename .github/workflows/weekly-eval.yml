@@ -5,7 +5,7 @@ name: Weekly Accuracy Regression Eval
 # enable: skips cleanly (no failure) if ANTHROPIC_API_KEY isn't configured as a repo
 # secret, so this doesn't break CI for forks/clones without an API key. Optionally
 # reports the result to an external monitoring endpoint (env-configurable — see
-# OMNIINTEL_INTERNAL_TOKEN below) when that token is also configured — reporting is
+# DOCINTEL_INTERNAL_TOKEN below) when that token is also configured — reporting is
 # best-effort and never fails the job.
 
 on:
@@ -57,10 +57,10 @@ jobs:
       - name: Report to external monitoring endpoint
         if: always() && steps.check.outputs.configured == 'true'
         env:
-          INTERNAL_TOKEN: ${{ secrets.OMNIINTEL_INTERNAL_TOKEN }}
+          INTERNAL_TOKEN: ${{ secrets.DOCINTEL_INTERNAL_TOKEN }}
         run: |
           if [ -z "$INTERNAL_TOKEN" ]; then
-            echo "::notice::OMNIINTEL_INTERNAL_TOKEN not set — skipping external report (eval results above still count for pass/fail)."
+            echo "::notice::DOCINTEL_INTERNAL_TOKEN not set — skipping external report (eval results above still count for pass/fail)."
             exit 0
           fi
           python3 - <<'EOF'
@@ -89,7 +89,7 @@ jobs:
               data=json.dumps(payload).encode(),
               headers={
                   "Content-Type": "application/json",
-                  "X-OmniIntel-Internal-Token": os.environ["INTERNAL_TOKEN"],
+                  "X-DocIntel-Internal-Token": os.environ["INTERNAL_TOKEN"],
                   "User-Agent": "DocIntel-Weekly-Eval-CI/1.0",
               },
           )
