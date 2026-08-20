@@ -16,10 +16,9 @@ at most once per ~6 hours per running instance:
 That's the entire payload. No document content, filenames, extraction results, API keys,
 IP addresses, or configuration are included by DocIntel's code.
 
-- **Destination**: `TELEMETRY_URL` env var, defaulting to the DocIntel project's own
-  adoption-tracking endpoint (`https://gateway.ysiddo-ai-projects.app/telemetry`) — used
-  to count roughly how many distinct installs of DocIntel are running, the same way many
-  open-source CLIs (Homebrew, most package managers) report anonymous install counts home.
+- **Destination**: the `TELEMETRY_URL` env var. It defaults to **blank**, which disables
+  telemetry entirely — no destination means no request is ever made. Set it yourself
+  (e.g. to your own collector) to opt in.
 - **`instance_id`**: a **randomly generated UUID** (`uuid.uuid4()`), created once and
   persisted to `logs/.telemetry_instance_id`, so repeat startups of the same install
   report the same ID (letting the receiving end de-duplicate) without that ID being
@@ -56,11 +55,12 @@ This is a local file write only — nothing in this path makes a network call.
 
 ## How to opt out
 
-Set `TELEMETRY_OPT_OUT=true` in your `.env` (see `.env.example`). The background thread
-returns immediately and no HTTP request is made — not even a DNS lookup.
+Two independent ways, either one is sufficient:
 
-You can also repoint the endpoint entirely via `TELEMETRY_URL` (e.g. to `http://localhost`
-to make it a harmless local no-op, or to your own collector).
+1. Set `TELEMETRY_OPT_OUT=true` in your `.env` (see `.env.example`). The background
+   thread returns immediately and no HTTP request is made — not even a DNS lookup.
+2. Leave `TELEMETRY_URL` blank (the default). With no destination configured, the code
+   returns before making any request.
 
 ## README view pixel
 
