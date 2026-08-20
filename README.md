@@ -8,7 +8,7 @@
 
 ## What It Does
 
-- **3 extraction routes**: Claude Sonnet 4.6 Vision (Route A), **Ollama vision** (Route B - private/`$0`-per-page — only Llama 3.2 Vision 11B or Qwen 2.5-VL 7B via Ollama, never a third-party inference API; `ROUTE_B_MODE=local` runs Ollama on the same host as the app, `ROUTE_B_MODE=remote` points at Ollama on hardware you control elsewhere — LAN or over the internet), Tesseract+LLM (Route C fallback)
+- **3 extraction routes**: Claude Sonnet 4.6 Vision (Route A), **Ollama vision** (Route B - private/`$0`-per-page — Qwen 2.5-VL 7B is the validated model, and the route is model-agnostic via `OLLAMA_MODEL` for any other Ollama-served vision model, never a third-party inference API; `ROUTE_B_MODE=local` runs Ollama on the same host as the app, `ROUTE_B_MODE=remote` points at Ollama on hardware you control elsewhere — LAN or over the internet), Tesseract+LLM (Route C fallback)
 - **Multi-currency & multi-locale**: amounts in US/EU/spaced/Swiss formats and 45+ currencies (USD, EUR, GBP, JPY, INR, CNY, XOF/FCFA, …) are normalized to ISO 4217 + float; dates to ISO 8601 — a deterministic layer (`services/normalize.py`) on top of the LLM. OCR runs `eng+fra+deu+nld+spa+ita`.
 - **Inputs**: PDF (native or scanned), PNG, JPEG, PPTX, DOCX, XLSX — auto-detected. PDFs are rendered per page; images flow straight through to OCR/vision; PPTX/DOCX/XLSX are read natively (`services/ocr_extractor.py`: `extract_text_native_office`) since they're ZIP archives of real XML text, not renderable images — routing one through the image OCR path fails outright (PIL can't open a zip as a raster image) rather than just extracting badly, which is why this has its own dedicated path instead of falling through the vision routes.
 - **Multi-page & large documents**: every page is processed and fields aggregated across pages (a total on a later page, multi-page contracts). **100+ page PDFs** are handled via map-reduce — pages are split into chunks, extracted concurrently, and merged (`MAX_PDF_PAGES` default 200). The OCR route concatenates/chunks full-document text the same way.
@@ -39,19 +39,23 @@ Open http://localhost:8001/
 | Method | Path                       | Purpose                                       |
 |--------|----------------------------|-----------------------------------------------|
 | GET    | /health                    | Liveness check                                |
-| POST   | /process                   | One-shot: upload → auto-classify → multi-page extract |
+| GET    | /benchmarks                | Live-served benchmark numbers (from `eval/BENCHMARK.md`), so the dashboard and this doc can't silently diverge |
+| POST   | /process                   | One-shot: upload → auto-classify → multi-page extract (blocking) |
+| POST   | /process/async             | Same as /process but returns a `job_id` immediately and runs in the background — for slow routes behind a proxy with its own timeout; poll via /batch/{job_id} |
 | POST   | /classify                  | Fast doc-type classification                  |
 | POST   | /classify-image            | Vision-first object classification            |
 | POST   | /extract                   | Full extraction (file + route + doc_type), multi-page |
-| POST   | /extract/text              | Full document text (RAG-ingestion shape), synchronous — see /extract/text/batch for large documents |
+| POST   | /extract/marker            | PDF → Markdown via Marker (born-digital PDF text structure) |
+| POST   | /extract/text               | Full document text (RAG-ingestion shape), synchronous — see /extract/text/batch for large documents |
 | POST   | /extract/text/batch        | Async /extract/text — for documents too large/slow to finish inside a synchronous request; poll via /batch/{job_id} |
 | POST   | /extract-llm               | LLM extract from raw text                     |
-| POST   | /extract-tables            | PDF tables via pdfplumber                     |
+| POST   | /extract-tables             | PDF tables via pdfplumber                     |
 | POST   | /extract-fields            | Generic form field extraction (label → value) |
 | POST   | /batch/upload               | Start background batch job (structured extraction, optional `webhook_url` — POSTed to on completion, see [docs/n8n](docs/n8n/README.md)) |
 | GET    | /batch/{job_id}            | Job status                                    |
 | GET    | /batch/{job_id}/results    | Job results                                   |
 | POST   | /camera/pair               | Desktop: generate a mobile pairing token + QR |
+| GET    | /camera/qr/{token}         | Raw QR code image bytes for a pairing token   |
 | POST   | /camera/upload             | Phone: upload a photo for Route B extraction  |
 | GET    | /camera/status/{token}     | Desktop: poll for the phone's upload result   |
 
