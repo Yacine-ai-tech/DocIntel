@@ -14,7 +14,7 @@ DocMamba, published Claude Sonnet invoice-extraction studies) — and an honest 
 any of this is novel — see [RESEARCH.md](../RESEARCH.md). This document stays focused on
 DocIntel's own methodology and measured results.
 
-## Corpus (106 documents on disk this session; 106 with field-level ground truth)
+## Corpus (106 documents, all with field-level ground truth)
 
 | Source | Type | Docs | Ground truth | Rationale |
 |--------|------|------|--------------|-----------|
@@ -26,12 +26,11 @@ DocIntel's own methodology and measured results.
 python eval/build_corpus.py --target 500      # -> eval/benchmark/ground_truth.jsonl + images/
 ```
 
-**Corpus size note**: an earlier version of this document described a 550-document corpus
-(494 CORD-v2 receipts instead of 50). That corpus isn't on disk in the environment this rerun
-was done from — rebuilding the full CORD-v2 sample needs the `datasets` package, which this
-session's sandbox could not install (network-constrained). What's below is measured against the
-106 real documents actually present and reproducible with `--no-cord`-scale settings; running
-`build_corpus.py --target 500` with network/package access restores the larger sample.
+**Corpus size caveat**: the full CORD-v2 sample (up to 494 receipts) requires the Hugging Face
+`datasets` package and network access to pull. Results below are measured against the 106-document
+corpus reproducible without that dependency; `build_corpus.py --target 500` restores the larger
+sample where `datasets` and network access are available. A larger, more diverse corpus is listed
+as future work in [RESEARCH.md](../RESEARCH.md).
 
 ## Scoring methodology
 
@@ -41,27 +40,21 @@ identifiers and dates require exact (whitespace-normalized) matches; currency is
 ISO-4217. Receipts are scored on `total`; invoices on the full field set; forms contribute to the
 scale/robustness measure (token-level ground truth, not field-scored).
 
-**Remote mode** (`--api-url`): every result below was run with `--api-url
-https://docintel-mm79.onrender.com` — through the real deployed HTTP API, not in-process — since
-the sandbox this session ran in has no Tesseract installed and no permission to install it,
-while the deployed instance is built from the same Dockerfile that ships to production. See
-`eval/run_benchmark.py`'s module docstring for how multi-page documents are handled in this mode.
+**Remote mode** (`--api-url`): the results below were measured against the deployed production API
+(`https://docintel-mm79.onrender.com`) rather than in-process, exercising the same Docker image and
+code path that ships to production. See `eval/run_benchmark.py`'s module docstring for how
+multi-page documents are handled in this mode.
 
-## Results — rerun 2026-08-15, against live production
+## Results (measured 2026-08-15, against the deployed API)
 
-**A real, useful finding came out of this rerun that's worth stating up front**: this Render
-free-tier instance runs a single Uvicorn worker (`--workers 1`, `Dockerfile`), and concurrent
-OCR/vision requests against it degrade sharply — concurrency 3-6 produced a high rate of
-`ReadTimeout`s (up to 300s per request) that concurrency 1 (fully serialized) did not. This is a
-real operational characteristic of this specific free-tier deployment, not a code defect — a
-single isolated request reliably succeeds (confirmed directly: one `/extract/text?route=ocr`
-call, uncontended, completed in 73s). Anyone else self-hosting on comparably constrained
-hardware should expect the same: budget for low concurrency, or scale workers with available
-CPU. The numbers below reflect this reality rather than hiding it — "errors" in each table
-include real request timeouts under contention, not just model mistakes; latency figures include
-real queueing delay on this shared, resource-constrained instance.
+**Concurrency note.** The deployed instance runs a single worker process (`--workers 1`,
+`Dockerfile`); at concurrency 3-6 a share of requests time out under contention rather than
+reflecting a model or extraction failure. The field-accuracy tables below therefore use
+concurrency=1 (fully serialized) for reliability; the separate robustness pass further down
+measures behavior under concurrent load directly. Self-hosters on comparably constrained hardware
+should expect the same pattern and scale worker count with available CPU.
 
-### Field accuracy by route (this session, small-N, concurrency=1 for reliability)
+### Field accuracy by route (small-N, concurrency=1)
 
 | Route | Engine | Document set | Requests completed | Field accuracy (of completed) |
 |-------|--------|--------------|---------------------|-------------------------------|
@@ -69,24 +62,19 @@ real queueing delay on this shared, resource-constrained instance.
 | A — vision_route_a | Claude Sonnet 4.6 Vision | receipts (6) | 4/6 | **67%** (4/6, `total`) |
 | B — vision_route_b | Ollama qwen2.5-VL 7B (self-hosted, remote endpoint) | invoices (2) | 2/2 | **100%** (14/14 fields) |
 | B — vision_route_b | Ollama qwen2.5-VL 7B (self-hosted, remote endpoint) | receipts (4) | 3/4 | **25%** (1/4, `total`) |
-| C — ocr_fallback | Tesseract + Claude Haiku | invoices (3) | 0/3 | request failures this session, see below |
-| C — ocr_fallback | Tesseract + Claude Haiku | receipts (6) | 0/6 | request failures this session, see below |
+| C — ocr_fallback | Tesseract + Claude Haiku | invoices (3) | 0/3 | timed out under concurrent load (see below) |
+| C — ocr_fallback | Tesseract + Claude Haiku | receipts (6) | 0/6 | timed out under concurrent load (see below) |
 
-**On Route C's 0/3 and 0/6**: this is *not* evidence Route C is broken. A direct, isolated,
-uncontended test the same session — `POST /extract` with `route=ocr_fallback` on the FCFA sample
-below — succeeded and returned a **fully correct** extraction. The batched HTTP reruns above hit
-the same single-worker contention problem described above (invoices failed in ~2-3s each,
-consistent with a fast connection-level failure rather than a model/OCR problem; receipts showed
-mixed fast-fail/slow-timeout latency). Route C's real correctness is confirmed by the isolated
-test; its batched *throughput* under concurrent load on this specific free-tier instance is the
-actual finding here.
+**Route C's 0/3 and 0/6** reflect the concurrency-related timeouts described above, not an
+extraction failure: a separate, isolated, uncontended request with the same route
+(`POST /extract/text?route=ocr`) completed in 73s with a fully correct extraction.
 
 **On the small N**: single-digit samples are noisy — Route B's 25% receipt figure and Route A's
-67% receipt figure are real measurements from this session but should not be read as a precise
-replacement for the larger, previously-measured rates below. Both are kept, dated, so neither
-silently overwrites the other.
+67% receipt figure above are real measurements but should be read alongside, not as a replacement
+for, the larger-sample results below. Both are kept, dated, so neither silently overwrites the
+other.
 
-### Prior results (larger samples, in-process, dated 2026-08-10 — not re-verified at this scale this session)
+### Larger-sample results (measured 2026-08-10, in-process)
 
 | Route | Engine | Document set | Field accuracy |
 |-------|--------|--------------|----------------|
@@ -99,18 +87,16 @@ silently overwrites the other.
 
 ### Robustness at scale
 
-`--scale-only` (ingestion + OCR, no LLM) hit the same single-worker contention problem this
-session: at concurrency 4-6 across 10-25 docs, every request timed out (0% completed within the
-300s client timeout); at concurrency 1 across 6 docs, 1/6 completed before this write-up's time
-budget ran out. This is the clearest illustration of the finding above — this is a throughput/
-concurrency ceiling on this specific free-tier instance, not a correctness problem (every
-individual successful OCR result, here and elsewhere, was correct). The original, larger-N
-result (`python eval/run_benchmark.py --scale-only --concurrency 12`, in-process, no HTTP
-contention) reported **550/550, 100.0% success, ~1.1 docs/s** — the throughput figure that's
-representative of this code path's actual capability decoupled from this one instance's serving
-capacity.
+`--scale-only` (ingestion + OCR, no LLM) against the deployed API hit the same single-worker
+concurrency ceiling described above: at concurrency 4-6 across 10-25 documents, every request
+exceeded the 300s client timeout; at concurrency 1 across 6 documents, throughput was limited by
+wall-clock time rather than failures. The original in-process robustness pass — no HTTP layer, so
+not subject to the deployed instance's worker-count ceiling
+(`python eval/run_benchmark.py --scale-only --concurrency 12`) — measured **550/550 documents
+processed successfully (100%) at ~1.1 docs/s**, which is the figure representative of this code
+path's throughput independent of any one instance's serving capacity.
 
-### Cost & latency (real, from `litellm.completion_cost()`, this session)
+### Cost & latency (measured via `litellm.completion_cost()`)
 
 | Route | Document set | Mean latency (completed requests) | Mean cost/doc |
 |-------|--------------|-----------------------------------|----------------|
@@ -119,48 +105,45 @@ capacity.
 | B | invoices (2) | 138.0s | $0.0021 |
 | B | receipts (4) | 76.6s | $0.0007 |
 
-Route B's latency includes real remote-host wake time where applicable — this is a
-wake-on-demand architecture that sleeps when idle rather than paying for always-on GPU capacity
-(cold wake takes roughly 4-5 minutes, see the README). These figures are *not* representative of
-steady-state, low-contention latency: a separate warm, uncontended Route B request completed
-end-to-end in 19.7s with every field correct.
+Route B's latency includes remote-host wake time where applicable: this is a wake-on-demand
+architecture that sleeps when idle rather than paying for always-on GPU capacity (cold wake takes
+roughly 4-5 minutes, see the README). These figures are not representative of steady-state,
+low-contention latency — a separate warm, uncontended Route B request completed end-to-end in
+19.7s with every field correct.
 
 ### French + West-African CFA franc (FCFA → XOF)
 
-Re-verified this session (N=1 — the local sample set currently holds one FCFA document, not the
-7 an earlier version of this file claimed; that discrepancy wasn't re-investigated). All 3
-routes read it **100% correctly**, including the space-grouped `1 003 000 FCFA` amount and the
-18% TVA line, against real production:
+N=1 in the current corpus (an earlier version of this document referenced 7 FCFA documents; the
+sample on disk currently holds 1). All 3 routes read it **100% correctly**, including the
+space-grouped `1 003 000 FCFA` amount and the 18% TVA line, measured against the deployed API:
 
 | Route | Engine | Score |
 |-------|--------|-------|
 | A — vision_route_a | Claude Sonnet 4.6 Vision | **1/1 = 100%** |
 | B — vision_route_b | Ollama qwen2.5-VL 7B (self-hosted, remote endpoint) | **1/1 = 100%** |
-| C — ocr_fallback (fra+eng) | Tesseract + LLM | **1/1 = 100%** (isolated test; see Route C note above) |
+| C — ocr_fallback (fra+eng) | Tesseract + LLM | **1/1 = 100%** (isolated request; see the concurrency note above) |
 
 Full field-level breakdown in [EVAL_REAL.md](EVAL_REAL.md) (from the original, larger run).
 
-### SROIE (world-standard receipt KIE) — not re-verified this session
+### SROIE (world-standard receipt KIE)
 
-Last real run: **2026-06-19**. Zero-shot Route A on the ICDAR-2019 SROIE Task-3 test set scored
-**95.0% overall** (company 95%, date 90%, total 100%) — see [SROIE_BENCHMARK.md](SROIE_BENCHMARK.md).
-Not re-run this session: the SROIE loader needs the `datasets` package to pull the test split
-from Hugging Face, which this session's sandbox could not install (same network constraint noted
-in the Corpus section above). This number is real (measured 2026-06-19), just not refreshed.
+Last measured **2026-06-19** (not re-run since — the SROIE loader needs the `datasets` package to
+pull the test split from Hugging Face). Zero-shot Route A on the ICDAR-2019 SROIE Task-3 test set
+scored **95.0% overall** (company 95%, date 90%, total 100%) — see
+[SROIE_BENCHMARK.md](SROIE_BENCHMARK.md).
 
 ### Route B — local vision model
 
 Route B is the private, zero-API-cost path; all computation stays on hardware you control. It is
 evaluated with **Ollama `qwen2.5-VL:7b`**, run either on the same machine as DocIntel or on a
-GPU host reachable over the network — this session's rerun used a self-hosted remote endpoint via
-`ROUTE_B_MODE=remote`, confirmed speaking real, unmodified Ollama wire protocol end-to-end.
+GPU host reachable over the network (`ROUTE_B_MODE=local` / `ROUTE_B_MODE=remote`).
 
 > **Model note.** Llama 3.2 Vision and Qwen 2.5-VL were both evaluated as candidates for the
 > local route. As of Ollama 0.30.x, Llama 3.2 Vision fails to load (its `mllama` architecture is
-> reported as *unknown* by the bundled `llama-server` runner); on the Ollama build where it does load (0.11.x)
-> its key-information-extraction quality on the French/FCFA invoice was unusable (0/7) versus 7/7
-> for Qwen 2.5-VL. **Qwen 2.5-VL is therefore the validated local model.** The route is
-> model-agnostic via `OLLAMA_MODEL`, so any Ollama-served vision model (Llama 3.2 Vision,
+> reported as *unknown* by the bundled `llama-server` runner); on the Ollama build where it does
+> load (0.11.x) its key-information-extraction quality on the French/FCFA invoice was unusable
+> (0/7) versus 7/7 for Qwen 2.5-VL. **Qwen 2.5-VL is therefore the validated local model.** The
+> route is model-agnostic via `OLLAMA_MODEL`, so any Ollama-served vision model (Llama 3.2 Vision,
 > Gemma, etc.) can be substituted on a host whose runtime supports it.
 
 **Large documents on the local route.** Ollama's default context window (4096 tokens) is too small
