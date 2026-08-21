@@ -14,7 +14,13 @@ test.describe('DocIntel All Pages E2E Suite', () => {
       const url = req.url();
       if ((req.resourceType() === 'fetch' || req.resourceType() === 'xhr') &&
           url.includes('vercel.app') && url.includes('docintel-ui')) {
-        const backendUrl = process.env.STAGING_DOCINTEL_URL || 'https://docintel-mm79.onrender.com';
+        // Staging backend comes from the environment; no host is baked in here.
+        // Unset -> pass the request through untouched.
+        const backendUrl = process.env.STAGING_DOCINTEL_URL;
+        if (!backendUrl) {
+          await route.continue();
+          return;
+        }
         const pathPart = new URL(url).pathname;
         const newUrl = backendUrl.replace(/\/$/, '') + pathPart;
         await route.continue({ url: newUrl });
