@@ -2,7 +2,7 @@
 [![CI](https://github.com/Yacine-ai-tech/DocIntel/actions/workflows/ci.yml/badge.svg)](https://github.com/Yacine-ai-tech/DocIntel/actions/workflows/ci.yml) [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 
 **Vision-first document AI. Drop a PDF, image, or Office file, get structured JSON in under 2 seconds. Local or cloud.**
-> 🔗 **Live dashboard:** https://docintel.ysiddo-ai-projects.app/  ·  drag-drop a PDF/image/PPTX/DOCX/XLSX.
+> **Live dashboard:** https://docintel.ysiddo-ai-projects.app/  ·  drag-drop a PDF/image/PPTX/DOCX/XLSX.
 > On-demand backend (first request ~30–60 s to wake).
 > Self-hosting: see [SELF_HOSTING.md](SELF_HOSTING.md). Route B local vision spins up a GPU on demand (~4–5 min cold).
 
