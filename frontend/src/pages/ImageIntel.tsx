@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ImagePlus, Sparkles, X, AlertTriangle } from "lucide-react";
 import { PageHeader } from "../kit/AppShell";
@@ -16,7 +16,20 @@ export default function ImageIntel() {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ClassifyImageResponse | null>(null);
   const [err, setErr] = useState("");
+  const [elapsedMs, setElapsedMs] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Vision is a GPU-tier orchestrator capability — a cold Studio can take well past
+  // a bare spinner's patience to wake and load the model. A running elapsed-time
+  // counter is the honest signal: still working, here's how long, matching the
+  // pattern already used on Workspace.tsx for the same underlying route.
+  useEffect(() => {
+    if (!busy) return;
+    const startedAt = Date.now();
+    setElapsedMs(0);
+    const id = window.setInterval(() => setElapsedMs(Date.now() - startedAt), 250);
+    return () => window.clearInterval(id);
+  }, [busy]);
 
   const pick = (f: File | null) => {
     if (!f) return;
@@ -110,7 +123,15 @@ export default function ImageIntel() {
 
         <Card title="Vision result">
           {busy ? (
-            <ExecutionStages stages={["Uploading image", "Vision model reasoning", "Scoring categories"]} active={1} />
+            <div>
+              <ExecutionStages stages={["Uploading image", "Vision model reasoning", "Scoring categories"]} active={1} />
+              <div className="mt-2 flex items-center gap-2 text-xs text-muted">
+                <span className="num">{(elapsedMs / 1000).toFixed(0)}s elapsed</span>
+                {elapsedMs > 20000 && (
+                  <span>— still working; a cold vision endpoint can take a minute or more to wake.</span>
+                )}
+              </div>
+            </div>
           ) : err ? (
             <div className="flex items-start gap-3">
               <AlertTriangle size={16} className="mt-0.5 text-bad" />
