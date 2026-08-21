@@ -122,21 +122,3 @@ class Settings:
 
 
 settings = Settings()
-
-
-# Gemini model fallback — when OPENAI_API_KEY is absent but GEMINI_API_KEY is
-# present, any LLM model string referencing OpenAI/GPT is remapped to Gemini
-# Flash automatically, requiring no code changes when switching providers.
-def _apply_gemini_fallback():
-    if not settings.OPENAI_API_KEY and settings.GEMINI_API_KEY:
-        def fallback(model_str):
-            if model_str and ("openai" in model_str.lower() or "gpt-" in model_str.lower()):
-                return "gemini/gemini-2.5-flash"
-            return model_str
-
-        for attr in dir(settings):
-            if attr.startswith("LLM_") and isinstance(getattr(settings, attr), str):
-                setattr(settings, attr, fallback(getattr(settings, attr)))
-
-
-_apply_gemini_fallback()
