@@ -41,7 +41,7 @@ ISO-4217. Receipts are scored on `total`; invoices on the full field set; forms 
 scale/robustness measure (token-level ground truth, not field-scored).
 
 **Remote mode** (`--api-url`): the results below were measured against the deployed production API
-(`https://docintel-mm79.onrender.com`) rather than in-process, exercising the same Docker image and
+over HTTP rather than in-process, exercising the same Docker image and
 code path that ships to production. See `eval/run_benchmark.py`'s module docstring for how
 multi-page documents are handled in this mode.
 

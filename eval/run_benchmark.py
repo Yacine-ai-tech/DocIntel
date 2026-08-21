@@ -26,8 +26,8 @@ Remote mode (--api-url):
   page images) are assembled into one in-memory PDF via Pillow before upload, since /extract
   takes one file and already does its own chunked multi-page handling.
 
-  python eval/run_benchmark.py --scale-only --api-url https://docintel-mm79.onrender.com
-  python eval/run_benchmark.py --route vision_route_a --api-url https://docintel-mm79.onrender.com --limit 40
+  python eval/run_benchmark.py --scale-only --api-url https://<your-deployment>
+  python eval/run_benchmark.py --route vision_route_a --api-url https://<your-deployment> --limit 40
 """
 from __future__ import annotations
 
@@ -195,7 +195,7 @@ async def main():
     ap.add_argument("--concurrency", type=int, default=6)
     ap.add_argument("--api-url", default=None,
                      help="Run against a real deployed instance's HTTP API instead of "
-                          "in-process service calls (e.g. https://docintel-mm79.onrender.com). "
+                          "in-process service calls (e.g. https://<your-deployment>). "
                           "See the module docstring's 'Remote mode' section.")
     a = ap.parse_args()
 
