@@ -165,13 +165,13 @@ async def verify_internal_token(request: Request, call_next):
 
     req_token_setting = _os.environ.get("REQUIRE_INTERNAL_TOKEN", "false").lower()
     if req_token_setting in ("true", "1", "yes"):
-        correct_token = _os.environ.get("DOCINTEL_INTERNAL_TOKEN", "")
-        token = request.headers.get("X-DocIntel-Internal-Token", "")
+        correct_tokens = [t for t in (_os.environ.get("DOCINTEL_INTERNAL_TOKEN"), _os.environ.get("INTERNAL_TOKEN"), _os.environ.get("OMNIINTEL_INTERNAL_TOKEN")) if t]
+        token = request.headers.get("X-DocIntel-Internal-Token", "") or request.headers.get("X-Internal-Token", "") or request.headers.get("X-OmniIntel-Internal-Token", "")
         auth_h = request.headers.get("Authorization", "")
         bearer_token = auth_h[len("Bearer "):] if auth_h.startswith("Bearer ") else ""
-        header_token_ok = _secrets.compare_digest(token, correct_token)
-        bearer_token_ok = _secrets.compare_digest(bearer_token, correct_token)
-        if not correct_token or not (header_token_ok or bearer_token_ok):
+        header_token_ok = any(_secrets.compare_digest(token, ct) for ct in correct_tokens)
+        bearer_token_ok = any(_secrets.compare_digest(bearer_token, ct) for ct in correct_tokens)
+        if not correct_tokens or not (header_token_ok or bearer_token_ok):
             return JSONResponse(status_code=403, content={"detail": "Missing or invalid X-DocIntel-Internal-Token"})
     return await call_next(request)
 
