@@ -82,7 +82,8 @@ class Settings:
     ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
     # For LLM_DEFAULT text calls only — unrelated to Route B, which never uses these.
     GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-    HF_TOKEN = os.getenv("HF_TOKEN", "")
+    HF_READ_TOKEN = os.getenv("HF_READ_TOKEN", "")
+    INFERENCE_TOKEN = os.getenv("INFERENCE_TOKEN", "")
     # Optional
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
     # Optional — enables the OpenAI→Gemini model-string fallback below.

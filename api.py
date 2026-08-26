@@ -794,8 +794,10 @@ async def _process_full(data: bytes, route: str, doc_type: str) -> Dict[str, Any
     # came back thin and a vision/structured route found real fields, fold a plain-text
     # rendering of those fields into raw_text so the fuller extraction isn't discarded.
     if (not raw_text or len(raw_text.strip()) < 80) and isinstance(fields, dict) and not fields.get("error"):
-        rendered = "; ".join(f"{k}: {v}" for k, v in fields.items()
-                              if not k.startswith("_") and v not in (None, "", []))
+        rendered = "; ".join(
+            f"{k}: {v}" for k, v in fields.items()
+            if not k.startswith("_") and v not in (None, "", [])
+        )
         if rendered:
             raw_text = f"{raw_text}\n{rendered}".strip() if raw_text else rendered
 
