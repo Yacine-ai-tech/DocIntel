@@ -44,7 +44,7 @@ services:
       # ─── General LLM keys (text-only; unrelated to Route B vision) ──────
       - key: GROQ_API_KEY
         sync: false
-      - key: HF_TOKEN
+      - key: HF_READ_TOKEN
         sync: false
       - key: OPENAI_BASE_URL
         sync: false
