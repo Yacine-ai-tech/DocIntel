@@ -105,11 +105,13 @@ path's throughput independent of any one instance's serving capacity.
 | B | invoices (2) | 138.0s | $0.0021 |
 | B | receipts (4) | 76.6s | $0.0007 |
 
-Route B's latency includes remote-host wake time where applicable: this is a wake-on-demand
-architecture that sleeps when idle rather than paying for always-on GPU capacity (cold wake takes
-roughly 4-5 minutes, see the README). These figures are not representative of steady-state,
-low-contention latency — a separate warm, uncontended Route B request completed end-to-end in
-19.7s with every field correct.
+Route B's latency includes remote-host cold-boot overhead where applicable: this is a
+wake-on-demand architecture that keeps the GPU backend idle between jobs rather than paying for
+always-on capacity (cold-boot takes roughly 4–5 minutes after an idle period — see the README).
+These figures are not representative of steady-state, low-contention latency. A separate warm,
+uncontended Route B request completed end-to-end in **19.7 s** with every field correct; the
+138 s figure above reflects on-demand backend cold-boot overhead, not extraction pipeline
+inefficiency.
 
 ### French + West-African CFA franc (FCFA → XOF)
 
