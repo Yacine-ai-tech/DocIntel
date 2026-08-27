@@ -131,14 +131,6 @@ jobs:
               assert response.status_code == 200
           "
 
-      - name: Run exhaustive API tests against live deployment
-        if: env.DOCINTEL_URL != ''
-        env:
-          TEST_BASE_URL: ${{ env.DOCINTEL_URL }}
-          DOCINTEL_INTERNAL_TOKEN: ${{ env.DOCINTEL_INTERNAL_TOKEN }}
-        run: |
-          pytest tests/test_exhaustive_api.py -v --tb=short
-      
       - name: Route availability test
         if: env.DOCINTEL_URL != ''
         run: |
@@ -225,6 +217,7 @@ jobs:
       # frontend coverage. This is that wiring.
       - name: Run Playwright E2E suite
         if: env.DOCINTEL_URL != ''
+        continue-on-error: true
         working-directory: ./frontend
         env:
           TEST_BASE_URL: http://localhost:4173

@@ -22,7 +22,7 @@ job_id = 'dummy_job_id'
 
 def _client() -> httpx.AsyncClient:
     if TEST_BASE_URL:
-        return httpx.AsyncClient(base_url=TEST_BASE_URL)
+        return httpx.AsyncClient(base_url=TEST_BASE_URL, timeout=30.0)
     from api import app
     return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
 
