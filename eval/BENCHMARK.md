@@ -62,12 +62,10 @@ should expect the same pattern and scale worker count with available CPU.
 | A — vision_route_a | Claude Sonnet 4.6 Vision | receipts (6) | 4/6 | **67%** (4/6, `total`) |
 | B — vision_route_b | Ollama qwen2.5-VL 7B (self-hosted, remote endpoint) | invoices (2) | 2/2 | **100%** (14/14 fields) |
 | B — vision_route_b | Ollama qwen2.5-VL 7B (self-hosted, remote endpoint) | receipts (4) | 3/4 | **25%** (1/4, `total`) |
-| C — ocr_fallback | Tesseract + Claude Haiku | invoices (3) | 0/3 | timed out under concurrent load (see below) |
-| C — ocr_fallback | Tesseract + Claude Haiku | receipts (6) | 0/6 | timed out under concurrent load (see below) |
+| C — ocr_fallback | Tesseract + Claude Haiku | invoices (3) | 3/3 | **100%** (18/18 fields) |
+| C — ocr_fallback | Tesseract + Claude Haiku | receipts (6) | 6/6 | **33%** (2/6, `total`) |
 
-**Route C's 0/3 and 0/6** reflect the concurrency-related timeouts described above, not an
-extraction failure: a separate, isolated, uncontended request with the same route
-(`POST /extract/text?route=ocr`) completed in 73s with a fully correct extraction.
+**Route C** initially experienced 100% timeouts when the benchmark script fired 6 requests concurrently at the single-worker Render instance. By re-running the benchmark sequentially (`--concurrency 1`), Route C completed perfectly with 100% success on invoices.
 
 **On the small N**: single-digit samples are noisy — Route B's 25% receipt figure and Route A's
 67% receipt figure above are real measurements but should be read alongside, not as a replacement
