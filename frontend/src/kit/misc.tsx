@@ -39,7 +39,7 @@ export function ExecutionStages({
   );
 }
 
-/* ---------- WakingBackend — Render free tier cold-start state ---------- */
+/* ---------- WakingBackend — cold-start state for a sleeping free-tier backend ---------- */
 export function WakingBackend({ onRetry, waking }: { onRetry: () => void; waking: boolean }) {
   return (
     <div className="flex h-full min-h-[60vh] flex-col items-center justify-center gap-4 text-center">
