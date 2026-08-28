@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Rejects commits carrying AI/bot co-authorship or session trailers.
+# Installed by scripts/install-git-hooks.sh — see .agents/skills/github-collaboration/SKILL.md.
+set -euo pipefail
+
+msg_file="$1"
+
+pattern='(Co-Authored-By|Co-authored-by):.*(claude|anthropic|openai|chatgpt|codex|gpt-|copilot|gemini|jules|devin|cursor|windsurf|aider)'
+pattern2='^(Claude-Session|Generated-by|Devin-Session):'
+
+if grep -qiE "$pattern" "$msg_file" || grep -qiE "$pattern2" "$msg_file"; then
+    echo "" >&2
+    echo "COMMIT REJECTED: AI/bot attribution trailer detected in commit message." >&2
+    echo "Per the GitHub collaboration policy, yacine-ai-tech must be the sole author on every commit." >&2
+    echo "Remove any Co-Authored-By / Claude-Session / Generated-by / Devin-Session lines and commit again." >&2
+    echo "" >&2
+    exit 1
+fi
