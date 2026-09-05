@@ -120,23 +120,65 @@ export default function CameraDashboard() {
             )}
 
             {result && (
-              <div className="text-left space-y-3">
-                <div className="flex items-center justify-center gap-2 text-emerald-400 mb-2">
-                  <CheckCircle2 size={20} />
-                  <span>
-                    Photo processed
-                    {result.confidence != null ? ` — confidence ${(result.confidence * 100).toFixed(0)}%` : ""}
+              <div className="text-left space-y-4">
+                <div className="flex items-center justify-between p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-400">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 size={20} />
+                    <span className="font-semibold text-sm">Document Processed Successfully</span>
+                  </div>
+                  <span className="text-xs font-mono bg-emerald-500/20 px-2.5 py-1 rounded-full">
+                    {result.confidence != null ? `${Math.round(result.confidence * 100)}% confidence` : "Complete"}
                   </span>
                 </div>
-                <pre className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 text-xs text-zinc-300 overflow-auto max-h-72">
-                  {JSON.stringify(result.fields, null, 2)}
-                </pre>
+
+                {/* Structured Key Fields Grid */}
+                {result.fields && typeof result.fields === "object" && (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3.5 bg-surface-2 rounded-xl border border-line text-xs">
+                    {Boolean(result.fields.vendor) && (
+                      <div className="p-2 bg-surface-1 rounded-lg border border-line">
+                        <span className="text-muted block text-[10px] uppercase font-semibold">Vendor</span>
+                        <span className="text-body font-medium truncate block">{String(result.fields.vendor)}</span>
+                      </div>
+                    )}
+                    {result.fields.total != null && (
+                      <div className="p-2 bg-surface-1 rounded-lg border border-line">
+                        <span className="text-muted block text-[10px] uppercase font-semibold">Total</span>
+                        <span className="text-emerald-400 font-bold block">
+                          {result.fields.currency ? `${result.fields.currency} ` : "$"}
+                          {Number(result.fields.total).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    )}
+                    {Boolean(result.fields.date) && (
+                      <div className="p-2 bg-surface-1 rounded-lg border border-line">
+                        <span className="text-muted block text-[10px] uppercase font-semibold">Date</span>
+                        <span className="text-body block">{String(result.fields.date)}</span>
+                      </div>
+                    )}
+                    {Boolean(result.fields.invoice_number) && (
+                      <div className="p-2 bg-surface-1 rounded-lg border border-line">
+                        <span className="text-muted block text-[10px] uppercase font-semibold">Invoice #</span>
+                        <span className="text-body font-mono block truncate">{String(result.fields.invoice_number)}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div>
+                  <div className="flex items-center justify-between pb-1.5 text-xs text-muted font-medium">
+                    <span>Extracted JSON Payload</span>
+                    {result.processing_time_ms && <span>{result.processing_time_ms} ms</span>}
+                  </div>
+                  <pre className="bg-zinc-950 border border-line rounded-xl p-4 text-xs text-zinc-300 font-mono overflow-auto max-h-72">
+                    {JSON.stringify(result.fields, null, 2)}
+                  </pre>
+                </div>
               </div>
             )}
 
-            <div className="pt-6">
+            <div className="pt-4">
               <Button variant="secondary" onClick={handleReset}>
-                {result ? "Scan Another" : "Reset Session"}
+                {result ? "Scan Another Document" : "Reset Pairing Session"}
               </Button>
             </div>
           </div>
