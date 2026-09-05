@@ -207,20 +207,25 @@ export const api = {
   batchStatus: (id: string) => req<BatchStatus>(`/batch/${id}`),
   batchResults: (id: string) => req<BatchResults>(`/batch/${id}/results`),
 
-  pairCamera(user = "demo_user", device = "Mobile") {
+  pairCamera(user = "demo_user", device = "Mobile", frontendUrl?: string) {
     const fd = new FormData();
     fd.append("user", user);
     fd.append("device", device);
+    const origin = frontendUrl || (typeof window !== "undefined" && window.location?.origin ? window.location.origin : "");
+    if (origin) {
+      fd.append("frontend_url", origin);
+    }
     return req<CameraPairResponse>("/camera/pair", { method: "POST", body: fd });
   },
 
   cameraStatus: (token: string) => req<CameraStatusResponse>(`/camera/status/${token}`),
 
-  uploadCameraPhoto(token: string, file: File, docType = "default") {
+  uploadCameraPhoto(token: string, file: File | Blob, docType = "default", route = "vision_route_b") {
     const fd = new FormData();
     fd.append("token", token);
-    fd.append("file", file);
+    fd.append("file", file, file instanceof File ? file.name : "camera_capture.png");
     fd.append("doc_type", docType);
+    fd.append("route", route);
     return req<CameraUploadResponse>("/camera/upload", { method: "POST", body: fd });
   },
 };
