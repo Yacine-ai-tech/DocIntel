@@ -294,7 +294,7 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
         if images:
             try:
                 fields = await extract_via_vision_llm(images, doc_type=doc_type, route_b=True)
-                if isinstance(fields, dict) and fields.get("_route_b_failed"):
+                if isinstance(fields, dict) and (fields.get("_route_b_failed") or fields.get("error")):
                     raise RuntimeError(str(fields.get("error", "route_b_failed")))
                 log.info("Route B (%s/%s): extraction succeeded", mode, model_tag)
             except Exception as e:
@@ -320,8 +320,19 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
                     fields = {"error": "OCR extraction failed", "_route_b_fallback": True,
                               "_route_b_mode": mode, "_route_b_model": model_tag}
             else:
-                fields = {"error": "No text extracted for OCR", "_route_b_fallback": True,
-                          "_route_b_mode": mode, "_route_b_model": model_tag}
+                if (os.getenv("ANTHROPIC_API_KEY") or os.getenv("OPENAI_API_KEY")) and images:
+                    try:
+                        log.info("Route C text empty, attempting Route A vision fallback")
+                        fields = await extract_via_vision_llm(images, doc_type=doc_type, route_b=False)
+                        if isinstance(fields, dict) and not fields.get("error"):
+                            fields["_route_b_fallback"] = True
+                            fields["_route_a_fallback_used"] = True
+                            used_route = "vision_route_a"
+                    except Exception as fa_err:
+                        log.warning("Route A vision fallback failed: %s", fa_err)
+                if not fields or (isinstance(fields, dict) and fields.get("error")):
+                    fields = {"error": "No text extracted for OCR", "_route_b_fallback": True,
+                              "_route_b_mode": mode, "_route_b_model": model_tag}
 
     # Route C: OCR fallback
     elif route == "ocr_fallback":
@@ -392,9 +403,13 @@ _camera = CameraManager()
 
 
 @app.post("/camera/pair")
-async def camera_pair(user: str = Form("demo_user"), device: str = Form("Mobile")):
+async def camera_pair(
+    user: str = Form("demo_user"),
+    device: str = Form("Mobile"),
+    frontend_url: Optional[str] = Form(None),
+):
     """Generate a pairing token and QR base64 for mobile uploads."""
-    return _camera.pair_mobile(user, device)
+    return _camera.pair_mobile(user, device, frontend_url=frontend_url)
 
 
 @app.get("/camera/qr/{token}")
@@ -408,8 +423,13 @@ async def camera_qr_image(token: str):
 
 
 @app.post("/camera/upload")
-async def camera_upload(token: str = Form(...), file: UploadFile = File(...), doc_type: str = Form("default")):
-    """Mobile device uploads photo; processes via Route B (local/self-hosted Ollama vision),
+async def camera_upload(
+    token: str = Form(...),
+    file: UploadFile = File(...),
+    doc_type: str = Form("default"),
+    route: str = Form("vision_route_b"),
+):
+    """Mobile device uploads photo; processes via vision pipeline (defaults to Route B with auto-fallback),
     and stores the result on the session so the desktop side that generated the QR can pick
     it up via GET /camera/status/{token} — see /camera/status below."""
     session = _camera.validate_mobile(token)
@@ -417,7 +437,7 @@ async def camera_upload(token: str = Form(...), file: UploadFile = File(...), do
         raise HTTPException(403, "Invalid or expired token")
     data = await _read_upload(file)
     t0 = time.time()
-    out = await _run_route(data, route="vision_route_b", doc_type=doc_type)
+    out = await _run_route(data, route=route, doc_type=doc_type)
     result = {
         "fields": out["fields"],
         "confidence": _confidence_of(out["fields"]),
