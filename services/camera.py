@@ -275,6 +275,11 @@ class CameraManager:
 
     def pair_mobile(self, user: str, device_name: str = "Mobile Device", frontend_url: Optional[str] = None) -> Dict[str, Any]:
         """Create pairing session and return token + QR code."""
+        try:
+            from services.route_b import fire_route_b_warmup
+            fire_route_b_warmup()
+        except Exception:
+            pass
         token = self.pairing.create_session(user, device_name)
         base_url = (frontend_url or os.getenv("FRONTEND_URL", "http://localhost:8001")).rstrip("/")
         qr_b64 = self.pairing.qr_base64(token, frontend_url=base_url)
