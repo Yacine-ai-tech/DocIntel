@@ -56,6 +56,7 @@ import io
 import json
 import logging
 import os
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -257,3 +258,45 @@ async def call_route_b(prompt: str, imgs: List[bytes]) -> str:
     else:
         # local (default)
         return await _call_local(model, prompt, imgs)
+
+
+_last_warmup: float = 0.0
+_warmup_lock = threading.Lock()
+
+
+def fire_route_b_warmup() -> None:
+    """Non-blocking, debounced background probe to wake on-demand Route B host.
+    Fired when a user generates a mobile camera pairing session or starts an active workflow.
+    """
+    global _last_warmup
+    now = time.monotonic()
+    with _warmup_lock:
+        if now - _last_warmup < float(os.getenv("ROUTE_B_WARMUP_DEBOUNCE_SECONDS", "60")):
+            return
+        _last_warmup = now
+
+    def _probe():
+        mode = os.getenv("ROUTE_B_MODE", "local").strip().lower()
+        if mode != "remote":
+            return
+        endpoint = os.getenv("ROUTE_B_REMOTE_ENDPOINT", "").strip()
+        if not endpoint or "huggingface.co" in endpoint:
+            return
+        token = os.getenv("ROUTE_B_REMOTE_TOKEN", "").strip()
+        model = os.getenv("ROUTE_B_REMOTE_MODEL", "").strip() or os.getenv("OLLAMA_MODEL", "qwen2.5vl:7b").strip()
+        try:
+            h = {"Content-Type": "application/json", "User-Agent": "DocIntel-Warmup/1.0"}
+            if token:
+                h["Authorization"] = f"Bearer {token}"
+            payload = {
+                "model": model,
+                "messages": [{"role": "user", "content": "session warm-up"}],
+                "stream": False,
+            }
+            body = json.dumps(payload).encode()
+            req = urllib.request.Request(f"{endpoint.rstrip('/')}/api/chat", data=body, headers=h)
+            urllib.request.urlopen(req, timeout=6).read()
+        except Exception as e:
+            log.debug("Route B session warmup probe sent (non-fatal): %s", e)
+
+    threading.Thread(target=_probe, daemon=True).start()
