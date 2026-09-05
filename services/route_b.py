@@ -161,12 +161,11 @@ def _is_still_waking(exc: Exception) -> bool:
 async def _call_with_wake_retry(*args, **kwargs) -> str:
     """Retry _ollama_chat_sync while the endpoint reports it's still waking up.
 
-    Total budget ROUTE_B_WAKE_TIMEOUT, polled every ROUTE_B_RETRY_DELAY. An endpoint
-    that never signals "still waking" (the common case — most Ollama-compatible hosts
-    are just already running) gets exactly one attempt, same as before this existed.
+    Total budget ROUTE_B_WAKE_TIMEOUT, polled every ROUTE_B_RETRY_DELAY. Bounded
+    to fail fast and permit graceful Route C (OCR) fallback within HTTP request limits.
     """
-    budget = float(os.getenv("ROUTE_B_WAKE_TIMEOUT", "420"))
-    delay = float(os.getenv("ROUTE_B_RETRY_DELAY", "15"))
+    budget = float(os.getenv("ROUTE_B_WAKE_TIMEOUT", "20"))
+    delay = float(os.getenv("ROUTE_B_RETRY_DELAY", "3"))
     deadline = time.monotonic() + budget
     attempt = 0
     while True:
@@ -186,7 +185,7 @@ async def _call_with_wake_retry(*args, **kwargs) -> str:
 async def _call_local(model: str, prompt: str, imgs: List[bytes]) -> str:
     """Ollama on this machine/LAN (OLLAMA_HOST, default http://localhost:11434)."""
     host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-    timeout = int(os.getenv("ROUTE_B_TIMEOUT", "60"))
+    timeout = int(os.getenv("ROUTE_B_TIMEOUT", "15"))
     fallback_model = os.getenv("OLLAMA_FALLBACK_MODEL", "qwen2.5vl:7b")
     try:
         return await _call_with_wake_retry(host, model, prompt, imgs, timeout)
@@ -209,7 +208,7 @@ async def _call_remote(model: str, prompt: str, imgs: List[bytes]) -> str:
     """
     endpoint = os.getenv("ROUTE_B_REMOTE_ENDPOINT", "").strip()
     token = os.getenv("ROUTE_B_REMOTE_TOKEN", "").strip()
-    timeout = int(os.getenv("ROUTE_B_TIMEOUT", "60"))
+    timeout = int(os.getenv("ROUTE_B_TIMEOUT", "15"))
     model = os.getenv("ROUTE_B_REMOTE_MODEL", "").strip() or model
     fallback_model = os.getenv("OLLAMA_FALLBACK_MODEL", "qwen2.5vl:7b")
 

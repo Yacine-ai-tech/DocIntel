@@ -207,30 +207,22 @@ class MobilePairing:
                 "last_result": session.get("last_result"),
             }
 
-    def qr_bytes(self, token: str) -> Optional[bytes]:
+    def qr_bytes(self, token: str, frontend_url: Optional[str] = None) -> Optional[bytes]:
         """Generate QR code for pairing token."""
         if not _QR:
             return None
         import io
-        # FRONTEND_URL is the only reliable source here — the backend can't know its own
-        # public-facing origin (behind a proxy/tunnel, different host than the frontend in
-        # split deployments, etc.). Falls back to localhost:8001 for local single-container
-        # dev — deliberately NOT a live hosted URL: for anyone self-hosting, defaulting to
-        # this project's own public demo would silently send their users' camera-pairing QR
-        # codes to someone else's frontend/backend pair (a confusing, broken pairing attempt
-        # dressed up as a working QR code) instead of failing obviously. See SELF_HOSTING.md —
-        # this is the one env var every split frontend/backend deployment must set correctly.
-        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:8001").rstrip("/")
-        url = f"{frontend_url}/camera/mobile?token={token}"
+        base_url = (frontend_url or os.getenv("FRONTEND_URL", "http://localhost:8001")).rstrip("/")
+        url = f"{base_url}/camera/mobile?token={token}"
         img = qrcode.make(url)
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         buf.seek(0)
         return buf.getvalue()
 
-    def qr_base64(self, token: str) -> Optional[str]:
+    def qr_base64(self, token: str, frontend_url: Optional[str] = None) -> Optional[str]:
         """Generate QR code as base64 data URI."""
-        qr_bytes = self.qr_bytes(token)
+        qr_bytes = self.qr_bytes(token, frontend_url=frontend_url)
         if not qr_bytes:
             return None
         return f"data:image/png;base64,{base64.b64encode(qr_bytes).decode('utf-8')}"
@@ -281,16 +273,17 @@ class CameraManager:
     # revoke another user's sessions by guessing/reusing their `user` string.
     # Don't reintroduce them without real auth alongside.
 
-    def pair_mobile(self, user: str, device_name: str = "Mobile Device") -> Dict[str, Any]:
+    def pair_mobile(self, user: str, device_name: str = "Mobile Device", frontend_url: Optional[str] = None) -> Dict[str, Any]:
         """Create pairing session and return token + QR code."""
         token = self.pairing.create_session(user, device_name)
-        qr_b64 = self.pairing.qr_base64(token)
+        base_url = (frontend_url or os.getenv("FRONTEND_URL", "http://localhost:8001")).rstrip("/")
+        qr_b64 = self.pairing.qr_base64(token, frontend_url=base_url)
         return {
             "token": token,
             "qr_available": qr_b64 is not None,
             "qr_code": qr_b64,
             "expires_in_hours": 24,
-            "frontend_url": os.getenv("FRONTEND_URL", "http://localhost:8001").rstrip("/"),
+            "frontend_url": base_url,
         }
 
     def validate_mobile(self, token: str) -> Optional[Dict[str, Any]]:
