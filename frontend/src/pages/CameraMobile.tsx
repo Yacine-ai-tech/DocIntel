@@ -43,6 +43,7 @@ export default function CameraMobile() {
   const [capturedBlob, setCapturedBlob] = useState<Blob | null>(null);
   const [result, setResult] = useState<CameraUploadResult | null>(null);
   const [cameraActive, setCameraActive] = useState(false);
+  const [hasStarted, setHasStarted] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -76,7 +77,14 @@ export default function CameraMobile() {
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        await videoRef.current.play().catch(() => {});
+        videoRef.current.setAttribute("playsinline", "true");
+        videoRef.current.setAttribute("webkit-playsinline", "true");
+        videoRef.current.muted = true;
+        try {
+          await videoRef.current.play();
+        } catch (playErr) {
+          console.warn("video.play() auto-play prevented, awaiting gesture:", playErr);
+        }
       }
       setCameraActive(true);
 
@@ -100,14 +108,14 @@ export default function CameraMobile() {
       return;
     }
 
-    if (status === "idle" && !previewUrl) {
+    if (status === "idle" && !previewUrl && hasStarted) {
       startCamera();
     }
 
     return () => {
       stopStream();
     };
-  }, [token, status, previewUrl, startCamera, stopStream]);
+  }, [token, status, previewUrl, hasStarted, startCamera, stopStream]);
 
   const toggleTorch = async () => {
     if (!streamRef.current) return;
@@ -328,24 +336,36 @@ export default function CameraMobile() {
                   </div>
                 </>
               ) : (
-                /* Fallback when live video stream is not initialized */
+                /* Pre-start or fallback when live video stream is not active */
                 <div className="p-8 text-center space-y-4">
-                  <div className="w-20 h-20 mx-auto rounded-full bg-zinc-900 border border-zinc-700 flex items-center justify-center text-emerald-400">
+                  <div className="w-20 h-20 mx-auto rounded-full bg-zinc-900 border border-zinc-700 flex items-center justify-center text-emerald-400 shadow-inner">
                     <Camera size={40} />
                   </div>
                   <div>
-                    <h3 className="text-lg font-semibold text-zinc-200">Tap to Take Photo</h3>
+                    <h3 className="text-lg font-semibold text-zinc-200">Document Camera</h3>
                     <p className="text-xs text-zinc-400 max-w-xs mx-auto mt-1">
-                      Capture or select a document image from your mobile library
+                      Tap below to launch live camera scanning or upload directly
                     </p>
                   </div>
-                  <label
-                    htmlFor="native-camera-input"
-                    className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-semibold rounded-xl cursor-pointer transition shadow-lg shadow-emerald-950"
-                  >
-                    <Camera size={20} />
-                    <span>Open Camera / Photo</span>
-                  </label>
+                  <div className="flex flex-col gap-2 w-full max-w-xs mx-auto">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setHasStarted(true);
+                        await startCamera();
+                      }}
+                      className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-semibold rounded-xl cursor-pointer transition shadow-lg shadow-emerald-950 active:scale-95"
+                    >
+                      <Camera size={20} />
+                      <span>Start Live Camera</span>
+                    </button>
+                    <label
+                      htmlFor="native-camera-input"
+                      className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium rounded-xl cursor-pointer transition border border-zinc-700"
+                    >
+                      <span>Take Photo or Upload Image</span>
+                    </label>
+                  </div>
                   <input
                     id="native-camera-input"
                     type="file"
