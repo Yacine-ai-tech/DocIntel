@@ -320,19 +320,8 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
                     fields = {"error": "OCR extraction failed", "_route_b_fallback": True,
                               "_route_b_mode": mode, "_route_b_model": model_tag}
             else:
-                if (os.getenv("ANTHROPIC_API_KEY") or os.getenv("OPENAI_API_KEY")) and images:
-                    try:
-                        log.info("Route C text empty, attempting Route A vision fallback")
-                        fields = await extract_via_vision_llm(images, doc_type=doc_type, route_b=False)
-                        if isinstance(fields, dict) and not fields.get("error"):
-                            fields["_route_b_fallback"] = True
-                            fields["_route_a_fallback_used"] = True
-                            used_route = "vision_route_a"
-                    except Exception as fa_err:
-                        log.warning("Route A vision fallback failed: %s", fa_err)
-                if not fields or (isinstance(fields, dict) and fields.get("error")):
-                    fields = {"error": "No text extracted for OCR", "_route_b_fallback": True,
-                              "_route_b_mode": mode, "_route_b_model": model_tag}
+                fields = {"error": "No text extracted for OCR", "_route_b_fallback": True,
+                          "_route_b_mode": mode, "_route_b_model": model_tag}
 
     # Route C: OCR fallback
     elif route == "ocr_fallback":
