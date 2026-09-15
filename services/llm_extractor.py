@@ -175,6 +175,13 @@ class LLMExtractor:
             if isinstance(result, dict) and "error" not in result:
                 self._apply_regex_fallback(text, result, doc_type)
                 normalize_fields(result, doc_type)
+            elif isinstance(result, dict) and "error" in result:
+                log.warning("LLM cleanup failed (%s) — using regex and OCR fallback extraction", result.get("error"))
+                fallback_res = {"raw_text": text[:2000], "_fallback": "regex_ocr", "_llm_error": result.get("error")}
+                self._apply_regex_fallback(text, fallback_res, doc_type)
+                normalize_fields(fallback_res, doc_type)
+                fallback_res["_cost_usd"] = 0.0
+                result = fallback_res
             return result
 
         # Large document: pack pages (form-feed separated) into chunks under the char budget.
@@ -193,6 +200,8 @@ class LLMExtractor:
         parts = await asyncio.gather(*(self._extract_one(c, doc_type) for c in chunks))
         total_cost = sum(p.get("_cost_usd", 0.0) for p in parts if isinstance(p, dict))
         merged = merge_doc_fields(parts)
+        if isinstance(merged, dict) and (not merged or merged.get("error")):
+            merged = {"raw_text": text[:2000], "_fallback": "regex_ocr", "_llm_error": str(parts[0].get("error") if parts and isinstance(parts[0], dict) else "unknown")}
         self._apply_regex_fallback(text, merged, doc_type)
         normalize_fields(merged, doc_type)
         merged["_chunks"] = len(chunks)

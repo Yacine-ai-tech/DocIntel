@@ -75,7 +75,10 @@ class Settings:
 
     # ─── Route C: OCR fallback ────────────────────────────────────────────────
     # Cheaper model for the OCR-route text→JSON cleanup (cost-optimized default).
-    LLM_CLEANUP = os.getenv("LLM_CLEANUP", "anthropic/claude-haiku-4-5")
+    LLM_CLEANUP = os.getenv(
+        "LLM_CLEANUP",
+        "groq/openai/gpt-oss-120b" if os.getenv("GROQ_API_KEY") else "anthropic/claude-haiku-4-5"
+    )
 
     # ─── API Keys ─────────────────────────────────────────────────────────────
     # Required for Route A (Claude)
