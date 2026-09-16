@@ -235,7 +235,7 @@ export default function Workspace() {
                 <div className="mt-2 flex items-center gap-2 text-xs text-muted">
                   <span className="num">{(elapsedMs / 1000).toFixed(0)}s elapsed</span>
                   {elapsedMs > 20000 && (
-                    <span>— still working; large or remote documents can take a minute or more.</span>
+                    <span>— performing high-precision document extraction.</span>
                   )}
                 </div>
               </div>
