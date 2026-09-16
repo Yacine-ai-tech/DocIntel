@@ -39,19 +39,19 @@ export function ExecutionStages({
   );
 }
 
-/* ---------- WakingBackend — cold-start state for a sleeping free-tier backend ---------- */
+/* ---------- WakingBackend — connection state for backend services ---------- */
 export function WakingBackend({ onRetry, waking }: { onRetry: () => void; waking: boolean }) {
   return (
     <div className="flex h-full min-h-[60vh] flex-col items-center justify-center gap-4 text-center">
       <img src="/mark.png" alt="" className="h-14 w-14 rounded-2xl border border-line object-cover opacity-80" />
       <div>
         <div className="text-[15px] font-semibold text-body">
-          {waking ? "Waking the backend…" : "Backend unreachable"}
+          {waking ? "Connecting to services…" : "Backend unreachable"}
         </div>
         <div className="mx-auto mt-1 max-w-xs text-[13px] text-muted">
           {waking
-            ? "Free-tier services sleep when idle. First start can take up to a minute."
-            : "Could not reach the API. It may still be starting."}
+            ? "Establishing secure connection to the extraction engine."
+            : "Could not reach the API. Check network status or retry."}
         </div>
       </div>
       {waking ? (

@@ -74,7 +74,7 @@ _MLLAMA_ERRORS = ("no such file", "not found", "mllama", "llama3.2 vision",
 _WAKING_HINTS = ("waking", "still starting", "cold start", " 530", "not ready yet")
 
 
-def _downscale_image(image_bytes: bytes, max_edge: int = 2200) -> bytes:
+def _downscale_image(image_bytes: bytes, max_edge: int = 1024) -> bytes:
     """Shrink oversized images to reduce token cost. No-op without PIL."""
     try:
         from PIL import Image
@@ -124,8 +124,9 @@ def _ollama_chat_sync(
         ],
         "stream": False,
         "options": {
-            "num_ctx": int(os.getenv("OLLAMA_NUM_CTX", "8192")),
+            "num_ctx": int(os.getenv("OLLAMA_NUM_CTX", "4096")),
             "temperature": 0.1,
+            "num_predict": int(os.getenv("OLLAMA_NUM_PREDICT", "256")),
         },
     }
     body = json.dumps(payload).encode()
@@ -186,7 +187,7 @@ async def _call_with_wake_retry(*args, **kwargs) -> str:
 async def _call_local(model: str, prompt: str, imgs: List[bytes]) -> str:
     """Ollama on this machine/LAN (OLLAMA_HOST, default http://localhost:11434)."""
     host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-    timeout = int(os.getenv("ROUTE_B_TIMEOUT", "15"))
+    timeout = int(os.getenv("ROUTE_B_TIMEOUT", "240"))
     fallback_model = os.getenv("OLLAMA_FALLBACK_MODEL", "qwen2.5vl:7b")
     try:
         return await _call_with_wake_retry(host, model, prompt, imgs, timeout)
@@ -209,7 +210,7 @@ async def _call_remote(model: str, prompt: str, imgs: List[bytes]) -> str:
     """
     endpoint = os.getenv("ROUTE_B_REMOTE_ENDPOINT", "").strip()
     token = os.getenv("ROUTE_B_REMOTE_TOKEN", "").strip()
-    timeout = int(os.getenv("ROUTE_B_TIMEOUT", "15"))
+    timeout = int(os.getenv("ROUTE_B_TIMEOUT", "240"))
     model = os.getenv("ROUTE_B_REMOTE_MODEL", "").strip() or model
     fallback_model = os.getenv("OLLAMA_FALLBACK_MODEL", "qwen2.5vl:7b")
 
