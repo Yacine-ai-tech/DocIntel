@@ -283,7 +283,9 @@ class CameraManager:
         except Exception:
             pass
         token = self.pairing.create_session(user, device_name)
-        base_url = (frontend_url or os.getenv("FRONTEND_URL", "http://localhost:8001")).rstrip("/")
+        base_url = (frontend_url or os.getenv("FRONTEND_URL") or "https://docintel-ui-2026.vercel.app").rstrip("/")
+        if "docintel.ysiddo-ai-projects.app" in base_url and "ui" not in base_url:
+            base_url = "https://docintel-ui-2026.vercel.app"
         qr_b64 = self.pairing.qr_base64(token, frontend_url=base_url)
         return {
             "token": token,
