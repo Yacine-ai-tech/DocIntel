@@ -33,7 +33,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -409,6 +409,18 @@ async def camera_qr_image(token: str):
         raise HTTPException(404, "Token not found or QR failed")
     from fastapi.responses import Response
     return Response(content=qr_bytes, media_type="image/png")
+
+
+@app.get("/camera/mobile")
+async def camera_mobile_redirect(token: Optional[str] = None):
+    """Redirect to the Vercel mobile camera scanner UI if accessed via the API endpoint."""
+    frontend_url = (os.getenv("FRONTEND_URL") or "https://docintel-ui-2026.vercel.app").rstrip("/")
+    if "docintel.ysiddo-ai-projects.app" in frontend_url and "ui" not in frontend_url:
+        frontend_url = "https://docintel-ui-2026.vercel.app"
+    url = f"{frontend_url}/camera/mobile"
+    if token:
+        url += f"?token={token}"
+    return RedirectResponse(url=url, status_code=307)
 
 
 @app.post("/camera/upload")
