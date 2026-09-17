@@ -212,7 +212,9 @@ class MobilePairing:
         if not _QR:
             return None
         import io
-        base_url = (frontend_url or os.getenv("FRONTEND_URL", "http://localhost:8001")).rstrip("/")
+        base_url = (frontend_url or os.getenv("FRONTEND_URL") or "https://docintel-ui-2026.vercel.app").rstrip("/")
+        if "docintel.ysiddo-ai-projects.app" in base_url and "ui" not in base_url:
+            base_url = "https://docintel-ui-2026.vercel.app"
         url = f"{base_url}/camera/mobile?token={token}"
         img = qrcode.make(url)
         buf = io.BytesIO()
