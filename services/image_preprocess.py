@@ -39,8 +39,11 @@ except ImportError:
     _AVAILABLE = False
 
 
-def _to_gray_array(image_bytes: bytes):
+def _to_gray_array(image_bytes: bytes, max_edge: int = 0):
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    if max_edge and max(img.size) > max_edge:
+        ratio = max_edge / max(img.size)
+        img = img.resize((max(1, int(img.width * ratio)), max(1, int(img.height * ratio))))
     arr = np.asarray(img) / 255.0
     return img, rgb2gray(arr)
 
@@ -74,7 +77,11 @@ def deskew_image(image_bytes: bytes) -> bytes:
     if not _AVAILABLE:
         return image_bytes
     try:
-        img, gray = _to_gray_array(image_bytes)
+        # Capped at 1024px — Route B (route_b.py's _downscale_image) shrinks to 1024px
+        # before sending to the VLM anyway, so rotating at full scan resolution (a
+        # measured 2s+ per page at 300dpi A4) is wasted work the final downscale throws
+        # away regardless.
+        img, gray = _to_gray_array(image_bytes, max_edge=1024)
         angle = _estimate_skew_angle(gray)
         if abs(angle) < 0.3:  # not worth rotating — avoids resampling blur on already-straight scans
             return image_bytes
@@ -97,7 +104,11 @@ def enhance_contrast_for_ocr(image_bytes: bytes) -> bytes:
     if not _AVAILABLE:
         return image_bytes
     try:
-        _, gray = _to_gray_array(image_bytes)
+        # Capped at 1600px — equalize_adapthist is the actual bottleneck (measured
+        # ~10s on a full-resolution 300dpi A4 scan). Tesseract doesn't need native scan
+        # resolution; 1600px on the long edge is comfortably above what OCR needs for
+        # legible text while cutting the dominant cost by roughly (2480/1600)^2 ~= 2.4x.
+        _, gray = _to_gray_array(image_bytes, max_edge=1600)
         equalized = equalize_adapthist(gray, clip_limit=0.03)
         thresh = threshold_otsu(equalized)
         binary = (equalized > thresh).astype("uint8") * 255
