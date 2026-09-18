@@ -261,7 +261,10 @@ async def main():
     http_client = None
     if a.api_url:
         import httpx
-        http_client = httpx.AsyncClient(timeout=300.0)
+        # Route B on CPU-only hardware (no GPU on the VPS) genuinely takes minutes per
+        # document for a 7B VLM — 300s was cutting off real, eventually-successful
+        # inferences and miscounting them as failures.
+        http_client = httpx.AsyncClient(timeout=600.0)
 
     if a.scale_only:
         sem = asyncio.Semaphore(a.concurrency)
