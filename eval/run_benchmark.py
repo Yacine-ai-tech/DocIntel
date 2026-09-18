@@ -43,6 +43,34 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 BENCH = ROOT / "eval" / "benchmark"
+DEFAULT_CACHE_FILE = ROOT / "eval" / "cache" / "docintel_benchmark_cache.jsonl"
+
+
+def _load_cache(cache_file: Path) -> dict:
+    """Return {cache_key: result_dict} for every row already scored in a prior run.
+    A crash/interruption mid-run loses nothing — resuming just skips these keys."""
+    done: dict = {}
+    if not cache_file.exists():
+        return done
+    with cache_file.open() as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                d = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            key = d.get("cache_key")
+            if key:
+                done[key] = d
+    return done
+
+
+def _append_cache(cache_file: Path, record: dict) -> None:
+    cache_file.parent.mkdir(parents=True, exist_ok=True)
+    with cache_file.open("a") as fh:
+        fh.write(json.dumps(record) + "\n")
 
 
 def _num(v):
@@ -197,7 +225,14 @@ async def main():
                      help="Run against a real deployed instance's HTTP API instead of "
                           "in-process service calls (e.g. https://<your-deployment>). "
                           "See the module docstring's 'Remote mode' section.")
+    ap.add_argument("--cache-file", type=Path, default=DEFAULT_CACHE_FILE,
+                     help="Path to .jsonl cache file for resumption after interruption")
+    ap.add_argument("--reset-cache", action="store_true",
+                     help="Ignore/clear the existing cache and start fresh")
     a = ap.parse_args()
+
+    if a.reset_cache and a.cache_file.exists():
+        a.cache_file.unlink()
 
     rows = [json.loads(l) for l in open(a.dataset) if l.strip()]
     if a.doc_type:
@@ -205,7 +240,15 @@ async def main():
     if a.limit:
         rows = rows[: a.limit]
     mode_label = f"{'scale-only' if a.scale_only else a.route}" + (f" via {a.api_url}" if a.api_url else " (in-process)")
+    # Cache keys are namespaced by mode so --scale-only and each --route can share one
+    # cache file without colliding — the same doc scored under different routes is a
+    # different result.
+    mode_key = "scale-only" if a.scale_only else f"route={a.route}"
+    done_cache = _load_cache(a.cache_file)
     print(f"\nBenchmark: {len(rows)} docs | mode={mode_label}")
+    n_cached = sum(1 for i, r in enumerate(rows) if f"{mode_key}:{r.get('file', i)}" in done_cache)
+    if n_cached:
+        print(f"  Cache: {a.cache_file}  ({n_cached}/{len(rows)} already scored, resuming)")
 
     t0 = time.time()
     ok = err = 0
@@ -223,9 +266,18 @@ async def main():
     if a.scale_only:
         sem = asyncio.Semaphore(a.concurrency)
 
-        async def run_one(row):
+        async def run_one(row, idx):
             nonlocal ok, err
+            cache_key = f"{mode_key}:{row.get('file', idx)}"
+            cached = done_cache.get(cache_key)
+            if cached is not None:
+                if cached["ok"]:
+                    ok += 1
+                else:
+                    err += 1
+                return
             async with sem:
+                success = True
                 try:
                     if a.api_url:
                         await ingest_ocr_via_api(row, a.api_url, http_client)
@@ -234,35 +286,48 @@ async def main():
                     ok += 1
                 except Exception:
                     err += 1
-        await asyncio.gather(*(run_one(r) for r in rows))
+                    success = False
+                _append_cache(a.cache_file, {"cache_key": cache_key, "ok": success})
+        await asyncio.gather(*(run_one(r, i) for i, r in enumerate(rows)))
     else:
         sem = asyncio.Semaphore(a.concurrency)
 
-        async def run_one(row):
+        def _tally(row, res):
             nonlocal ok, err, field_c, field_t, total_cost
+            if isinstance(res, dict):
+                total_cost += res.get("_cost_usd", 0.0) or 0.0
+            pt = per_type.setdefault(row["doc_type"], [0, 0])
+            if isinstance(res, dict) and "error" not in res:
+                ok += 1
+                pt[0] += 1
+            else:
+                err += 1
+            pt[1] += 1
+            if row.get("expected") and isinstance(res, dict):
+                sc = score(row["doc_type"], row["expected"], res)
+                for k, val in sc.items():
+                    field_c += int(val)
+                    field_t += 1
+                    pf = per_field.setdefault(k, [0, 0])
+                    pf[0] += int(val)
+                    pf[1] += 1
+
+        async def run_one(row, idx):
+            cache_key = f"{mode_key}:{row.get('file', idx)}"
+            cached = done_cache.get(cache_key)
+            if cached is not None:
+                latencies.append(cached.get("latency", 0.0))
+                _tally(row, cached["result"])
+                return
             async with sem:
                 t_item = time.time()
                 res = await (extract_via_api(a.route, row, a.api_url, http_client) if a.api_url
                              else extract(a.route, row))
-                latencies.append(time.time() - t_item)
-                if isinstance(res, dict):
-                    total_cost += res.get("_cost_usd", 0.0) or 0.0
-                pt = per_type.setdefault(row["doc_type"], [0, 0])
-                if isinstance(res, dict) and "error" not in res:
-                    ok += 1
-                    pt[0] += 1
-                else:
-                    err += 1
-                pt[1] += 1
-                if row.get("expected") and isinstance(res, dict):
-                    sc = score(row["doc_type"], row["expected"], res)
-                    for k, val in sc.items():
-                        field_c += int(val)
-                        field_t += 1
-                        pf = per_field.setdefault(k, [0, 0])
-                        pf[0] += int(val)
-                        pf[1] += 1
-        await asyncio.gather(*(run_one(r) for r in rows))
+                latency = time.time() - t_item
+                latencies.append(latency)
+                _tally(row, res)
+                _append_cache(a.cache_file, {"cache_key": cache_key, "result": res, "latency": latency})
+        await asyncio.gather(*(run_one(r, i) for i, r in enumerate(rows)))
 
     if http_client:
         await http_client.aclose()
