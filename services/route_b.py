@@ -246,6 +246,13 @@ async def call_route_b(prompt: str, imgs: List[bytes]) -> str:
     mode = os.getenv("ROUTE_B_MODE", "local").strip().lower()
     model = os.getenv("OLLAMA_MODEL", "qwen2.5vl:7b").strip()
 
+    # Skew correction before tiling — a 7B VLM loses table-column resolution on
+    # rotated photos it otherwise has to spend attention re-aligning first. CPU-bound
+    # (Radon transform), so off the event loop; no-op if skimage isn't installed.
+    import asyncio
+    from services.image_preprocess import deskew_image
+    imgs = await asyncio.gather(*[asyncio.to_thread(deskew_image, im) for im in imgs])
+
     if mode == "remote":
         endpoint = os.getenv("ROUTE_B_REMOTE_ENDPOINT", "").strip()
         if not endpoint:

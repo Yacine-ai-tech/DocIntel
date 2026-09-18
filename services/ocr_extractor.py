@@ -82,6 +82,12 @@ def extract_text_from_image(image_bytes: bytes, lang: Optional[str] = None) -> s
         return ""
     langs = lang or _OCR_LANGS
     try:
+        # CLAHE + Otsu before Tesseract — raw Tesseract collapses on crumpled paper,
+        # uneven lighting, and low-contrast phone photos; normalizing local contrast
+        # and picking a per-image binarization threshold fixes that. No-op (returns
+        # input unchanged) if skimage isn't installed or preprocessing fails.
+        from services.image_preprocess import enhance_contrast_for_ocr
+        image_bytes = enhance_contrast_for_ocr(image_bytes)
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         try:
             return pytesseract.image_to_string(img, lang=langs).strip()
