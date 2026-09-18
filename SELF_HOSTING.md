@@ -6,7 +6,8 @@
    (or `docker compose -f docker-compose.dev.yml up` for local dev). FastAPI serves the built
    frontend itself (`frontend/dist/`) at `/`, so frontend and backend share one origin by default.
 3. **GPU Note:** If running Surya or Marker natively, a CUDA GPU with 16GB+ VRAM is recommended.
-4. **Hosting:** Render free tier (see `render.yaml`) or a dedicated on-demand GPU cloud host.
+4. **Hosting:** Any host that runs a Dockerfile and honors `$PORT` (a VPS with Docker Compose,
+   Render, Fly.io, etc.), or a dedicated on-demand GPU cloud host.
 5. **Database (optional):** batch-job and camera-pairing-session state persists to local JSON
    files by default — zero configuration needed. Set `POSTGRES_URL` (any Postgres, including
    free-tier serverless providers like Neon or Supabase) if you want that state durable across
