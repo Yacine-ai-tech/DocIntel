@@ -21,10 +21,21 @@ log = get_logger(__name__)
 
 try:
     from litellm import acompletion
+    from litellm.exceptions import RateLimitError
     _LITELLM = True
 except ImportError:
     _LITELLM = False
     log.warning("litellm not installed — LLMExtractor will return stubs")
+
+
+def _rate_limit_wait_s(exc: Exception, default: float = 12.0) -> float:
+    """Groq (and most providers) put the real wait time in the error body, e.g.
+    '...Please try again in 8.504999999s...' — use it instead of a blind guess,
+    since a fixed short backoff on a per-minute token budget just re-triggers
+    the same error, and a too-long fixed wait wastes time when the true window
+    is short."""
+    m = re.search(r"try again in ([\d.]+)s", str(exc))
+    return min(float(m.group(1)), 30.0) + 0.5 if m else default
 
 
 # Shared rules — the text may be concatenated from MULTIPLE pages (separated by form-feeds),
@@ -106,48 +117,67 @@ class LLMExtractor:
         self.model = model or os.getenv("LLM_REASONING", "anthropic/claude-sonnet-4-6")
 
     async def _extract_one(self, text: str, doc_type: str) -> Dict[str, Any]:
-        """One LLM call over a text block, with a single JSON retry. Never raises."""
+        """One LLM call over a text block, with a single JSON retry and, on a
+        provider rate-limit error specifically, a real wait-and-retry (up to
+        LLM_RATE_LIMIT_RETRIES times) instead of falling back immediately. Never raises."""
         prompt = PROMPTS.get(doc_type, PROMPTS["default"]) + _RULES
         content = ""
         cost = 0.0
         for attempt in (1, 2):
-            try:
-                # litellm's own num_retries applies inside acompletion() even to
-                # non-transient errors (e.g. a billing/credit-exhausted BadRequestError),
-                # so a single call can silently take num_retries+1 * LLM_CALL_TIMEOUT
-                # instead of failing fast — wrapping with our own bound caps the total
-                # wait regardless of what litellm decides is worth retrying.
-                response = await asyncio.wait_for(
-                    acompletion(
-                        model=self.model,
-                        messages=[
-                            {"role": "system", "content": prompt},
-                            {"role": "user", "content": text},
-                        ],
-                        temperature=0.1,
+            rl_attempt = 0
+            while True:
+                try:
+                    # litellm's own num_retries applies inside acompletion() even to
+                    # non-transient errors (e.g. a billing/credit-exhausted BadRequestError),
+                    # so a single call can silently take num_retries+1 * LLM_CALL_TIMEOUT
+                    # instead of failing fast — wrapping with our own bound caps the total
+                    # wait regardless of what litellm decides is worth retrying.
+                    response = await asyncio.wait_for(
+                        acompletion(
+                            model=self.model,
+                            messages=[
+                                {"role": "system", "content": prompt},
+                                {"role": "user", "content": text},
+                            ],
+                            temperature=0.1,
+                            timeout=settings.LLM_CALL_TIMEOUT,
+                            num_retries=settings.LLM_CALL_RETRIES,
+                        ),
                         timeout=settings.LLM_CALL_TIMEOUT,
-                        num_retries=settings.LLM_CALL_RETRIES,
-                    ),
-                    timeout=settings.LLM_CALL_TIMEOUT,
-                )
-                cost += _completion_cost_usd(response)
-                content = response.choices[0].message.content or "{}"
-                result = json.loads(_strip_fences(content))
-                result = result if isinstance(result, dict) else {"value": result}
-                result["_cost_usd"] = cost
-                return result
-            except json.JSONDecodeError as e:
-                log.warning("LLM non-JSON (attempt %d): %s", attempt, e)
-                if attempt == 1:
-                    prompt += " Your previous reply was not valid JSON. Output ONLY the JSON object."
+                    )
+                    cost += _completion_cost_usd(response)
+                    content = response.choices[0].message.content or "{}"
+                    result = json.loads(_strip_fences(content))
+                    result = result if isinstance(result, dict) else {"value": result}
+                    result["_cost_usd"] = cost
+                    return result
+                except json.JSONDecodeError as e:
+                    log.warning("LLM non-JSON (attempt %d): %s", attempt, e)
+                    break  # fall through to outer attempt loop (retry with stricter prompt)
+                except RateLimitError as e:
+                    # Groq (and most providers) put the real wait time in the error body,
+                    # e.g. "...Please try again in 8.504999999s..." — a per-minute token
+                    # budget means a blind short backoff just re-triggers the same error,
+                    # so honor the provider's own number instead of guessing.
+                    if rl_attempt >= settings.LLM_RATE_LIMIT_RETRIES:
+                        log.warning("LLM rate-limited after %d retries: %s", rl_attempt, e)
+                        return {"error": f"rate_limited: {e}", "_cost_usd": cost}
+                    wait_s = _rate_limit_wait_s(e)
+                    log.info("LLM rate-limited (retry %d/%d), waiting %.1fs",
+                             rl_attempt + 1, settings.LLM_RATE_LIMIT_RETRIES, wait_s)
+                    await asyncio.sleep(wait_s)
+                    rl_attempt += 1
                     continue
-                return {"error": "non_json_response", "raw": content[:500], "_cost_usd": cost}
-            except asyncio.TimeoutError:
-                log.error("LLM extraction timed out after %ss", settings.LLM_CALL_TIMEOUT)
-                return {"error": f"llm_call_timed_out_after_{settings.LLM_CALL_TIMEOUT}s", "_cost_usd": cost}
-            except Exception as e:
-                log.exception("LLM extraction failed: %s", e)
-                return {"error": str(e), "_cost_usd": cost}
+                except asyncio.TimeoutError:
+                    log.error("LLM extraction timed out after %ss", settings.LLM_CALL_TIMEOUT)
+                    return {"error": f"llm_call_timed_out_after_{settings.LLM_CALL_TIMEOUT}s", "_cost_usd": cost}
+                except Exception as e:
+                    log.exception("LLM extraction failed: %s", e)
+                    return {"error": str(e), "_cost_usd": cost}
+            if attempt == 1:
+                prompt += " Your previous reply was not valid JSON. Output ONLY the JSON object."
+                continue
+            return {"error": "non_json_response", "raw": content[:500], "_cost_usd": cost}
         return {"error": "unreachable", "_cost_usd": cost}
 
     async def extract(self, text: str, doc_type: str = "default") -> Dict[str, Any]:
