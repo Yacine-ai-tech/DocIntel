@@ -97,6 +97,11 @@ class Settings:
     # call previously had no recovery at all — same reasoning as ROUTE_B_TIMEOUT.
     LLM_CALL_TIMEOUT = int(os.getenv("LLM_CALL_TIMEOUT", "120"))
     LLM_CALL_RETRIES = int(os.getenv("LLM_CALL_RETRIES", "1"))
+    # Separate from LLM_CALL_RETRIES: specifically for provider rate-limit errors
+    # (e.g. Groq's per-minute token budget), where waiting the provider's own
+    # stated retry-after window and trying again succeeds far more often than a
+    # generic retry does — see services/llm_extractor.py's _rate_limit_wait_s.
+    LLM_RATE_LIMIT_RETRIES = int(os.getenv("LLM_RATE_LIMIT_RETRIES", "2"))
 
     # ─── Multi-page handling ──────────────────────────────────────────────────
     MAX_PDF_PAGES = int(os.getenv("MAX_PDF_PAGES", "200"))
