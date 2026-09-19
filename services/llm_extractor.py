@@ -44,8 +44,13 @@ _RULES = (
     " The text may span multiple pages (separated by form-feed characters) — aggregate across "
     "them. Normalize numbers to a dot decimal (US '1,234.56' -> 1234.56; European '1.234,56' "
     "-> 1234.56; spaced '1 234 567 FCFA' -> 1234567; strip thousands separators, spaces and "
-    "currency symbols). Use ISO-4217 currency codes (USD, EUR, GBP, JPY, INR, CNY, ...); the "
-    "West African CFA franc 'FCFA'/'CFA'/'F CFA' is XOF, Central African is XAF. ISO YYYY-MM-DD dates. "
+    "currency symbols). A dot-grouped integer with NO comma anywhere and no fractional part "
+    "implied by context (e.g. Indonesian Rupiah '31.000', German/Indonesian-style amounts) is "
+    "a thousands separator, not a decimal point — '31.000' on a receipt total is 31000, not "
+    "31.0; only treat a dot as a decimal point when the amount plausibly has cents/sub-units "
+    "(e.g. USD/EUR '31.00'). Use ISO-4217 currency codes (USD, EUR, GBP, JPY, INR, CNY, IDR, ...); "
+    "the West African CFA franc 'FCFA'/'CFA'/'F CFA' is XOF, Central African is XAF, Indonesian "
+    "Rupiah 'Rp'/'IDR' has no sub-unit in practice (whole-number amounts). ISO YYYY-MM-DD dates. "
     "Use null for missing fields. Include a numeric \"_confidence\" (0-1). Return ONLY valid JSON."
 )
 
