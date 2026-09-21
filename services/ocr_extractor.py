@@ -65,6 +65,9 @@ except ImportError:
 _OCR_LANGS = _os.getenv("OCR_LANGS", "eng+fra+deu+nld+spa+ita")
 
 
+_MIN_RAW_OCR_CHARS = 80
+
+
 def extract_text_from_image(image_bytes: bytes, lang: Optional[str] = None) -> str:
     """Route C (Surya/Tesseract): layout-aware OCR using Surya with Tesseract as fallback.
     Returns '' when neither is available or finds no text — the caller decides how to degrade.
@@ -82,19 +85,28 @@ def extract_text_from_image(image_bytes: bytes, lang: Optional[str] = None) -> s
         return ""
     langs = lang or _OCR_LANGS
     try:
-        # CLAHE + Otsu before Tesseract — raw Tesseract collapses on crumpled paper,
-        # uneven lighting, and low-contrast phone photos; normalizing local contrast
-        # and picking a per-image binarization threshold fixes that. No-op (returns
-        # input unchanged) if skimage isn't installed or preprocessing fails.
-        from services.image_preprocess import enhance_contrast_for_ocr
-        image_bytes = enhance_contrast_for_ocr(image_bytes)
-        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-        try:
-            return pytesseract.image_to_string(img, lang=langs).strip()
-        except pytesseract.TesseractError:
-            # A requested language pack isn't installed — degrade to English.
-            log.warning("Tesseract langs %r unavailable — falling back to eng", langs)
-            return pytesseract.image_to_string(img, lang="eng").strip()
+        def _ocr(data: bytes) -> str:
+            img = Image.open(io.BytesIO(data)).convert("RGB")
+            try:
+                return pytesseract.image_to_string(img, lang=langs).strip()
+            except pytesseract.TesseractError:
+                # A requested language pack isn't installed — degrade to English.
+                log.warning("Tesseract langs %r unavailable — falling back to eng", langs)
+                return pytesseract.image_to_string(img, lang="eng").strip()
+
+        # Raw first: measured A/B on CORD receipts showed CLAHE+Otsu binarization
+        # doubles the empty-OCR rate (15 -> 30 of 60) and cuts recovered text ~60%, so it
+        # is applied only as a second attempt when the raw pass yields little, keeping
+        # whichever result is longer.
+        text = _ocr(image_bytes)
+        if len(text) < _MIN_RAW_OCR_CHARS:
+            from services.image_preprocess import enhance_contrast_for_ocr
+            enhanced = enhance_contrast_for_ocr(image_bytes)
+            if enhanced is not image_bytes:
+                alt = _ocr(enhanced)
+                if len(alt) > len(text):
+                    text = alt
+        return text
     except Exception as e:
         log.error("OCR (Tesseract) failed: %s", e)
         return ""
