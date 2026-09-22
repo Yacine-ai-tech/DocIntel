@@ -126,7 +126,13 @@ def _ollama_chat_sync(
         "options": {
             "num_ctx": int(os.getenv("OLLAMA_NUM_CTX", "4096")),
             "temperature": 0.1,
-            "num_predict": int(os.getenv("OLLAMA_NUM_PREDICT", "256")),
+            # 256 (the prior default) truncates mid-string on anything with more than
+            # 1-2 line items — structured JSON (vendor, invoice_number, dates, a
+            # line_items array, subtotal/tax/total/currency) routinely exceeds it,
+            # producing "Unterminated string"/invalid-JSON failures that have nothing
+            # to do with the model's extraction quality. Matches the 2048 the other
+            # vision route (services/vision_extractor.py) already uses.
+            "num_predict": int(os.getenv("OLLAMA_NUM_PREDICT", "2048")),
         },
     }
     body = json.dumps(payload).encode()
