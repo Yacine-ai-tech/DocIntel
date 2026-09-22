@@ -90,8 +90,10 @@ That said, "vision-LLM" is not one thing, and the literature is specific about w
   its test sets) sit credibly inside that independently-reported range for the same model
   family — which is the calibration check that matters here: not "is this a good number in the
   abstract" but "is this consistent with what independent parties measure for the same model."
-  Route B (open-weight, self-hosted) shows the wider swing the smaller-model literature would
-  predict — 100% on clean/low-noise samples, 25–77% on noisier phone-photo receipts.
+  Route B (open-weight, self-hosted) initially showed the wider swing the smaller-model
+  literature would predict (25–77% depending on document quality); a GPU-accelerated rerun
+  with a corrected response-length limit and deskew preprocessing raised this to 97.8%
+  (89.9% on the global sample, 100% on a new French/FCFA sample) — see `BENCHMARK.md`.
 - **A deterministic post-processing layer over LLM output is documented best practice, not a
   novel technique.** Production guidance on LLM-based extraction pipelines converges on the same
   pattern this project uses: have the model emit a normalized-ish representation (ISO 8601 dates,
@@ -127,11 +129,16 @@ and measurement value, not research novelty, and this document isn't going to pr
 | CORD (receipts) | 92.5% field accuracy — Route A, zero-shot | LayoutLMv3 96.6 F1 · DocMamba 97.0 F1 (fine-tuned)[^2] |
 | SROIE (receipts) | 95.0% overall — Route A, zero-shot | DocMamba 96.8 F1 (fine-tuned)[^2] |
 | Invoices, general | 100% (small-N, multilingual) — Route A | Claude Sonnet reported 90–97.6% field accuracy depending on version/complexity[^3] |
-| Small/open-weight VLMs, complex real-world docs | Route B: 25–100% depending on document quality | 42–67% accuracy reported industry-wide[^1] |
+| Small/open-weight VLMs, complex real-world docs | Route B: 97.8% (GPU-accelerated, corrected token budget) | 42–67% accuracy reported industry-wide[^1] |
 
 Read this table as a sanity check, not a leaderboard entry — DocIntel wasn't run on the exact same
 splits as these external numbers, so it's directional consistency being verified, not a
-head-to-head ranking.
+head-to-head ranking. Route B's 97.8% sits above the 42–67% industry range cited for
+small/open-weight VLMs on complex real-world documents; this reflects a document mix
+(clean synthetic invoices, structured receipts) that is materially easier than the
+"complex real-world" documents the cited studies target, combined with a corrected
+response-length limit that was silently truncating structured output before this rerun —
+not a claim that this model class generally outperforms that literature on harder inputs.
 
 ## Future work
 
