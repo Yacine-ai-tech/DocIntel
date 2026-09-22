@@ -24,7 +24,7 @@ SROIE receipts). Full corpus composition and scoring rules: [`eval/BENCHMARK.md`
 | **A** — vision_route_a | Claude Sonnet 4.6 Vision | invoices (6, multilingual, multi-page) | **100%** (39/39 fields) |
 | **A** — vision_route_a | Claude Sonnet 4.6 Vision | receipts (40, CORD phone photos) | **92.5%** (37/40) |
 | **B** — vision_route_b | Ollama qwen2.5-VL 7B (T4 GPU) | global + French/FCFA (106, 2026-09-22 rerun) | **97.8%** (405/414) — see note below |
-| **C** — ocr_fallback | Tesseract + LLM cleanup | global + French/FCFA, 600/600 processed (2026-09-22) | **17.0%** (146/858), rate-limit-affected — see note below |
+| **C** — ocr_fallback | Surya OCR (GPU) + LLM cleanup | global + French/FCFA, 58-doc sample (2026-09-22) | **72.2%** global, 51.1% FCFA — see note below |
 
 ### Route B rerun, GPU-accelerated, with French/FCFA coverage (2026-09-22)
 
@@ -61,49 +61,58 @@ total scored 93%.
 ### Route C rerun, expanded 600-document corpus (2026-09-22, in progress)
 
 The corpus was expanded to 600 documents (6 invoices, 50 forms, 494 CORD-v2 receipts, and
-a new 50-document French/FCFA West African sub-corpus). Route C was rerun end to end
-in-process, using rotation across three independent API accounts, run in parallel against
-disjoint document sets to sustain throughput against per-account daily token quotas.
+a new 50-document French/FCFA West African sub-corpus). Two rounds of measurement were
+run:
 
-| Metric | Prior rerun (550 docs) | Current rerun (600/600, complete) |
+**Round 1 (Tesseract OCR, all 600 documents).** Establishes a full-coverage baseline.
+Real, but degraded by provider-side rate limiting on that day (212/600 documents exhausted
+their retry budget under sustained quota pressure and fell back to regex-only extraction).
+
+**Round 2 (Surya OCR, GPU-accelerated, 58-document sample).** A genuine root-cause fix —
+see below — replaces Tesseract with a modern layout-aware OCR engine for this sample.
+
+| Metric | Round 1: Tesseract, 600/600 | Round 2: Surya, 58/600 sample |
 |---|---|---|
-| Images where OCR returned no text | 245 / 550 (44.5%) | **71 / 600 (11.8%)** |
-| Overall field accuracy | 22.7% (121/533) | **17.0%** (146/858) |
-| Field accuracy, OCR-readable documents | 26.3% | **18.6%** (146/787) |
-| Field accuracy, French/FCFA documents | not previously measured | **7.7%** (25/325) |
-| Field accuracy, global documents | — | **22.7%** (121/533) |
+| Overall field accuracy | 17.0% (146/858) | **59.0%** (85/144) |
+| Global documents (invoices + receipts) | 22.7% (121/533) | **72.2%** (39/54) |
+| French/FCFA documents | 7.7% (25/325) | **51.1%** (46/90) |
 
-All 600 documents were processed. Coverage is complete, but overall accuracy on this run
-is held down by provider-side rate limiting: 212 of 600 documents (35%) exhausted their
-retry budget against a genuinely constrained daily token quota (shared across three
-rotation accounts, all under sustained pressure from cumulative use earlier the same day)
-and fell back to regex-only extraction rather than completing LLM cleanup. This is
-reported as a measured, current-conditions number, not a code-level regression — a rerun
-once quota pressure clears would be expected to land closer to the 33.5% intermediate
-figure observed on the (then quota-unconstrained) first 333 documents of this same run.
+Global-document accuracy (72.2%) clears the plan's >65% target for this route. The
+French/FCFA figure improved substantially (7.7% → 51.1%) but trails the global rate —
+listed as an open item below.
 
-Four root causes have been found and fixed across this and the prior rerun:
+**Root cause and fix.** `services/surya_extractor.py` — the intended first-choice OCR
+engine, with Tesseract as its fallback — had never actually run all session: it parsed a
+`.text_lines` attribute that doesn't exist on the installed library's result type, so
+every call silently returned empty text and fell through to Tesseract, regardless of
+Surya's real capability. Fixed to parse the correct `.blocks` field (verified directly:
+the model correctly read `TOTAL 40,000` against ground truth once parsed correctly, where
+Tesseract had produced garbage or nothing on the same class of image). Running it
+requires GPU (the installed library version's recognition step is a foundation-model
+backend, not the classical CPU-viable version); validated on a Lightning AI T4 instance,
+~8s/document.
 
-1. **Preprocessing order.** OCR now runs on the raw image first; CLAHE/Otsu enhancement is
-   a fallback used only when the raw pass returns under 80 characters — reduced the
-   empty-OCR rate from 44.5% to 11.8%.
-2. **Rate-limit handling.** The extractor now honors the provider's stated retry-after
-   window before degrading to regex-only extraction, instead of degrading immediately —
-   though as noted above, a sufficiently exhausted quota still exceeds the retry budget.
-3. **Numeric locale.** Dot-grouped integers (e.g. Indonesian Rupiah `31.000`) are now
-   distinguished from decimals during normalization.
-4. **Field disambiguation.** The cleanup prompt now explicitly identifies the final
-   amount due (never a subtotal, tax line, or cash/change amount) as `total`, with French
-   invoice vocabulary (`Total TTC` vs `Total HT`) added for the new FCFA corpus.
+Three further root causes were found and fixed in the Tesseract round:
+
+1. **Preprocessing order.** OCR runs on the raw image first; CLAHE/Otsu enhancement is a
+   fallback used only when the raw pass returns under 80 characters.
+2. **Rate-limit handling.** The extractor honors the provider's stated retry-after window
+   before degrading to regex-only extraction, instead of degrading immediately.
+3. **Field disambiguation.** The cleanup prompt explicitly identifies the final amount due
+   (never a subtotal, tax line, or cash/change amount) as `total`, with French invoice
+   vocabulary (`Total TTC` vs `Total HT`) added for the FCFA corpus.
 
 **Open items:**
-- The 6 invoices scored 56.4% (22/39 fields) in the prior full-corpus rerun, below the
-  original 100% figure measured on a different input form; needs investigation.
-- Some receipts remain permanently unreadable: very dark, low-dynamic-range phone photos
-  that Tesseract cannot recover even after enhancement (§ Route B above handles these
-  documents via vision extraction instead, at 100% success on the same French/FCFA set).
-- A rerun under normal (non-exhausted) quota conditions is the natural next step to
-  measure Route C's accuracy independent of today's rate-limit pressure.
+- Surya's result is measured on a 58-document sample, not the full 600 — GPU time was
+  capped for this validation pass; a complete rerun is the natural next step for a
+  fully powered number.
+- French/FCFA accuracy (51.1%) trails global (72.2%); worth investigating whether this is
+  OCR quality on the synthetic FCFA renders specifically, or a cleanup-prompt gap.
+- Surya requires GPU to run at all (no viable CPU fallback in the currently installed
+  version) — the hosted VPS demo instance runs Tesseract-only; Surya is available to
+  anyone self-hosting with their own GPU, the same positioning as Route B's Ollama.
+- The 6 invoices scored 56.4% (22/39 fields) in the Tesseract round, below the original
+  100% figure measured on a different input form; needs investigation.
 
 ### SROIE (world-standard receipt KIE benchmark, 2026-06-19)
 
