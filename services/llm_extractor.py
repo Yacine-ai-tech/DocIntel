@@ -252,14 +252,28 @@ class LLMExtractor:
         return merged
 
     def _apply_regex_fallback(self, text: str, result: Dict[str, Any], doc_type: str) -> None:
-        """Fallback to regex extraction for numerical totals if LLM returned null."""
+        """Fallback to regex extraction for numerical totals if LLM returned null (or, on a
+        provider rate-limit exhausting its retries, the sole source of the total).
+
+        The old pattern's capture group (`\\d+(?:[.,]\\d+){0,2}`) only ever captured one
+        leading digit run — on a space-grouped amount like FCFA's "3 278 040" it silently
+        truncated at the first space, returning 3.0 instead of 3278040.0. Found via direct
+        A/B testing: identical extractions succeeded with the real total whenever the LLM
+        call itself succeeded, and only went wrong on this fallback path after a rate-limit
+        exhausted its retries — a fallback-quality bug, not an LLM or OCR quality one."""
         if doc_type in ("invoice", "receipt") and not result.get("total"):
-            m = re.search(r'(?i)(?:total|amount due|ttc)[\s:]*([$€£]?[ \t]*\d+(?:[.,]\d+){0,2})', text)
+            m = re.search(r'(?i)(?:total|amount due|ttc)[\s:]*[$€£]?[ \t]*(\d[\d.,\s]{0,20}\d|\d)', text)
             if m:
-                val_str = m.group(1).replace("$", "").replace("€", "").replace("£", "").replace(" ", "")
-                if "," in val_str and "." not in val_str:
-                    val_str = val_str.replace(",", ".")
-                val_str = val_str.replace(",", "")
+                # Space, comma, and dot are all valid thousands separators depending on
+                # locale (US "1,234.56", EU "1.234,56", FCFA/Indonesian "31.000"/"3 278 040").
+                # A trailing 2-digit group after a separator is treated as decimal cents;
+                # anything else (a 3-digit group, or no separator at all) is thousands
+                # grouping to be stripped, not a decimal point.
+                parts = re.split(r"[.,\s]", m.group(1))
+                if len(parts) > 1 and len(parts[-1]) == 2:
+                    val_str = "".join(parts[:-1]) + "." + parts[-1]
+                else:
+                    val_str = "".join(parts)
                 try:
                     result["total"] = float(val_str)
                     result["_regex_fallback"] = True
