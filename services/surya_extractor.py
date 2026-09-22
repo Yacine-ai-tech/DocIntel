@@ -26,11 +26,23 @@ from __future__ import annotations
 
 import io
 import os
+import re
 from typing import Any, Dict, List, Optional
 
 from core.logger import get_logger
 
 log = get_logger(__name__)
+
+
+def _html_to_text(html: Optional[str]) -> str:
+    """Block HTML from the foundation-model API is simple (<p>, <br/>, occasional inline
+    tags) — strip tags and unescape, no need for a full HTML parser dependency."""
+    if not html:
+        return ""
+    text = re.sub(r"<br\s*/?>", "\n", html)
+    text = re.sub(r"<[^>]+>", "", text)
+    return (text.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+            .replace("&quot;", '"').replace("&#39;", "'").strip())
 
 try:
     from PIL import Image
@@ -113,13 +125,27 @@ class SuryaExtractor:
             if preds is None:
                 return {"text": "", "lines": [], "error": "surya_api_mismatch", "method": "surya"}
             page = preds[0]
-            lines = [
-                {"text": ln.text, "bbox": getattr(ln, "bbox", None),
-                 "confidence": getattr(ln, "confidence", None)}
-                for ln in getattr(page, "text_lines", [])
-            ]
+            # The foundation-model (surya-2) API returns PageOCRResult.blocks (HTML content,
+            # reading-order-sorted), not the older .text_lines attribute this originally
+            # targeted — .text_lines doesn't exist on this result type at all, so the old
+            # code silently produced empty output on every call regardless of OCR quality.
+            # Falls back to .text_lines for older Surya versions that still have it.
+            blocks = getattr(page, "blocks", None)
+            if blocks:
+                lines = [
+                    {"text": _html_to_text(b.html), "bbox": getattr(b, "bbox", None),
+                     "confidence": getattr(b, "confidence", None)}
+                    for b in sorted(blocks, key=lambda b: getattr(b, "reading_order", 0))
+                    if getattr(b, "html", None)
+                ]
+            else:
+                lines = [
+                    {"text": ln.text, "bbox": getattr(ln, "bbox", None),
+                     "confidence": getattr(ln, "confidence", None)}
+                    for ln in getattr(page, "text_lines", [])
+                ]
             return {
-                "text": "\n".join(ln["text"] for ln in lines),
+                "text": "\n".join(ln["text"] for ln in lines if ln["text"]),
                 "lines": lines,
                 "method": "surya",
             }
