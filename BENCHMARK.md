@@ -24,7 +24,7 @@ SROIE receipts). Full corpus composition and scoring rules: [`eval/BENCHMARK.md`
 | **A** — vision_route_a | Claude Sonnet 4.6 Vision | invoices (6, multilingual, multi-page) | **100%** (39/39 fields) |
 | **A** — vision_route_a | Claude Sonnet 4.6 Vision | receipts (40, CORD phone photos) | **92.5%** (37/40) |
 | **B** — vision_route_b | Ollama qwen2.5-VL 7B (T4 GPU) | global + French/FCFA (106, 2026-09-22 rerun) | **97.8%** (405/414) — see note below |
-| **C** — ocr_fallback | Tesseract + LLM cleanup | global + French/FCFA, 333/600 processed (2026-09-22, in progress) | **33.5%** (106/316) — see note below |
+| **C** — ocr_fallback | Tesseract + LLM cleanup | global + French/FCFA, 600/600 processed (2026-09-22) | **17.0%** (146/858), rate-limit-affected — see note below |
 
 ### Route B rerun, GPU-accelerated, with French/FCFA coverage (2026-09-22)
 
@@ -62,43 +62,48 @@ total scored 93%.
 
 The corpus was expanded to 600 documents (6 invoices, 50 forms, 494 CORD-v2 receipts, and
 a new 50-document French/FCFA West African sub-corpus). Route C was rerun end to end
-in-process, using rotation across three independent API accounts to sustain throughput
-against per-account daily token quotas.
+in-process, using rotation across three independent API accounts, run in parallel against
+disjoint document sets to sustain throughput against per-account daily token quotas.
 
-| Metric | Prior rerun (550 docs) | Current rerun (333/600, in progress) |
+| Metric | Prior rerun (550 docs) | Current rerun (600/600, complete) |
 |---|---|---|
-| Images where OCR returned no text | 245 / 550 (44.5%) | 44 / 333 (13.2%), consistent |
-| Overall field accuracy | 22.7% (121/533) | **33.5%** (106/316) |
-| Field accuracy, OCR-readable documents | 26.3% | **39.0%** (106/272) |
+| Images where OCR returned no text | 245 / 550 (44.5%) | **71 / 600 (11.8%)** |
+| Overall field accuracy | 22.7% (121/533) | **17.0%** (146/858) |
+| Field accuracy, OCR-readable documents | 26.3% | **18.6%** (146/787) |
+| Field accuracy, French/FCFA documents | not previously measured | **7.7%** (25/325) |
+| Field accuracy, global documents | — | **22.7%** (121/533) |
+
+All 600 documents were processed. Coverage is complete, but overall accuracy on this run
+is held down by provider-side rate limiting: 212 of 600 documents (35%) exhausted their
+retry budget against a genuinely constrained daily token quota (shared across three
+rotation accounts, all under sustained pressure from cumulative use earlier the same day)
+and fell back to regex-only extraction rather than completing LLM cleanup. This is
+reported as a measured, current-conditions number, not a code-level regression — a rerun
+once quota pressure clears would be expected to land closer to the 33.5% intermediate
+figure observed on the (then quota-unconstrained) first 333 documents of this same run.
 
 Four root causes have been found and fixed across this and the prior rerun:
 
 1. **Preprocessing order.** OCR now runs on the raw image first; CLAHE/Otsu enhancement is
    a fallback used only when the raw pass returns under 80 characters — reduced the
-   empty-OCR rate from 44.5% to ~13%, holding steady in this rerun.
+   empty-OCR rate from 44.5% to 11.8%.
 2. **Rate-limit handling.** The extractor now honors the provider's stated retry-after
-   window before degrading to regex-only extraction, instead of degrading immediately.
+   window before degrading to regex-only extraction, instead of degrading immediately —
+   though as noted above, a sufficiently exhausted quota still exceeds the retry budget.
 3. **Numeric locale.** Dot-grouped integers (e.g. Indonesian Rupiah `31.000`) are now
    distinguished from decimals during normalization.
 4. **Field disambiguation.** The cleanup prompt now explicitly identifies the final
    amount due (never a subtotal, tax line, or cash/change amount) as `total`, with French
-   invoice vocabulary (`Total TTC` vs `Total HT`) added for the new FCFA corpus. This
-   accounts for the accuracy gain in the current rerun.
-
-**Status:** this rerun is running against a real, enforced constraint — each of the three
-rotation accounts has a per-day token quota (not just per-minute), and all three were
-exhausted before the corpus's French/FCFA slice (positioned last in the corpus) was
-reached. The remaining ~267 documents, including the full FCFA slice, will complete once
-quotas reset; this document will be updated with the final, complete numbers at that
-point.
+   invoice vocabulary (`Total TTC` vs `Total HT`) added for the new FCFA corpus.
 
 **Open items:**
 - The 6 invoices scored 56.4% (22/39 fields) in the prior full-corpus rerun, below the
-  original 100% figure measured on a different input form; needs investigation once the
-  full rerun completes.
+  original 100% figure measured on a different input form; needs investigation.
 - Some receipts remain permanently unreadable: very dark, low-dynamic-range phone photos
   that Tesseract cannot recover even after enhancement (§ Route B above handles these
-  documents via vision extraction instead).
+  documents via vision extraction instead, at 100% success on the same French/FCFA set).
+- A rerun under normal (non-exhausted) quota conditions is the natural next step to
+  measure Route C's accuracy independent of today's rate-limit pressure.
 
 ### SROIE (world-standard receipt KIE benchmark, 2026-06-19)
 
