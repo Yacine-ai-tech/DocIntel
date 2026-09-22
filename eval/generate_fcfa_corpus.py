@@ -205,7 +205,7 @@ def main() -> None:
         inv = _make_invoice(rng, i)
         _render_invoice(inv, out_dir / inv["file"])
         lines.append(json.dumps({
-            "file": f"fcfa/{inv['file']}", "doc_type": "invoice", "source": "synthetic_fcfa_fr",
+            "file": f"images/fcfa/{inv['file']}", "doc_type": "invoice", "source": "synthetic_fcfa_fr",
             "pages": 1,
             "expected": {
                 "vendor": inv["vendor"], "invoice_number": inv["invoice_number"],
@@ -217,7 +217,7 @@ def main() -> None:
         r = _make_receipt(rng, i)
         _render_receipt(r, out_dir / r["file"])
         lines.append(json.dumps({
-            "file": f"fcfa/{r['file']}", "doc_type": "receipt", "source": "synthetic_fcfa_fr",
+            "file": f"images/fcfa/{r['file']}", "doc_type": "receipt", "source": "synthetic_fcfa_fr",
             "pages": 1,
             "expected": {
                 "merchant": r["vendor"], "date": r["date"], "total": r["total"],
