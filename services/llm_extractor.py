@@ -59,7 +59,12 @@ PROMPTS: Dict[str, str] = {
         "Extract structured invoice data as JSON. Fields: "
         "vendor, invoice_number, date, due_date, "
         "line_items: [{description, quantity, unit_price, total}], "
-        "subtotal, tax, total, currency."
+        "subtotal, tax, total, currency. A document commonly lists several monetary "
+        "amounts (subtotal/pre-tax, tax/VAT, and the final total) — 'total' is always "
+        "the final amount due after tax, never the subtotal, never the tax amount alone. "
+        "French invoices ('facture'): 'Sous-total' is subtotal, 'TVA' is tax, "
+        "'Total TTC' (toutes taxes comprises) is the final total — use that line, not "
+        "'Total HT' (hors taxes, which is the subtotal)."
     ),
     "contract": (
         "Extract structured contract data as JSON. Fields: "
@@ -69,7 +74,10 @@ PROMPTS: Dict[str, str] = {
     "receipt": (
         "Extract structured receipt data as JSON. Fields: "
         "merchant, date, total, currency, tax, items: [{name, price, quantity}], "
-        "payment_method."
+        "payment_method. 'total' is the final amount actually charged — prefer a line "
+        "literally labeled TOTAL (or French 'TOTAL'/'MONTANT TOTAL') over SUBTOTAL, "
+        "CASH/CASH TENDERED, CHANGE, or individual item prices; if multiple candidate "
+        "totals appear, the final one after any subtotal/tax lines is the total due."
     ),
     "financial_report": (
         "Extract structured financial-report data as JSON. Fields: "
