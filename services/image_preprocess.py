@@ -109,6 +109,20 @@ def enhance_contrast_for_ocr(image_bytes: bytes) -> bytes:
         # resolution; 1600px on the long edge is comfortably above what OCR needs for
         # legible text while cutting the dominant cost by roughly (2480/1600)^2 ~= 2.4x.
         _, gray = _to_gray_array(image_bytes, max_edge=1600)
+        # CLAHE normalizes LOCAL contrast but does nothing for a globally underexposed
+        # photo with no bright pixels at all to normalize toward (measured on a real
+        # failing sample: max pixel value 147/255, mean 98/255 — a genuinely dark photo,
+        # not a low-contrast one). Gamma-correct first when the image is dark on average,
+        # so CLAHE has real dynamic range to work with. Measured effect on a 60-receipt
+        # sample: no change (9/60 still empty before and after) — the images that remain
+        # unreadable after the raw-first fix in ocr_extractor.py are failing for reasons
+        # this doesn't address (motion blur, extreme skew, resolution), not exposure.
+        # Left in as a low-risk improvement for genuinely underexposed real-world photos
+        # outside this specific sample, not as a measured fix for it.
+        mean_brightness = float(gray.mean())
+        if mean_brightness < 0.43:  # ~110/255
+            gamma = max(0.35, mean_brightness / 0.55)  # darker image -> stronger brighten
+            gray = np.power(np.clip(gray, 0, 1), gamma)
         equalized = equalize_adapthist(gray, clip_limit=0.03)
         thresh = threshold_otsu(equalized)
         binary = (equalized > thresh).astype("uint8") * 255
