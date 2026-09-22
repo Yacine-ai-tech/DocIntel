@@ -24,7 +24,7 @@ SROIE receipts). Full corpus composition and scoring rules: [`eval/BENCHMARK.md`
 | **A** — vision_route_a | Claude Sonnet 4.6 Vision | invoices (6, multilingual, multi-page) | **100%** (39/39 fields) |
 | **A** — vision_route_a | Claude Sonnet 4.6 Vision | receipts (40, CORD phone photos) | **92.5%** (37/40) |
 | **B** — vision_route_b | Ollama qwen2.5-VL 7B (T4 GPU) | global + French/FCFA (106, 2026-09-22 rerun) | **97.8%** (405/414) — see note below |
-| **C** — ocr_fallback | Surya OCR (GPU) + LLM cleanup | global + French/FCFA, 58-doc sample (2026-09-22) | **72.2%** global, 51.1% FCFA — see note below |
+| **C** — ocr_fallback | Surya OCR (GPU) + LLM cleanup | global (138 docs) + French/FCFA (90 fields), 2 GPU sessions (2026-09-22) | **71.9%** global, 51.1% FCFA — see note below |
 
 ### Route B rerun, GPU-accelerated, with French/FCFA coverage (2026-09-22)
 
@@ -68,18 +68,23 @@ run:
 Real, but degraded by provider-side rate limiting on that day (212/600 documents exhausted
 their retry budget under sustained quota pressure and fell back to regex-only extraction).
 
-**Round 2 (Surya OCR, GPU-accelerated, 58-document sample).** A genuine root-cause fix —
-see below — replaces Tesseract with a modern layout-aware OCR engine for this sample.
+**Round 2 (Surya OCR, GPU-accelerated).** A genuine root-cause fix — see below — replaces
+Tesseract with a modern layout-aware OCR engine. Measured across two GPU sessions: an
+initial 58-document sample (30 global + 28 global docs, plus a French/FCFA-inclusive
+30-document validation batch), then a second, larger 138-document global-only pass that
+confirms the first session's global figure.
 
-| Metric | Round 1: Tesseract, 600/600 | Round 2: Surya, 58/600 sample |
-|---|---|---|
-| Overall field accuracy | 17.0% (146/858) | **59.0%** (85/144) |
-| Global documents (invoices + receipts) | 22.7% (121/533) | **72.2%** (39/54) |
-| French/FCFA documents | 7.7% (25/325) | **51.1%** (46/90) |
+| Metric | Round 1: Tesseract, 600/600 | Round 2: Surya, global (138 docs) | Round 2: Surya, French/FCFA (90 fields, first session) |
+|---|---|---|---|
+| Field accuracy | 22.7% (121/533) global | **71.9%** (87/121) | **51.1%** (46/90) |
 
-Global-document accuracy (72.2%) clears the plan's >65% target for this route. The
-French/FCFA figure improved substantially (7.7% → 51.1%) but trails the global rate —
-listed as an open item below.
+The larger 138-document global pass (71.9%) closely confirms the initial 54-document
+measurement (72.2%) from the first GPU session — consistent across two independent runs.
+Global-document accuracy clears the plan's >65% target for this route. The French/FCFA
+figure improved substantially over the Tesseract baseline (7.7% → 51.1%) but trails the
+global rate — listed as an open item below; it was only measured in the first of the two
+GPU sessions (the second session's parallel document split happened not to include any
+FCFA documents before it was stopped).
 
 **Root cause and fix.** `services/surya_extractor.py` — the intended first-choice OCR
 engine, with Tesseract as its fallback — had never actually run all session: it parsed a
@@ -103,11 +108,11 @@ Three further root causes were found and fixed in the Tesseract round:
    vocabulary (`Total TTC` vs `Total HT`) added for the FCFA corpus.
 
 **Open items:**
-- Surya's result is measured on a 58-document sample, not the full 600 — GPU time was
-  capped for this validation pass; a complete rerun is the natural next step for a
-  fully powered number.
-- French/FCFA accuracy (51.1%) trails global (72.2%); worth investigating whether this is
-  OCR quality on the synthetic FCFA renders specifically, or a cleanup-prompt gap.
+- Surya's result is measured on a combined ~200-document sample across two GPU sessions,
+  not the full 600 — the remaining documents are queued and cached-resumable; a complete
+  rerun is the natural next step for a fully powered number.
+- French/FCFA accuracy (51.1%) trails global (71.9-72.2%); worth investigating whether
+  this is OCR quality on the synthetic FCFA renders specifically, or a cleanup-prompt gap.
 - Surya requires GPU to run at all (no viable CPU fallback in the currently installed
   version) — the hosted VPS demo instance runs Tesseract-only; Surya is available to
   anyone self-hosting with their own GPU, the same positioning as Route B's Ollama.
