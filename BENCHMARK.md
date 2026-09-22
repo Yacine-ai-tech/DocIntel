@@ -25,8 +25,40 @@ SROIE receipts). Full corpus composition and scoring rules: [`eval/BENCHMARK.md`
 | **A** — vision_route_a | Claude Sonnet 4.6 Vision | receipts (40, CORD phone photos) | **92.5%** (37/40) |
 | **B** — vision_route_b | Ollama qwen2.5-VL 7B (T4 GPU) | receipts (100, CORD phone photos) | **77.0%** (77/100) |
 | **B** — vision_route_b | Ollama qwen2.5-VL 7B (T4 GPU) | invoices (6, multilingual, multi-page) | **64.1%** (25/39) |
-| **C** — ocr_fallback | Tesseract + LLM cleanup | invoices (clean PDFs) | **100%** |
-| **C** — ocr_fallback | Tesseract + LLM cleanup | receipts (200, CORD phone photos) | **28.5%** (57/200) |
+| **C** — ocr_fallback | Tesseract + LLM cleanup | invoices (6, page images, 2026-09-22 rerun) | **56.4%** (22/39 fields) — see note below |
+| **C** — ocr_fallback | Tesseract + LLM cleanup | receipts (494, CORD phone photos, 2026-09-22 rerun) | **20.0%** (99/494 totals) |
+
+### Route C rerun, full 550-document corpus (2026-09-22)
+
+The corpus was rebuilt to 550 real documents (6 invoices, 50 forms, 494 CORD-v2 receipts;
+500 with scorable field ground truth) and Route C was rerun end to end in-process.
+
+| Metric | Initial rerun | After fixes |
+|---|---|---|
+| Images where OCR returned no text | 245 / 550 (44.5%) | **73 / 550 (13.3%)** |
+| Receipt `total` accuracy | ~5% | **20.0%** (99/494) |
+| Overall field accuracy | 4.7–8.4% | **22.7%** (121/533); 26.3% over OCR-readable documents |
+
+Three root causes were found and fixed:
+
+1. **Preprocessing order.** CLAHE + Otsu binarization applied as the *first* step doubled the
+   empty-OCR rate on receipts (15 → 30 of 60 sampled) and cut recovered text by ~60%. OCR now
+   runs on the raw image first; the enhanced variant is a fallback used only when the raw pass
+   returns under 80 characters, keeping the longer result (empty rate on the same sample: 9/60).
+2. **Rate-limit handling.** A provider rate-limit error previously fell straight through to
+   regex-only extraction with no wait. The extractor now honors the provider's stated
+   retry-after and retries before degrading.
+3. **Numeric locale.** Dot-grouped integers common in Indonesian Rupiah receipts (`31.000`)
+   were read as decimals (31.0), corrupting totals by three orders of magnitude. The
+   normalization rules now distinguish thousands grouping from decimals.
+
+**Open items (reported, not hidden):**
+- The 6 invoices score 56.4% (22/39 fields), below the earlier 100% figure, which was measured
+  on a different input form; date and invoice-number extraction (2/6 each) need investigation.
+- 73 receipts remain unreadable: very dark, low-dynamic-range phone photos that Tesseract
+  cannot recover even after enhancement.
+- 6 documents fell back to regex extraction after exhausting retries under provider quota
+  limits; they are scored as-is.
 
 ### SROIE (world-standard receipt KIE benchmark, 2026-06-19)
 
