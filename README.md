@@ -98,9 +98,9 @@ returns invoice 0.98–0.99. Reproduce with `bash eval/fetch_real_invoices.sh` t
 ## Scope & Notes
 
 - **Multi-page / large docs**: up to `MAX_PDF_PAGES` (default **200**) per document; documents larger than `VISION_PAGES_PER_CALL` (default 8) pages are chunked and merged via map-reduce. Vision pages are downscaled past `VISION_MAX_EDGE` px to bound token cost.
-- **Handwriting**: handled by the vision routes (Route A is strongest). The pure-OCR route (Route C) is weaker on handwriting — use a vision route for handwritten docs.
+- **Handwriting**: handled by the vision routes (Route A is strongest). The pure-OCR route (Route C, Surya OCR primary with a Tesseract fallback) is weaker on handwriting — use a vision route for handwritten docs.
 - **Currencies**: ISO-4217 generic; EU decimal/comma and West-African FCFA (space-grouped, no decimal subunit → XOF/XAF) formats normalized. Ambiguous thousands/decimal separators on low-quality scans can still mislead the pure-OCR route.
-- **Route C non-English**: install the matching Tesseract packs (`tesseract-ocr-fra/deu/nld/...`); falls back to English automatically if a pack is missing.
+- **Route C engine**: Surya OCR (GPU-only, layout-aware) is the primary engine; Tesseract is the automatic fallback when Surya is unavailable (no GPU) or returns empty text. **Route C non-English via the Tesseract fallback**: install the matching Tesseract packs (`tesseract-ocr-fra/deu/nld/...`); falls back to English automatically if a pack is missing. Surya itself does not require per-language packs.
 
 ## Benchmark
 
@@ -114,13 +114,16 @@ handwriting) is reproducible via `python eval/build_corpus.py` and scored with
 | A — vision_route_a | Claude Sonnet 4.6 Vision | multilingual invoices (multi-page) | **100%** |
 | A — vision_route_a | Claude Sonnet 4.6 Vision | phone-photo receipts (CORD) | **92.5%** |
 | A — vision_route_a | Claude Sonnet 4.6 Vision | SROIE world-standard receipts | **95%** |
-| B — vision_route_b | Ollama Qwen 2.5-VL 7B (self-hosted GPU) | CORD phone-photo receipts | **77%** |
+| B — vision_route_b | Ollama Qwen 2.5-VL 7B (self-hosted GPU) | global sample (invoices + CORD receipts) | **89.9%** |
 | B — vision_route_b | Ollama Qwen 2.5-VL 7B (self-hosted GPU) | French + FCFA (XOF) sample | **100%** |
-| C — ocr_fallback | Tesseract + Claude Haiku | clean invoices | **100%** |
-| C — ocr_fallback | Tesseract + Claude Haiku | CORD phone-photo receipts | **28.5%** |
+| C — ocr_fallback | Surya OCR (GPU) + Tesseract fallback + Groq cleanup | French + FCFA (XOF) sub-corpus, 50/50 docs | **96.3%** |
+| C — ocr_fallback | Surya OCR (GPU) + Tesseract fallback + Groq cleanup | global, fresh confirmation sample | **97.4%** |
 
 Full corpus size, per-route sample sizes, and reproduction commands: [eval/BENCHMARK.md](eval/BENCHMARK.md)
 — not duplicated here beyond headline numbers, so there's exactly one place they can go stale.
+Route C's full 650-document corpus (600 base + 50 French/FCFA) has been validated across
+overlapping GPU sessions but not yet in one single, uninterrupted pass; a complete single-run
+number is the natural next step once further GPU credit is available.
 Note: an earlier version of this table also listed Llama 3.2 Vision 11B on Route B — removed,
 since `eval/BENCHMARK.md`'s own testing found it fails to load on current Ollama builds (or
 scores 0/7 on the one build where it does load); Qwen 2.5-VL is the only currently-validated

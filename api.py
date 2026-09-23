@@ -250,7 +250,7 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
                         control, same network or reachable over the internet). Never a
                         third-party inference API. Configured via ROUTE_B_MODE + OLLAMA_MODEL.
                         Auto-fallback to Route C (OCR) on any failure.
-      - ocr_fallback:   Tesseract OCR + LLM cleanup (Route C)
+      - ocr_fallback:   Surya OCR (primary) + Tesseract (fallback) + LLM cleanup (Route C)
     """
     from services.ocr_extractor import (
         extract_text_from_image, extract_text_from_pdf, is_pdf, pdf_page_count, pdf_to_pngs,
@@ -306,7 +306,7 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
                     workspace_logger.log_fallback("vision_route_b", "ocr_fallback", f"{mode}/{model_tag} failed: {e}")
 
         if fields is None or fallback_used:
-            log.info("Route C: Using OCR fallback (Tesseract + LLM cleanup)")
+            log.info("Route C: Using OCR fallback (Surya OCR + Tesseract fallback + LLM cleanup)")
             text = extract_text_from_pdf(data, max_pages=settings.MAX_PDF_PAGES) if pdf \
                 else extract_text_from_image(data)
             if text:
@@ -325,7 +325,7 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
 
     # Route C: OCR fallback
     elif route == "ocr_fallback":
-        log.info("Route C: Using OCR fallback (Tesseract + LLM cleanup)")
+        log.info("Route C: Using OCR fallback (Surya OCR + Tesseract fallback + LLM cleanup)")
         text = extract_text_from_pdf(data, max_pages=settings.MAX_PDF_PAGES) if pdf \
             else extract_text_from_image(data)
         if text:
@@ -723,7 +723,7 @@ async def extract(
     Full extraction pipeline with 3 routes (multi-page PDFs handled end-to-end):
       - vision_route_a  (Claude Sonnet 4.6 Vision - Route A)
       - vision_route_b  (Ollama vision, local or self-hosted-remote - Route B)
-      - ocr_fallback    (Tesseract OCR + LLM cleanup - Route C)
+      - ocr_fallback    (Surya OCR + Tesseract fallback + LLM cleanup - Route C)
 
     Route B (set via ROUTE_B_MODE env var — never a third-party inference API):
       - local:  Ollama running on this same machine/container (OLLAMA_HOST)
@@ -860,7 +860,7 @@ async def process(
     Routes:
       - vision_route_a: Claude Sonnet 4.6 Vision (high quality)
       - vision_route_b: Ollama vision, local or self-hosted-remote, auto-fallback to Route C
-      - ocr_fallback: Route C (Tesseract OCR + LLM cleanup)
+      - ocr_fallback: Route C (Surya OCR + Tesseract fallback + LLM cleanup)
 
     Blocks until the pipeline finishes — a slow route (Route B waking a cold/on-demand host
     especially) can take minutes, which is fine for a direct caller but too long for a
