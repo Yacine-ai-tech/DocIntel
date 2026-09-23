@@ -7,7 +7,8 @@ Routes:
              Model selection: OLLAMA_MODEL (default: qwen2.5vl:7b)
              Mode selection:  ROUTE_B_MODE (local | remote)
              See services/route_b.py for full configuration reference.
-  - Route C: OCR fallback (Tesseract + LLM cleanup) — automatic fallback for Route B failures
+  - Route C: OCR fallback (Surya OCR primary, Tesseract fallback, + LLM cleanup) —
+             automatic fallback for Route B failures; see services/ocr_extractor.py
 
 Supported Ollama vision models (primary focus):
   - Qwen 2.5-VL 7B / 72B  — lighter, works on most GPUs, great for forms/invoices

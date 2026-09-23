@@ -19,9 +19,11 @@ Three extraction routes, chosen per-request or via env default:
 - **Route B** — Ollama vision (Qwen 2.5-VL 7B validated; see `eval/BENCHMARK.md` for why Llama
   3.2 Vision was tried and rejected), run either on the same machine/LAN or on hardware you
   control elsewhere — never a third-party inference API. $0 per call.
-- **Route C** — Tesseract OCR + LLM cleanup, the fallback for when vision-LLM cost is
-  prohibitive or image quality is too low for a vision model to help (very low-res scans, faxes).
-  Also the automatic fallback if Route A/B fails.
+- **Route C** — Surya OCR (layout-aware, GPU) as the primary engine, with Tesseract as an
+  automatic fallback when Surya is unavailable (no GPU) or returns empty text, followed by
+  LLM cleanup. For when vision-LLM cost is prohibitive or image quality is too low for a
+  vision model to help (very low-res scans, faxes). Also the automatic fallback if Route A/B
+  fails.
 
 Multi-page documents (up to `MAX_PDF_PAGES`, default 200) are handled by chunking pages across
 multiple vision calls and merging results (`services/doc_merge.py`): list fields concatenate
