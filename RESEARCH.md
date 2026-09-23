@@ -161,9 +161,9 @@ improve confidence in the numbers above rather than what's most publishable:
    for versus the model's raw output.
 4. **Automatic route escalation based on confidence**, rather than the current fixed per-request
    route choice — e.g., escalate from Route C to Route A when confidence falls below a threshold.
-   Given the accuracy gap already measured between routes on noisier documents (Route C 72.2% vs.
-   Route A 92.5% on the same CORD receipts), this is a concrete, testable way to trade a modest
-   cost increase for a large accuracy gain only on the documents that actually need it.
+   Route C's measured accuracy has since closed most of the gap to Route A (see `BENCHMARK.md`'s
+   Route C rerun section), but escalating on low confidence remains a concrete, testable way to
+   trade a modest cost increase for accuracy on whichever documents actually need it.
 5. **Explicit currency/locale coverage accounting.** `services/normalize.py` now covers French/
    FCFA formatting explicitly (see `BENCHMARK.md`'s French/FCFA section); stating precisely
    which other format families are and aren't covered (rather
