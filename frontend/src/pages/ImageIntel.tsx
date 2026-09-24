@@ -19,7 +19,7 @@ export default function ImageIntel() {
   const [elapsedMs, setElapsedMs] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Vision is a GPU-tier orchestrator capability — a cold Studio can take well past
+  // Vision is a GPU-tier capability — a cold backend can take well past
   // a bare spinner's patience to wake and load the model. A running elapsed-time
   // counter is the honest signal: still working, here's how long, matching the
   // pattern already used on Workspace.tsx for the same underlying route.

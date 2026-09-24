@@ -104,8 +104,7 @@ regardless of Surya's real capability. Fixed to parse the correct `.blocks` fiel
 (verified directly: the model correctly read `TOTAL 40,000` against ground truth once
 parsed correctly, where Tesseract had produced garbage or nothing on the same class of
 image). Running it requires GPU (the installed library version's recognition step is a
-foundation-model backend, not the classical CPU-viable version); validated on a Lightning
-AI T4 instance.
+foundation-model backend, not the classical CPU-viable version); validated on an NVIDIA T4 GPU instance.
 
 Three further root causes were found and fixed in the Tesseract round:
 
