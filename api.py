@@ -79,7 +79,7 @@ def _telemetry_instance_id() -> str:
     A random, locally-generated install ID — NOT derived from MAC address or any other
     hardware fingerprint. Persisted under LOGS_DIR so repeat startups of the same install
     report the same ID (for dedup on the receiving end); delete the file to reset it.
-    See TELEMETRY.md for why this is a random UUID rather than a hardware-derived value.
+    See README.md's Anonymous Telemetry section for why this is a random UUID rather than a hardware-derived value.
     """
     id_file = os.path.join(settings.LOGS_DIR, ".telemetry_instance_id")
     try:
