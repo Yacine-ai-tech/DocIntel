@@ -1,5 +1,11 @@
 # Real-Document Evaluation (multilingual, complex invoices)
 
+> **Route C engine note.** The measurements below were taken with Tesseract, the
+> CPU-viable OCR engine available at the time. Route C's current default is Surya OCR
+> (GPU, layout-aware), with Tesseract retained as the automatic fallback — see
+> [`BENCHMARK.md`](../BENCHMARK.md)'s Route C section for Surya's own, larger-sample
+> results.
+
 DocIntel is evaluated on **real, third-party invoices** — not synthetic fixtures — drawn from the
 [`invoice2data`](https://github.com/invoice-x/invoice2data) test set (MIT-licensed). The set is
 deliberately multilingual and structurally varied so the results reflect production behaviour

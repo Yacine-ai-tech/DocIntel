@@ -1,5 +1,11 @@
 # DocIntel Benchmark
 
+> **Route C engine note.** Several results below (marked Tesseract) were measured before
+> Route C's OCR engine was corrected to use Surya (GPU, layout-aware) as the primary
+> engine, with Tesseract retained only as the automatic fallback. See the top-level
+> [`BENCHMARK.md`](../BENCHMARK.md)'s Route C section for Surya's own, larger-sample,
+> current results.
+
 A reproducible benchmark of **real, third-party documents**, evaluating two properties that
 matter for production document extraction:
 
@@ -152,11 +158,15 @@ for multi-image chunks. The extractor sends fewer pages per call for `ollama/` m
 8192). For 100+ page documents, the OCR route (validated on a 120-page PDF) or premium vision is
 recommended.
 
-### Route A Alternatives (Surya and Marker)
+### Route C's OCR Engine (Surya, primary) and Marker
 
-- **Surya**: an advanced layout-aware OCR alternative for dense documents where pure Tesseract
-  loses reading order. Wired (`services/surya_extractor.py`), not installed by default (heavy ML
-  dependency — see `requirements-ml.txt`), not benchmarked.
+- **Surya**: a layout-aware OCR engine that is Route C's **default, primary** OCR engine
+  (`services/surya_extractor.py`) — Tesseract is retained only as the automatic fallback
+  when Surya is unavailable (it requires a GPU; no CPU-viable path in the currently
+  installed version) or returns empty text. Surya is heavily benchmarked at the top-level
+  [`BENCHMARK.md`](../BENCHMARK.md)'s Route C section, including a full French/FCFA
+  sub-corpus rerun; not installed by default in a CPU-only environment (heavy ML
+  dependency — see `requirements-ml.txt`).
 - **Marker**: a specialized PDF-to-Markdown route, used for extracting full-text structure from
   born-digital documents prior to LLM/RAG processing (`/extract/text`, `route=marker`).
 
