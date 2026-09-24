@@ -8,7 +8,7 @@
 
 ## What It Does
 
-- **3 extraction routes**: Claude Sonnet 4.6 Vision (Route A), **Ollama vision** (Route B - private/`$0`-per-page — Qwen 2.5-VL 7B is the validated model, and the route is model-agnostic via `OLLAMA_MODEL` for any other Ollama-served vision model, never a third-party inference API; `ROUTE_B_MODE=local` runs Ollama on the same host as the app, `ROUTE_B_MODE=remote` points at Ollama on hardware you control elsewhere — LAN or over the internet), Tesseract+LLM (Route C fallback)
+- **3 extraction routes**: Claude Sonnet 4.6 Vision (Route A), **Ollama vision** (Route B - private/`$0`-per-page — Qwen 2.5-VL 7B is the validated model, and the route is model-agnostic via `OLLAMA_MODEL` for any other Ollama-served vision model, never a third-party inference API; `ROUTE_B_MODE=local` runs Ollama on the same host as the app, `ROUTE_B_MODE=remote` points at Ollama on hardware you control elsewhere — LAN or over the internet), Surya OCR (GPU, primary) with a Tesseract fallback, both +LLM cleanup (Route C)
 - **Multi-currency & multi-locale**: amounts in US/EU/spaced/Swiss formats and 45+ currencies (USD, EUR, GBP, JPY, INR, CNY, XOF/FCFA, …) are normalized to ISO 4217 + float; dates to ISO 8601 — a deterministic layer (`services/normalize.py`) on top of the LLM. OCR runs `eng+fra+deu+nld+spa+ita`.
 - **Inputs**: PDF (native or scanned), PNG, JPEG, PPTX, DOCX, XLSX — auto-detected. PDFs are rendered per page; images flow straight through to OCR/vision; PPTX/DOCX/XLSX are read natively (`services/ocr_extractor.py`: `extract_text_native_office`) since they're ZIP archives of real XML text, not renderable images — routing one through the image OCR path fails outright (PIL can't open a zip as a raster image) rather than just extracting badly, which is why this has its own dedicated path instead of falling through the vision routes.
 - **Multi-page & large documents**: every page is processed and fields aggregated across pages (a total on a later page, multi-page contracts). **100+ page PDFs** are handled via map-reduce — pages are split into chunks, extracted concurrently, and merged (`MAX_PDF_PAGES` default 200). The OCR route concatenates/chunks full-document text the same way.
@@ -70,10 +70,10 @@ PDF / IMG ───►│   api.py    │───►    or extract full-documen
         route ┌──────┼──────┐     │ multi-page images │
               ▼      ▼      ▼     └──────────────────┘
         vision_   vision_   ocr_extractor ─► llm_extractor
-        (route_a) (route_b)   (Tesseract)      (text → JSON)
-         Claude    Ollama      multilingual   Haiku cleanup
-         Vision    Vision      OCR            + confidence
-      (Route A)  (Route B)                   (Route C)
+        (route_a) (route_b)   (Surya OCR       (text → JSON)
+         Claude    Ollama      primary, GPU;  Haiku cleanup
+         Vision    Vision      Tesseract      + confidence
+      (Route A)  (Route B)     fallback)      (Route C)
     Llama 3.2 / Qwen             └──────┴──────────────┴───────────────┘
                                   ▼
             structured JSON  { ..fields.., _confidence, _pages }
@@ -91,8 +91,11 @@ since PIL can't open a ZIP archive as a raster image.
 
 Validated on **real, multilingual third-party invoices** (EN/FR/DE/NL, `invoice2data` test
 set) — see [eval/EVAL_REAL.md](eval/EVAL_REAL.md). Route A (Claude Vision) and Route C
-(Tesseract + LLM) both score **100%** on the fields each document carries; `/classify-image`
-returns invoice 0.98–0.99. Reproduce with `bash eval/fetch_real_invoices.sh` then
+(OCR fallback + LLM cleanup, measured there against Tesseract, the CPU-viable engine at
+the time) both score **100%** on the fields each document carries; `/classify-image`
+returns invoice 0.98–0.99. Route C's current default engine is Surya OCR (GPU) with
+Tesseract as the automatic fallback — see the benchmark table below for its own,
+larger-sample results. Reproduce with `bash eval/fetch_real_invoices.sh` then
 `python eval/run_real_eval.py --route vision_route_a`.
 
 ## Scope & Notes
