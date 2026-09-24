@@ -61,6 +61,14 @@ Locked by `tests/test_normalize.py` (US/EU/JP/IN/UK/CH/FCFA amounts, ISO currenc
   (below) is field-level extraction accuracy: did the model get the vendor, total, date, line
   items right. That's a different, real, and directly useful metric — it is not layout precision
   or CER, and this document previously implied numbers existed for the latter that never did.
+- **No DocTR as a second layout-aware fallback engine alongside Surya OCR.** An earlier
+  planning note proposed both; only Surya was built. This wasn't an oversight left standing —
+  it was evaluated and dropped: Surya already measures 96.3% field accuracy on the FCFA
+  sub-corpus and 97.4% globally (see `BENCHMARK.md`), and DocTR is a comparable-tier layout-aware
+  OCR engine, not a documented improvement over Surya for this task. A third OCR fallback behind
+  Tesseract and Surya would add install/maintenance surface without a stated accuracy gain to
+  justify it. Revisit only if a real failure mode on Surya's own error cases (rather than the
+  original planning note's assumption) motivates it.
 
 ## Where this sits in the field, 2026 (literature-grounded, not asserted)
 
