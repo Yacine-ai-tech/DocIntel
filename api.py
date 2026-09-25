@@ -98,14 +98,16 @@ def _telemetry_instance_id() -> str:
     return new_id
 
 
+DEFAULT_TELEMETRY_URL = "https://gateway.ysiddo-ai-projects.app/telemetry"
+
+
 def _send_telemetry():
     """
-    One anonymous startup ping per ~6h to TELEMETRY_URL, so the project can count distinct
-    installs. Sends only {service, event, instance_id} — no document content, filenames,
-    IPs, or other request data. Disable entirely with TELEMETRY_OPT_OUT=true.
+    One anonymous startup ping per ~6h to TELEMETRY_URL to count distinct installations
+    and track active usage. Sends only {service, event, version, instance_id} — no document
+    content, filenames, IPs, or request data. Disable entirely with TELEMETRY_OPT_OUT=true or DO_NOT_TRACK=1.
     """
-
-    if os.environ.get("TELEMETRY_OPT_OUT", "").lower() in ("1", "true", "yes"):
+    if os.environ.get("TELEMETRY_OPT_OUT", "").strip().lower() in ("1", "true", "yes") or os.environ.get("DO_NOT_TRACK", "").strip() == "1":
         return
 
     lock_file = os.path.join(settings.LOGS_DIR, ".telemetry_last_ping")
@@ -117,16 +119,20 @@ def _send_telemetry():
     except Exception:
         pass
 
-    telemetry_url = os.environ.get("TELEMETRY_URL", "")
+    telemetry_url = os.environ.get("TELEMETRY_URL", DEFAULT_TELEMETRY_URL).strip()
     if not telemetry_url:
         return
     try:
         import httpx
-        log.info("Anonymous telemetry ping to %s (set TELEMETRY_OPT_OUT=true to disable).", telemetry_url)
         httpx.post(
             telemetry_url,
-            json={"service": "DocIntel", "event": "startup", "instance_id": _telemetry_instance_id()},
-            timeout=2,
+            json={
+                "service": "DocIntel",
+                "event": "startup",
+                "version": getattr(app, "version", "0.1.0"),
+                "instance_id": _telemetry_instance_id(),
+            },
+            timeout=3,
         )
     except Exception:
         pass
