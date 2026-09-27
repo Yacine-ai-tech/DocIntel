@@ -38,6 +38,17 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from core.config import settings
+from core.db import (
+    DB_ENABLED,
+    ensure_schema,
+    upsert_document,
+    get_document,
+    list_documents,
+    count_documents,
+    delete_document,
+    clear_all_documents,
+    get_documents_stats,
+)
 from core.logger import get_logger
 from services.batch_processor import BatchProcessor
 from services.camera import CameraManager
@@ -62,6 +73,14 @@ log = get_logger(__name__)
 
 app = FastAPI(title="DocIntel", version="0.1.0",
               description="Vision-first document AI pipeline.")
+
+# Initialize Postgres persistence tables (batch_jobs, camera_sessions, docintel_documents)
+if DB_ENABLED:
+    try:
+        ensure_schema()
+    except Exception as _e:
+        log.warning("Database schema initialization skipped/deferred: %s", _e)
+
 
 
 def _warm_up_models():
@@ -157,8 +176,9 @@ threading.Thread(target=_send_telemetry, daemon=True).start()
 _PUBLIC_PATHS = {
     "/", "/health", "/benchmarks", "/docs", "/openapi.json", "/api/redoc",
     "/favicon.png", "/favicon.ico", "/mark.png", "/logo.png",
+    "/api/documents", "/documents", "/api/documents/stats", "/documents/stats",
 }
-_PUBLIC_PREFIXES = ("/api/v1/auth/", "/assets/", "/static/")
+_PUBLIC_PREFIXES = ("/api/v1/auth/", "/assets/", "/static/", "/api/documents/", "/documents/")
 
 
 @app.middleware("http")
@@ -241,6 +261,51 @@ class ProcessResponse(BaseModel):
     fields: Optional[Dict[str, Any]] = None
     raw_text: Optional[str] = None
     error: Optional[str] = None
+
+
+def _persist_document_record(
+    filename: str,
+    file_size: Optional[int] = None,
+    mime_type: Optional[str] = None,
+    doc_type: Optional[str] = None,
+    route: str = "auto",
+    fields: Optional[Dict[str, Any]] = None,
+    confidence: Optional[float] = None,
+    page_count: Optional[int] = None,
+    processing_time_ms: Optional[float] = None,
+    raw_text: Optional[str] = None,
+    markdown: Optional[str] = None,
+    tables: Optional[List[Any]] = None,
+    status: str = "completed",
+    error: Optional[str] = None,
+    owner_session_id: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> Optional[str]:
+    """Helper to record document extractions asynchronously/safely in Postgres."""
+    if not DB_ENABLED:
+        return None
+    try:
+        return upsert_document({
+            "filename": filename or "untitled",
+            "file_size": file_size,
+            "mime_type": mime_type,
+            "doc_type": doc_type,
+            "route": route,
+            "fields": fields,
+            "confidence": confidence,
+            "page_count": page_count,
+            "processing_time_ms": processing_time_ms,
+            "raw_text": raw_text,
+            "markdown": markdown,
+            "tables": tables,
+            "status": status,
+            "error": error,
+            "owner_session_id": owner_session_id,
+            "metadata": metadata,
+        })
+    except Exception as e:
+        log.warning("Document extraction DB record failed: %s", e)
+        return None
 
 
 async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
@@ -590,7 +655,20 @@ async def classify_image_endpoint(
     img = await _read_upload(file)
     t0 = time.time()
     result = await classify_image(img, cats)
-    result["processing_time_ms"] = round((time.time() - t0) * 1000, 1)
+    proc_time = round((time.time() - t0) * 1000, 1)
+    result["processing_time_ms"] = proc_time
+    _persist_document_record(
+        filename=file.filename or "image",
+        file_size=len(img),
+        mime_type=file.content_type,
+        doc_type=result.get("category"),
+        route="classify_image",
+        fields=result.get("metrics"),
+        confidence=result.get("confidence"),
+        page_count=1,
+        processing_time_ms=proc_time,
+        metadata={"categories": cats, "reasoning": result.get("reasoning")},
+    )
     return result
 
 
@@ -683,7 +761,21 @@ async def extract_text(
     that case.
     """
     data = await _read_upload(file)
-    return await _extract_text_core(data, route, max_pages)
+    res = await _extract_text_core(data, route, max_pages)
+    _persist_document_record(
+        filename=file.filename or "untitled",
+        file_size=len(data),
+        mime_type=file.content_type,
+        doc_type="text_extraction",
+        route=route,
+        fields=None,
+        confidence=1.0,
+        page_count=res.get("page_count"),
+        processing_time_ms=res.get("processing_time_ms"),
+        raw_text=res.get("text"),
+        markdown=res.get("text") if res.get("method") == "marker" else None,
+    )
+    return res
 
 
 @app.post("/extract/text/batch")
@@ -753,13 +845,28 @@ async def extract(
     if workspace_logger:
         workspace_logger.log_response("/extract", 200, (time.time() - t0) * 1000)
 
+    proc_time = round((time.time() - t0) * 1000, 1)
+    conf = _confidence_of(out["fields"])
+    _persist_document_record(
+        filename=file.filename or "untitled",
+        file_size=len(data),
+        mime_type=file.content_type,
+        doc_type=doc_type,
+        route=route,
+        fields=out["fields"],
+        confidence=conf,
+        page_count=out["page_count"],
+        processing_time_ms=proc_time,
+        raw_text=out.get("raw_text"),
+    )
+
     return ProcessResponse(
         doc_type=doc_type,
         route=route,
         fields=out["fields"],
-        confidence=_confidence_of(out["fields"]),
+        confidence=conf,
         page_count=out["page_count"],
-        processing_time_ms=round((time.time() - t0) * 1000, 1),
+        processing_time_ms=proc_time,
     )
 
 
@@ -855,6 +962,7 @@ async def process(
     file: UploadFile = File(...),
     route: str = Form("vision_route_a"),
     doc_type: str = Form("auto"),
+    x_demo_session_id: Optional[str] = Header(default=None, alias="X-Demo-Session-Id"),
 ) -> ProcessResponse:
     """
     One-shot pipeline: upload → (auto-classify) → multi-page extract → structured JSON.
@@ -875,6 +983,19 @@ async def process(
     """
     data = await _read_upload(file)
     result = await _process_full(data, route, doc_type)
+    _persist_document_record(
+        filename=file.filename or "untitled",
+        file_size=len(data),
+        mime_type=file.content_type,
+        doc_type=result.get("doc_type"),
+        route=route,
+        fields=result.get("fields"),
+        confidence=result.get("confidence"),
+        page_count=result.get("page_count"),
+        processing_time_ms=result.get("processing_time_ms"),
+        raw_text=result.get("raw_text"),
+        owner_session_id=x_demo_session_id,
+    )
     return ProcessResponse(**result)
 
 
@@ -903,7 +1024,21 @@ async def process_async(
     job_id = batch.new_job(total=1, owner_session_id=x_demo_session_id)
 
     async def _process_one(fd: Dict[str, Any]) -> Dict[str, Any]:
-        return await _process_full(fd["bytes"], fd["route"], fd["doc_type"])
+        res = await _process_full(fd["bytes"], fd["route"], fd["doc_type"])
+        _persist_document_record(
+            filename=fd.get("filename") or "untitled",
+            file_size=len(fd["bytes"]),
+            mime_type=None,
+            doc_type=res.get("doc_type"),
+            route=fd.get("route", "auto"),
+            fields=res.get("fields"),
+            confidence=res.get("confidence"),
+            page_count=res.get("page_count"),
+            processing_time_ms=res.get("processing_time_ms"),
+            raw_text=res.get("raw_text"),
+            owner_session_id=x_demo_session_id,
+        )
+        return res
 
     background.add_task(batch.process, job_id, file_data, _process_one, None)
     return {"job_id": job_id}
@@ -913,6 +1048,7 @@ async def process_async(
 async def extract_fields(
     file: UploadFile = File(...),
     route: str = Form("vision_route_a"),
+    x_demo_session_id: Optional[str] = Header(default=None, alias="X-Demo-Session-Id"),
 ) -> Dict[str, Any]:
     """
     Generic form-field extraction: label -> value pairs, independent of the
@@ -923,13 +1059,28 @@ async def extract_fields(
     data = await _read_upload(file)
     out = await _run_route(data, route, doc_type="form")
     fields = out["fields"] if isinstance(out["fields"], dict) else {}
+    proc_time = round((time.time() - t0) * 1000, 1)
+    conf = _confidence_of(fields)
+    _persist_document_record(
+        filename=file.filename or "untitled",
+        file_size=len(data),
+        mime_type=file.content_type,
+        doc_type="form",
+        route=route,
+        fields=fields.get("fields") if isinstance(fields.get("fields"), dict) else fields,
+        confidence=conf,
+        page_count=out["page_count"],
+        processing_time_ms=proc_time,
+        error=fields.get("error"),
+        owner_session_id=x_demo_session_id,
+    )
     return {
         "route": route,
         "page_count": out["page_count"],
         "form_title": fields.get("form_title"),
         "fields": fields.get("fields"),
-        "confidence": _confidence_of(fields),
-        "processing_time_ms": round((time.time() - t0) * 1000, 1),
+        "confidence": conf,
+        "processing_time_ms": proc_time,
         "error": fields.get("error"),
         "raw": fields,
     }
@@ -1038,6 +1189,86 @@ async def batch_results(
     if results is None:
         raise HTTPException(status_code=404, detail="job_not_found")
     return {"job_id": job_id, "results": results}
+
+
+# ─── Document Persistence & Analytics Endpoints ───────────────────────────────
+
+@app.get("/api/documents")
+@app.get("/documents")
+async def list_documents_endpoint(
+    limit: int = 50,
+    offset: int = 0,
+    doc_type: Optional[str] = None,
+    route: Optional[str] = None,
+    search: Optional[str] = None,
+    x_demo_session_id: Optional[str] = Header(default=None, alias="X-Demo-Session-Id"),
+) -> Dict[str, Any]:
+    """List persistent document extraction records from Neon DB with search and pagination."""
+    if not DB_ENABLED:
+        return {"total": 0, "documents": [], "limit": limit, "offset": offset, "db_enabled": False}
+    total = count_documents(doc_type=doc_type, route=route, search=search, owner_session_id=x_demo_session_id)
+    docs = list_documents(limit=limit, offset=offset, doc_type=doc_type, route=route, search=search, owner_session_id=x_demo_session_id)
+    return {"total": total, "documents": docs, "limit": limit, "offset": offset, "db_enabled": True}
+
+
+@app.get("/api/documents/stats")
+@app.get("/documents/stats")
+async def documents_stats_endpoint(
+    x_demo_session_id: Optional[str] = Header(default=None, alias="X-Demo-Session-Id"),
+) -> Dict[str, Any]:
+    """Retrieve aggregate analytics, classification breakdown, and latency metrics across documents in Neon DB."""
+    if not DB_ENABLED:
+        return {
+            "total_documents": 0,
+            "successful_documents": 0,
+            "error_documents": 0,
+            "avg_confidence": 0.0,
+            "avg_processing_time_ms": 0.0,
+            "total_pages": 0,
+            "by_doc_type": {},
+            "by_route": {},
+            "recent_timeline": [],
+            "db_enabled": False,
+        }
+    stats = get_documents_stats(owner_session_id=x_demo_session_id)
+    stats["db_enabled"] = True
+    return stats
+
+
+@app.get("/api/documents/{doc_id}")
+@app.get("/documents/{doc_id}")
+async def get_document_endpoint(doc_id: str) -> Dict[str, Any]:
+    """Retrieve full structured extraction, confidence, and metadata for a specific document."""
+    if not DB_ENABLED:
+        raise HTTPException(status_code=404, detail="Database persistence not configured")
+    doc = get_document(doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document record not found")
+    return doc
+
+
+@app.delete("/api/documents/{doc_id}")
+@app.delete("/documents/{doc_id}")
+async def delete_document_endpoint(doc_id: str) -> Dict[str, Any]:
+    """Delete a document extraction record by its ID."""
+    if not DB_ENABLED:
+        raise HTTPException(status_code=400, detail="Database persistence not configured")
+    success = delete_document(doc_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Document record not found")
+    return {"status": "deleted", "id": doc_id}
+
+
+@app.delete("/api/documents")
+@app.delete("/documents")
+async def clear_documents_endpoint(
+    x_demo_session_id: Optional[str] = Header(default=None, alias="X-Demo-Session-Id"),
+) -> Dict[str, Any]:
+    """Clear document extraction records from the database."""
+    if not DB_ENABLED:
+        return {"cleared": 0}
+    count = clear_all_documents(owner_session_id=x_demo_session_id)
+    return {"cleared": count}
 
 
 @app.get("/{full_path:path}", include_in_schema=False)

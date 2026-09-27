@@ -277,21 +277,103 @@ export function savePrefs(p: Partial<Prefs>) {
   localStorage.setItem(PREFS_KEY, JSON.stringify({ ...readPrefs(), ...p }));
 }
 
-/* ---------- session document library (Documents page) ---------- */
+/* ---------- document library (Postgres / Neon DB & local fallback) ---------- */
+export type DocIntelDocument = {
+  id: string;
+  filename: string;
+  file_size?: number | null;
+  mime_type?: string | null;
+  doc_type?: string | null;
+  route: string;
+  confidence?: number | null;
+  page_count?: number | null;
+  processing_time_ms?: number | null;
+  fields?: Record<string, unknown> | null;
+  tables?: unknown[] | null;
+  raw_text?: string | null;
+  markdown?: string | null;
+  status: string;
+  error?: string | null;
+  owner_session_id?: string | null;
+  metadata?: Record<string, unknown> | null;
+  created_at: string;
+  updated_at?: string;
+};
+
+export type DocumentStats = {
+  total_documents: number;
+  successful_documents: number;
+  error_documents: number;
+  avg_confidence: number;
+  avg_processing_time_ms: number;
+  total_pages: number;
+  by_doc_type: Record<string, number>;
+  by_route: Record<string, number>;
+  recent_timeline: { day: string; count: number }[];
+  db_enabled: boolean;
+};
+
+export type DocumentListResponse = {
+  total: number;
+  documents: DocIntelDocument[];
+  limit: number;
+  offset: number;
+  db_enabled: boolean;
+};
+
 export type StoredDoc = {
   ts: number;
   name: string;
   size: number;
   result: ProcessResponse;
+  id?: string;
 };
+
 const DOCS_KEY = "docintel.documents";
+
 export function saveDocument(d: StoredDoc) {
   const list: StoredDoc[] = JSON.parse(localStorage.getItem(DOCS_KEY) ?? "[]");
   list.unshift(d);
-  try { localStorage.setItem(DOCS_KEY, JSON.stringify(list.slice(0, 20))); }
-  catch { localStorage.setItem(DOCS_KEY, JSON.stringify(list.slice(0, 5))); }
+  try { localStorage.setItem(DOCS_KEY, JSON.stringify(list.slice(0, 50))); }
+  catch { localStorage.setItem(DOCS_KEY, JSON.stringify(list.slice(0, 10))); }
 }
+
 export function readDocuments(): StoredDoc[] {
   try { return JSON.parse(localStorage.getItem(DOCS_KEY) ?? "[]"); } catch { return []; }
 }
+
 export function clearDocuments() { localStorage.removeItem(DOCS_KEY); }
+
+export async function fetchDocuments(params?: {
+  limit?: number;
+  offset?: number;
+  doc_type?: string;
+  route?: string;
+  search?: string;
+}): Promise<DocumentListResponse> {
+  const q = new URLSearchParams();
+  if (params?.limit) q.set("limit", String(params.limit));
+  if (params?.offset) q.set("offset", String(params.offset));
+  if (params?.doc_type) q.set("doc_type", params.doc_type);
+  if (params?.route) q.set("route", params.route);
+  if (params?.search) q.set("search", params.search);
+  const qs = q.toString();
+  return req<DocumentListResponse>(`/api/documents${qs ? `?${qs}` : ""}`);
+}
+
+export async function fetchDocumentStats(): Promise<DocumentStats> {
+  return req<DocumentStats>("/api/documents/stats");
+}
+
+export async function fetchDocumentById(id: string): Promise<DocIntelDocument> {
+  return req<DocIntelDocument>(`/api/documents/${id}`);
+}
+
+export async function deleteDocumentApi(id: string): Promise<{ status: string; id: string }> {
+  return req<{ status: string; id: string }>(`/api/documents/${id}`, { method: "DELETE" });
+}
+
+export async function clearAllDocumentsApi(): Promise<{ cleared: number }> {
+  return req<{ cleared: number }>("/api/documents", { method: "DELETE" });
+}
+
