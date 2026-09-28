@@ -44,6 +44,7 @@ def _html_to_text(html: Optional[str]) -> str:
     return (text.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
             .replace("&quot;", '"').replace("&#39;", "'").strip())
 
+
 try:
     from PIL import Image
     _PIL = True
