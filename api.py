@@ -82,7 +82,6 @@ if DB_ENABLED:
         log.warning("Database schema initialization skipped/deferred: %s", _e)
 
 
-
 def _warm_up_models():
     """Pre-load Surya OCR models at startup so the first real request isn't slow.
     Runs regardless of TELEMETRY_OPT_OUT — unrelated to telemetry."""
