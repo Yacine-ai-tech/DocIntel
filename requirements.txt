@@ -39,3 +39,9 @@ qrcode>=7.4.2
 # to local JSON files with zero configuration when it's unset).
 psycopg[binary]>=3.2.0
 psycopg-pool>=3.2.0
+
+# Surya OCR — Route C (OCR fallback) and standalone OCR path (services/surya_extractor.py).
+# Also the primary fallback when Route B (Ollama vision) is unavailable or returns an error.
+# Listed here (not requirements-ml.txt only) because the Dockerfile installs requirements.txt.
+surya-ocr>=0.5.0
+
