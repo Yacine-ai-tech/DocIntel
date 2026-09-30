@@ -264,15 +264,16 @@ export default function UserGuidePage() {
               </thead>
               <tbody className="text-gray-300">
                 {[
-                  ["Ingestion at scale (550 docs)", "OCR ingestion, no LLM", "550/550 = 100.0% (0 failures)"],
-                  ["Invoices (39, multilingual multi-page)", "Route A — Claude Sonnet 4.6 Vision", "39/39 = 100%"],
+                  ["Ingestion at scale (550–650 docs)", "OCR ingestion, no LLM", "100.0% (0 failures, ~1.1 docs/s)"],
+                  ["Invoices (39 fields, multilingual multi-page)", "Route A — Claude Sonnet 4.6 Vision", "39/39 = 100%"],
                   ["Receipts (40, CORD phone photos)", "Route A — Claude Sonnet 4.6 Vision", "37/40 = 92.5%"],
-                  ["Invoices (clean PDFs)", "Route C — Tesseract + LLM cleanup", "100%"],
-                  ["Receipts (200, CORD phone photos)", "Route C — Tesseract + LLM cleanup", "57/200 = 28.5%"],
-                  ["Receipts (100, CORD phone photos)", "Route B — Ollama qwen2.5-VL 7B (self-hosted GPU)", "77/100 = 77.0%"],
-                  ["Invoices (39, multilingual multi-page)", "Route B — Ollama qwen2.5-VL 7B (self-hosted GPU)", "25/39 = 64.1%"],
-                  ["French + FCFA (XOF) sample (1)", "Route A / Route B / Route C", "1/1 = 100% (all three)"],
-                  ["SROIE receipts (N=20, zero-shot)", "Route A — Claude Sonnet 4.6 Vision", "95.0% overall (57/60 fields)"],
+                  ["SROIE receipts (zero-shot)", "Route A — Claude Sonnet 4.6 Vision", "95.0% overall (57/60 fields)"],
+                  ["Global sample (106 docs, invoices + CORD)", "Route B — Ollama Qwen 2.5-VL 7B (GPU)", "97.8% (405/414 fields)"],
+                  ["French / FCFA sub-corpus (50 docs)", "Route B — Ollama Qwen 2.5-VL 7B (GPU)", "325/325 = 100% ($0 API cost)"],
+                  ["French / FCFA sub-corpus (50 docs)", "Route C — Surya OCR (GPU) + LLM cleanup", "313/325 = 96.3%"],
+                  ["Global sample confirmation", "Route C — Surya OCR (GPU) + LLM cleanup", "97.4% field accuracy"],
+                  ["Invoices (clean PDFs)", "Route C (fallback) — Tesseract + LLM cleanup", "100%"],
+                  ["Receipts (200, CORD phone photos)", "Route C (fallback) — Tesseract + LLM cleanup", "57/200 = 28.5%"],
                 ].map(([measure, route, result]) => (
                   <tr key={measure} className="border-b border-gray-800">
                     <td className="py-2 pr-4">{measure}</td>
