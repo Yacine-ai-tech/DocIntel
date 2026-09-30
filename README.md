@@ -109,11 +109,12 @@ involved.
 
 ## Validation
 
-Validated against real, third-party, multilingual invoices (English, French, German, Dutch;
-the `invoice2data` test set — see [eval/EVAL_REAL.md](eval/EVAL_REAL.md)). Route A and
-Route C both score 100% on the fields present in each document; `/classify-image` returns
+Validated against a comprehensive 650-document multi-source corpus spanning CORD-v2 receipts,
+scanned FUNSD forms, multilingual `invoice2data` invoices (English, French, German, Dutch — see
+[eval/EVAL_REAL.md](eval/EVAL_REAL.md)), and West-African French/FCFA documents. Route A and
+Route C both score 100% on the fields present in each invoice document; `/classify-image` returns
 0.98–0.99 confidence on real invoice images. Full results, corpus composition, and
-reproduction commands: [eval/BENCHMARK.md](eval/BENCHMARK.md).
+reproduction commands: [eval/BENCHMARK.md](eval/BENCHMARK.md) and [BENCHMARK.md](BENCHMARK.md).
 
 ## Scope and Limitations
 

@@ -38,6 +38,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from core.config import settings
+import core.db as _core_db
 from core.db import (
     DB_ENABLED,
     ensure_schema,
@@ -49,6 +50,10 @@ from core.db import (
     clear_all_documents,
     get_documents_stats,
 )
+
+
+def _is_db_enabled() -> bool:
+    return bool(_core_db.DB_ENABLED or DB_ENABLED or getattr(settings, "POSTGRES_URL", None))
 from core.logger import get_logger
 from services.batch_processor import BatchProcessor
 from services.camera import CameraManager
@@ -281,7 +286,7 @@ def _persist_document_record(
     metadata: Optional[Dict[str, Any]] = None,
 ) -> Optional[str]:
     """Helper to record document extractions asynchronously/safely in Postgres."""
-    if not DB_ENABLED:
+    if not _is_db_enabled():
         return None
     try:
         return upsert_document({
@@ -1203,7 +1208,7 @@ async def list_documents_endpoint(
     x_demo_session_id: Optional[str] = Header(default=None, alias="X-Demo-Session-Id"),
 ) -> Dict[str, Any]:
     """List persistent document extraction records from Neon DB with search and pagination."""
-    if not DB_ENABLED:
+    if not _is_db_enabled():
         return {"total": 0, "documents": [], "limit": limit, "offset": offset, "db_enabled": False}
     total = count_documents(doc_type=doc_type, route=route, search=search, owner_session_id=x_demo_session_id)
     docs = list_documents(limit=limit, offset=offset, doc_type=doc_type, route=route, search=search, owner_session_id=x_demo_session_id)
@@ -1216,7 +1221,7 @@ async def documents_stats_endpoint(
     x_demo_session_id: Optional[str] = Header(default=None, alias="X-Demo-Session-Id"),
 ) -> Dict[str, Any]:
     """Retrieve aggregate analytics, classification breakdown, and latency metrics across documents in Neon DB."""
-    if not DB_ENABLED:
+    if not _is_db_enabled():
         return {
             "total_documents": 0,
             "successful_documents": 0,
@@ -1238,7 +1243,7 @@ async def documents_stats_endpoint(
 @app.get("/documents/{doc_id}")
 async def get_document_endpoint(doc_id: str) -> Dict[str, Any]:
     """Retrieve full structured extraction, confidence, and metadata for a specific document."""
-    if not DB_ENABLED:
+    if not _is_db_enabled():
         raise HTTPException(status_code=404, detail="Database persistence not configured")
     doc = get_document(doc_id)
     if not doc:
@@ -1250,7 +1255,7 @@ async def get_document_endpoint(doc_id: str) -> Dict[str, Any]:
 @app.delete("/documents/{doc_id}")
 async def delete_document_endpoint(doc_id: str) -> Dict[str, Any]:
     """Delete a document extraction record by its ID."""
-    if not DB_ENABLED:
+    if not _is_db_enabled():
         raise HTTPException(status_code=400, detail="Database persistence not configured")
     success = delete_document(doc_id)
     if not success:
@@ -1264,7 +1269,7 @@ async def clear_documents_endpoint(
     x_demo_session_id: Optional[str] = Header(default=None, alias="X-Demo-Session-Id"),
 ) -> Dict[str, Any]:
     """Clear document extraction records from the database."""
-    if not DB_ENABLED:
+    if not _is_db_enabled():
         return {"cleared": 0}
     count = clear_all_documents(owner_session_id=x_demo_session_id)
     return {"cleared": count}
