@@ -53,6 +53,9 @@ def db_module(monkeypatch):
     monkeypatch.setattr(db_module, "DB_ENABLED", True)
     monkeypatch.setattr(db_module, "_schema_ready", False)
     monkeypatch.setattr(db_module, "_pool", None)
+    import sys
+    if "api" in sys.modules:
+        monkeypatch.setattr(sys.modules["api"], "DB_ENABLED", True)
     db_module.ensure_schema()
     try:
         yield db_module

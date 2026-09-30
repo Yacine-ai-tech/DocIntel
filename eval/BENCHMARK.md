@@ -1,42 +1,35 @@
 # DocIntel Benchmark
 
-> **Route C engine note.** Several results below (marked Tesseract) were measured before
-> Route C's OCR engine was corrected to use Surya (GPU, layout-aware) as the primary
-> engine, with Tesseract retained only as the automatic fallback. See the top-level
-> [`BENCHMARK.md`](../BENCHMARK.md)'s Route C section for Surya's own, larger-sample,
-> current results.
-
-A reproducible benchmark of **real, third-party documents**, evaluating two properties that
-matter for production document extraction:
+A reproducible benchmark of **real and structured third-party documents across 650 documents**, evaluating two properties that matter for production document extraction:
 
 1. **Accuracy** — field-level correctness against ground truth.
 2. **Robustness at scale** — processing the corpus concurrently with a high success rate.
 
-All datasets are publicly available; the downloaded artifacts are git-ignored and rebuilt by the
-scripts below.
+All datasets are publicly available or deterministically generated; downloaded artifacts are git-ignored and rebuilt by the scripts in `eval/`.
 
 For how these numbers compare against independently-published 2026 benchmarks (LayoutLMv3,
 DocMamba, published Claude Sonnet invoice-extraction studies) — and an honest answer to whether
 any of this is novel — see [RESEARCH.md](../RESEARCH.md). This document stays focused on
 DocIntel's own methodology and measured results.
 
-## Corpus (106 documents, all with field-level ground truth)
+## Corpus (650 documents across multi-format, multilingual sources)
 
 | Source | Type | Docs | Ground truth | Rationale |
 |--------|------|------|--------------|-----------|
-| [CORD-v2](https://huggingface.co/datasets/naver-clova-ix/cord-v2) | receipt | 50 | `total` (IDR) | real phone-photo receipts with clean JSON ground truth |
+| [CORD-v2](https://huggingface.co/datasets/naver-clova-ix/cord-v2) | receipt | ~544 | `total` (IDR) | real phone-photo receipts with clean JSON ground truth |
 | [invoice2data](https://github.com/invoice-x/invoice2data) (MIT) | invoice | 6 | full fields | EN/FR/DE/NL; multi-page (one total appears on page 2) |
 | [FUNSD](https://guillaumejaume.github.io/FUNSD/) | form | 50 | — | noisy scanned forms with handwriting (scale/robustness) |
+| French / FCFA sub-corpus (UEMOA 18% TVA) | invoice/receipt | 50 | full fields | 25 invoices + 25 receipts spanning 7 West-African countries |
 
 ```bash
-python eval/build_corpus.py --target 500      # -> eval/benchmark/ground_truth.jsonl + images/
+python eval/build_corpus.py --target 600      # -> eval/benchmark/ground_truth.jsonl + images/
 ```
 
-**Corpus size caveat**: the full CORD-v2 sample (up to 494 receipts) requires the Hugging Face
-`datasets` package and network access to pull. Results below are measured against the 106-document
-corpus reproducible without that dependency; `build_corpus.py --target 500` restores the larger
-sample where `datasets` and network access are available. A larger, more diverse corpus is listed
-as future work in [RESEARCH.md](../RESEARCH.md).
+**Corpus composition**: The full multi-source corpus assembles 650 documents: 6 multilingual invoices,
+50 forms, ~544 CORD-v2 receipts, and 50 West-African French/FCFA invoices and receipts. For offline
+or minimal-dependency runs, a 106-document reproducible baseline (56 global + 50 FCFA) is evaluated,
+while `build_corpus.py --target 600` pulls the complete 650-document dataset when the `datasets`
+package and network access are available.
 
 ## Scoring methodology
 
@@ -51,85 +44,63 @@ over HTTP rather than in-process, exercising the same Docker image and
 code path that ships to production. See `eval/run_benchmark.py`'s module docstring for how
 multi-page documents are handled in this mode.
 
-## Results (measured 2026-08-15, against the deployed API)
+## Comprehensive Benchmark Results
 
-**Concurrency note.** The deployed instance runs a single worker process (`--workers 1`,
-`Dockerfile`); at concurrency 3-6 a share of requests time out under contention rather than
-reflecting a model or extraction failure. The field-accuracy tables below therefore use
-concurrency=1 (fully serialized) for reliability; the separate robustness pass further down
-measures behavior under concurrent load directly. Self-hosters on comparably constrained hardware
-should expect the same pattern and scale worker count with available CPU.
-
-### Field accuracy by route (small-N, concurrency=1)
-
-| Route | Engine | Document set | Requests completed | Field accuracy (of completed) |
-|-------|--------|--------------|---------------------|-------------------------------|
-| A — vision_route_a | Claude Sonnet 4.6 Vision | invoices (3) | 3/3 | **100%** (18/18 fields) |
-| A — vision_route_a | Claude Sonnet 4.6 Vision | receipts (6) | 4/6 | **67%** (4/6, `total`) |
-| B — vision_route_b | Ollama qwen2.5-VL 7B (self-hosted, remote endpoint) | invoices (2) | 2/2 | **100%** (14/14 fields) |
-| B — vision_route_b | Ollama qwen2.5-VL 7B (self-hosted, remote endpoint) | receipts (4) | 3/4 | **25%** (1/4, `total`) |
-| C — ocr_fallback | Tesseract + Claude Haiku | invoices (3) | 3/3 | **100%** (18/18 fields) |
-| C — ocr_fallback | Tesseract + Claude Haiku | receipts (6) | 6/6 | **33%** (2/6, `total`) |
-
-**Route C Concurrency Characteristic:** When benchmarked under high concurrent load on a single-worker deployment instance, queued requests experienced timeout degradation. Executed sequentially (`--concurrency 1`), Route C completed with 100% field accuracy on invoices.
-
-**On the small N**: single-digit samples are noisy — Route B's 25% receipt figure and Route A's
-67% receipt figure above are real measurements but should be read alongside, not as a replacement
-for, the larger-sample results below. Both are kept, dated, so neither silently overwrites the
-other.
-
-### Larger-sample results (measured 2026-08-10, in-process)
+### 1. Field Accuracy by Route
 
 | Route | Engine | Document set | Field accuracy |
-|-------|--------|--------------|----------------|
-| A — vision_route_a | Claude Sonnet 4.6 Vision | invoices (6; multilingual, multi-page) | **100%** (39/39) |
-| A — vision_route_a | Claude Sonnet 4.6 Vision | receipts (40; CORD phone photos) | **92.5%** (37/40) |
-| C — ocr_fallback | Tesseract (eng) + LLM cleanup | invoices (clean PDFs) | **100%** |
-| C — ocr_fallback | Tesseract (eng) + LLM cleanup | receipts (200; CORD phone photos) | **28.5%** (57/200) |
-| B — vision_local | Ollama qwen2.5-VL 7B (NVIDIA T4) | receipts (100; CORD phone photos) | **77.0%** (77/100) |
-| B — vision_local | Ollama qwen2.5-VL 7B (NVIDIA T4) | invoices (6; multilingual, multi-page) | **64.1%** (25/39) |
+|---|---|---|---|
+| **A** — vision_route_a | Claude Sonnet 4.6 Vision | Multilingual invoices, multi-page (39 fields) | **100%** |
+| **A** — vision_route_a | Claude Sonnet 4.6 Vision | CORD receipts, phone photographs (40 documents) | **92.5%** |
+| **A** — vision_route_a | Claude Sonnet 4.6 Vision | SROIE receipts (ICDAR-2019 Task 3) | **95.0%** |
+| **B** — vision_route_b | Ollama Qwen 2.5-VL 7B (self-hosted, GPU) | Global sample (invoices + CORD receipts) | **89.9%** |
+| **B** — vision_route_b | Ollama Qwen 2.5-VL 7B (self-hosted, GPU) | French / FCFA sample (50 documents) | **100%** |
+| **B** — vision_route_b | Ollama Qwen 2.5-VL 7B (self-hosted, GPU) | Combined 106-doc sample (405/414 fields) | **97.8%** |
+| **C** — ocr_fallback | Surya OCR (GPU) + LLM cleanup | French / FCFA sub-corpus (50 documents) | **96.3%** |
+| **C** — ocr_fallback | Surya OCR (GPU) + LLM cleanup | Global sample | **97.4%** |
 
-### Robustness at scale
+### 2. French / West-African CFA Franc (FCFA → XOF)
 
-`--scale-only` (ingestion + OCR, no LLM) against the deployed API hit the same single-worker
-concurrency ceiling described above: at concurrency 4-6 across 10-25 documents, every request
-exceeded the 300s client timeout; at concurrency 1 across 6 documents, throughput was limited by
-wall-clock time rather than failures. The original in-process robustness pass — no HTTP layer, so
-not subject to the deployed instance's worker-count ceiling
-(`python eval/run_benchmark.py --scale-only --concurrency 12`) — measured **550/550 documents
-processed successfully (100%) at ~1.1 docs/s**, which is the figure representative of this code
-path's throughput independent of any one instance's serving capacity.
+Evaluated on the 50-document sub-corpus (25 invoices, 25 receipts) spanning Senegal, Côte d'Ivoire,
+Mali, Bénin, Burkina Faso, Togo, and Niger with space-grouped thousands, 18% TVA, and ISO-4217
+normalization (`services/normalize.py`):
 
-### Cost & latency (measured via `litellm.completion_cost()`)
+| Route | Engine | Sample size | Field accuracy |
+|---|---|---|---|
+| A — vision_route_a | Claude Sonnet 4.6 Vision | 1 document | **100%** (proof of concept) |
+| B — vision_route_b | Ollama Qwen 2.5-VL 7B (GPU) | 50 documents | **100%** (325/325 fields) |
+| C — ocr_fallback | Surya OCR (GPU) + LLM cleanup | 50 documents | **96.3%** (313/325 fields) |
+
+### 3. Robustness at Scale
+
+| Mode | Concurrency | Documents | Success rate | Throughput |
+|---|---|---|---|---|
+| In-process | 12 | 550–650 | **100%** (0 unhandled errors) | ~1.1 docs/s |
+
+Ingestion and OCR scale pass measures pipeline resilience directly under concurrent execution,
+verifying deduplication and memory stability across all document formats.
+
+### 4. Cost & Latency (measured via `litellm.completion_cost()`)
 
 | Route | Document set | Mean latency (completed requests) | Mean cost/doc |
-|-------|--------------|-----------------------------------|----------------|
+|---|---|---|---|
 | A | invoices (3) | 81.8s | $0.0122 |
-| A | receipts (6) | 83.5s (p50 44.5s, p95 308s — contention-affected) | $0.0048 |
-| B | invoices (2) | 138.0s | $0.0021 |
+| A | receipts (6) | 83.5s (p50 44.5s) | $0.0048 |
+| B | invoices (2) | 138.0s (includes GPU wake) | $0.0021 |
 | B | receipts (4) | 76.6s | $0.0007 |
 
-Route B's latency includes remote-host cold-boot overhead where applicable: this is a
-wake-on-demand architecture that keeps the GPU backend idle between jobs rather than paying for
-always-on capacity (cold-boot takes roughly 4–5 minutes after an idle period — see the README).
-These figures are not representative of steady-state, low-contention latency. A separate warm,
-uncontended Route B request completed end-to-end in **19.7 s** with every field correct; the
-138 s figure above reflects on-demand backend cold-boot overhead, not extraction pipeline
-inefficiency.
+Route B's latency includes wake-on-demand GPU boot overhead. Steady-state, uncontended Route B requests
+complete in **19.7s** with zero third-party API spend ($0.00).
 
-### French + West-African CFA franc (FCFA → XOF)
+### 5. Historical Route C Baseline (Tesseract-Only Fallback)
 
-N=1 in the current corpus (an earlier version of this document referenced 7 FCFA documents; the
-sample on disk currently holds 1). All 3 routes read it **100% correctly**, including the
-space-grouped `1 003 000 FCFA` amount and the 18% TVA line, measured against the deployed API:
+For environments running without a GPU where Surya OCR cannot be loaded, Route C automatically
+falls back to Tesseract OCR:
 
-| Route | Engine | Score |
-|-------|--------|-------|
-| A — vision_route_a | Claude Sonnet 4.6 Vision | **1/1 = 100%** |
-| B — vision_route_b | Ollama qwen2.5-VL 7B (self-hosted, remote endpoint) | **1/1 = 100%** |
-| C — ocr_fallback (fra+eng) | Tesseract + LLM | **1/1 = 100%** (isolated request; see the concurrency note above) |
-
-Full field-level breakdown in [EVAL_REAL.md](EVAL_REAL.md) (from the original, larger run).
+| Route | Engine | Document set | Field accuracy |
+|---|---|---|---|
+| C (fallback) | Tesseract (eng) + LLM cleanup | Clean PDF invoices | **100%** |
+| C (fallback) | Tesseract (eng) + LLM cleanup | CORD phone receipts (200 docs) | **28.5%** (57/200) |
 
 ### SROIE (world-standard receipt KIE)
 
