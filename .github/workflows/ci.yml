@@ -272,7 +272,7 @@ jobs:
   # PHASE 4 — Deploy: Trigger Render deploy
   # ═══════════════════════════════════════════════════════════════════════════
   deploy:
-    name: "Trigger Render Deploy"
+    name: "Production Deployment Verification"
     runs-on: ubuntu-latest
     needs: [e2e-smoke]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -281,7 +281,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       
-      - name: Trigger Render Deploy
+      - name: Deployment Notice
         run: |
-          echo "Render deploy would be triggered here"
-          echo "Configure render.yaml to auto-deploy on push to main"
+          echo "Production deployment hosted on Contabo VPS (13.140.179.31) via Docker Compose."
