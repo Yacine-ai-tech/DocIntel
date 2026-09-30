@@ -16,18 +16,15 @@ on:
   workflow_dispatch: {}
 
 jobs:
-  deploy:
+  verify:
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     steps:
-      - name: Trigger Render deploy
+      - name: Verify Live Service Health
         run: |
           code=$(curl -fsS -o /tmp/resp.json -w "%{http_code}" \
-            -X POST "https://api.render.com/v1/services/${{ secrets.RENDER_SERVICE_ID }}/deploys" \
-            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
-            -H "Content-Type: application/json" \
-            -d '{"clearCache":"do_not_clear"}') || { echo "deploy trigger failed"; exit 1; }
-          echo "Deployment responded HTTP $code"
+            "https://docintel.ysiddo-ai-projects.app/health") || { echo "Health check failed"; exit 1; }
+          echo "Production service responded HTTP $code"
           cat /tmp/resp.json
 
   # Publishes the DockerHub image the README/COMMERCIAL positioning promises. Entirely
