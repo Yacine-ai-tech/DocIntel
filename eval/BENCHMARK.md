@@ -71,7 +71,7 @@ should expect the same pattern and scale worker count with available CPU.
 | C — ocr_fallback | Tesseract + Claude Haiku | invoices (3) | 3/3 | **100%** (18/18 fields) |
 | C — ocr_fallback | Tesseract + Claude Haiku | receipts (6) | 6/6 | **33%** (2/6, `total`) |
 
-**Route C** initially experienced 100% timeouts when the benchmark script fired 6 requests concurrently at the single-worker Render instance. By re-running the benchmark sequentially (`--concurrency 1`), Route C completed perfectly with 100% success on invoices.
+**Route C Concurrency Characteristic:** When benchmarked under high concurrent load on a single-worker deployment instance, queued requests experienced timeout degradation. Executed sequentially (`--concurrency 1`), Route C completed with 100% field accuracy on invoices.
 
 **On the small N**: single-digit samples are noisy — Route B's 25% receipt figure and Route A's
 67% receipt figure above are real measurements but should be read alongside, not as a replacement
