@@ -1,13 +1,14 @@
-"""Assemble a 500+ document benchmark corpus of REAL documents with ground truth.
+"""Assemble a 650-document benchmark corpus of multi-source documents with ground truth.
 
-This is a released research artifact — releasing the benchmark is the biggest contribution.
+This is a released research artifact — releasing the benchmark is the central contribution.
 It is multi-source and multi-type so accuracy numbers reflect production diversity, not one
 template:
 
-  - CORD-v2 receipts            (naver-clova-ix/cord-v2)  — clean JSON field GT, scalable
-  - invoice2data invoices       (MIT)                     — multilingual, incl. multi-page
-  - FUNSD forms                 (nielsr/funsd / HF)       — form key/value, handwriting
-  - synthetic multi-page + handwritten coverage           — guarantees those edge cases exist
+  - CORD-v2 receipts            (naver-clova-ix/cord-v2)  — clean JSON field GT (~544 docs)
+  - invoice2data invoices       (MIT)                     — multilingual, incl. multi-page (6 docs)
+  - FUNSD forms                 (nielsr/funsd / HF)       — form key/value, handwriting (50 docs)
+  - French / FCFA sub-corpus    (UEMOA 18% TVA format)    — 25 invoices + 25 receipts (50 docs)
+  Total: 650 documents
 
 Each source is isolated (try/except): a missing dataset never aborts the build. Images are
 written to eval/benchmark/images/, ground truth (normalized) to eval/benchmark/ground_truth.jsonl.
@@ -17,13 +18,14 @@ Ground-truth schema (per line):
    "pages": int, "expected": {<field>: <value>, ...}}
 
 Usage:
-  python eval/build_corpus.py --target 500            # build ~500+ docs
-  python eval/build_corpus.py --target 500 --no-cord  # skip the big download
+  python eval/build_corpus.py --target 600            # build full ~650 docs
+  python eval/build_corpus.py --target 600 --no-cord  # skip the big download
 """
 from __future__ import annotations
 
 import argparse
 import json
+import logging
 import re
 import urllib.request
 from pathlib import Path
@@ -142,22 +144,82 @@ def add_funsd(rows, limit):
     return added
 
 
+# ── Source: French / West-African CFA franc (FCFA/XOF) sub-corpus ─────────────
+def add_fcfa(rows, n_invoices=25, n_receipts=25, seed=42):
+    try:
+        from eval.generate_fcfa_corpus import _make_invoice, _render_invoice, _make_receipt, _render_receipt
+    except ImportError:
+        try:
+            from generate_fcfa_corpus import _make_invoice, _render_invoice, _make_receipt, _render_receipt
+        except ImportError:
+            logging.warning("FCFA corpus generator not available, skipping.")
+            return 0
+    import random
+    rng = random.Random(seed)
+    fcfa_dir = IMG / "fcfa"
+    fcfa_dir.mkdir(parents=True, exist_ok=True)
+    added = 0
+    for i in range(1, n_invoices + 1):
+        inv = _make_invoice(rng, i)
+        _render_invoice(inv, fcfa_dir / inv["file"])
+        rows.append({
+            "file": str(Path("images") / "fcfa" / inv["file"]),
+            "doc_type": "invoice",
+            "source": "synthetic_fcfa_fr",
+            "pages": 1,
+            "expected": {
+                "vendor": inv["vendor"],
+                "invoice_number": inv["invoice_number"],
+                "date": inv["date"],
+                "due_date": inv["due_date"],
+                "currency": inv["currency"],
+                "subtotal": inv["subtotal"],
+                "tax": inv["tax"],
+                "total": inv["total"],
+            },
+        })
+        added += 1
+    for i in range(1, n_receipts + 1):
+        r = _make_receipt(rng, i)
+        _render_receipt(r, fcfa_dir / r["file"])
+        rows.append({
+            "file": str(Path("images") / "fcfa" / r["file"]),
+            "doc_type": "receipt",
+            "source": "synthetic_fcfa_fr",
+            "pages": 1,
+            "expected": {
+                "merchant": r["vendor"],
+                "date": r["date"],
+                "total": r["total"],
+                "currency": r["currency"],
+                "payment_method": r["payment_method"],
+            },
+        })
+        added += 1
+    print(f"  French/FCFA documents added: {added} ({n_invoices} invoices, {n_receipts} receipts)")
+    return added
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--target", type=int, default=500)
+    ap.add_argument("--target", type=int, default=600,
+                    help="Target document count before FCFA generation (~600 target + 50 FCFA = 650 total)")
     ap.add_argument("--no-cord", action="store_true")
     ap.add_argument("--no-funsd", action="store_true")
+    ap.add_argument("--no-fcfa", action="store_true")
     a = ap.parse_args()
 
     IMG.mkdir(parents=True, exist_ok=True)
     rows: list = []
 
-    add_invoice2data(rows)                                  # multilingual invoices + multi-page
+    add_invoice2data(rows)                                  # multilingual invoices + multi-page (6 docs)
     if not a.no_funsd:
-        add_funsd(rows, limit=60)                           # forms + handwriting
+        add_funsd(rows, limit=60)                           # forms + handwriting (50 docs)
     if not a.no_cord:
         remaining = max(0, a.target - len(rows))
-        add_cord(rows, limit=remaining + 50)               # receipts — the scalable backbone
+        add_cord(rows, limit=remaining + 50)               # receipts — scalable backbone (~544 docs)
+    if not a.no_fcfa:
+        add_fcfa(rows)                                      # French / FCFA invoices and receipts (50 docs)
 
     gt_path = OUT / "ground_truth.jsonl"
     with open(gt_path, "w") as f:
