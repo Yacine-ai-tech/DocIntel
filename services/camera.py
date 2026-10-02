@@ -212,7 +212,7 @@ class MobilePairing:
         if not _QR:
             return None
         import io
-        base_url = (frontend_url or os.getenv("FRONTEND_URL") or "https://docintel.ysiddo-ai-projects.app").rstrip("/")
+        base_url = (os.getenv("FRONTEND_URL") or frontend_url or "https://docintel.ysiddo-ai-projects.app").rstrip("/")
         url = f"{base_url}/camera/mobile?token={token}"
         img = qrcode.make(url)
         buf = io.BytesIO()
@@ -281,7 +281,7 @@ class CameraManager:
         except Exception:
             pass
         token = self.pairing.create_session(user, device_name)
-        base_url = (frontend_url or os.getenv("FRONTEND_URL") or "https://docintel.ysiddo-ai-projects.app").rstrip("/")
+        base_url = (os.getenv("FRONTEND_URL") or frontend_url or "https://docintel.ysiddo-ai-projects.app").rstrip("/")
         qr_b64 = self.pairing.qr_base64(token, frontend_url=base_url)
         return {
             "token": token,
