@@ -212,9 +212,7 @@ class MobilePairing:
         if not _QR:
             return None
         import io
-        base_url = (frontend_url or os.getenv("FRONTEND_URL") or "https://docintel-ui-2026.vercel.app").rstrip("/")
-        if "docintel.ysiddo-ai-projects.app" in base_url and "ui" not in base_url:
-            base_url = "https://docintel-ui-2026.vercel.app"
+        base_url = (frontend_url or os.getenv("FRONTEND_URL") or "https://docintel.ysiddo-ai-projects.app").rstrip("/")
         url = f"{base_url}/camera/mobile?token={token}"
         img = qrcode.make(url)
         buf = io.BytesIO()
@@ -283,9 +281,7 @@ class CameraManager:
         except Exception:
             pass
         token = self.pairing.create_session(user, device_name)
-        base_url = (frontend_url or os.getenv("FRONTEND_URL") or "https://docintel-ui-2026.vercel.app").rstrip("/")
-        if "docintel.ysiddo-ai-projects.app" in base_url and "ui" not in base_url:
-            base_url = "https://docintel-ui-2026.vercel.app"
+        base_url = (frontend_url or os.getenv("FRONTEND_URL") or "https://docintel.ysiddo-ai-projects.app").rstrip("/")
         qr_b64 = self.pairing.qr_base64(token, frontend_url=base_url)
         return {
             "token": token,

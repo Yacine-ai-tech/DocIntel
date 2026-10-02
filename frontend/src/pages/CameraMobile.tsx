@@ -168,9 +168,41 @@ export default function CameraMobile() {
     const file = e.target.files?.[0];
     if (!file) return;
     const url = URL.createObjectURL(file);
-    setCapturedBlob(file);
-    setPreviewUrl(url);
-    stopStream();
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = img.naturalWidth || img.width;
+        canvas.height = img.naturalHeight || img.height;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(img, 0, 0);
+          canvas.toBlob((blob) => {
+            if (blob) {
+              setCapturedBlob(blob);
+              setPreviewUrl(url);
+              stopStream();
+              return;
+            }
+            setCapturedBlob(file);
+            setPreviewUrl(url);
+            stopStream();
+          }, "image/png");
+          return;
+        }
+      } catch (err) {
+        console.warn("Canvas normalization failed, using raw file:", err);
+      }
+      setCapturedBlob(file);
+      setPreviewUrl(url);
+      stopStream();
+    };
+    img.onerror = () => {
+      setCapturedBlob(file);
+      setPreviewUrl(url);
+      stopStream();
+    };
+    img.src = url;
   };
 
   const retakePhoto = () => {
@@ -190,7 +222,7 @@ export default function CameraMobile() {
     setStatus("uploading");
     setErrorMsg("");
     try {
-      const res = await api.uploadCameraPhoto(token, capturedBlob, docType, "vision_route_b");
+      const res = await api.uploadCameraPhoto(token, capturedBlob, docType);
       setResult(res);
       setStatus("success");
     } catch (err: any) {

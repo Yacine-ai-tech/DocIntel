@@ -488,10 +488,8 @@ async def camera_qr_image(token: str):
 
 @app.get("/camera/mobile")
 async def camera_mobile_redirect(token: Optional[str] = None):
-    """Redirect to the Vercel mobile camera scanner UI if accessed via the API endpoint."""
-    frontend_url = (os.getenv("FRONTEND_URL") or "https://docintel-ui-2026.vercel.app").rstrip("/")
-    if "docintel.ysiddo-ai-projects.app" in frontend_url and "ui" not in frontend_url:
-        frontend_url = "https://docintel-ui-2026.vercel.app"
+    """Redirect to the mobile camera scanner UI if accessed via the API endpoint."""
+    frontend_url = (os.getenv("FRONTEND_URL") or "https://docintel.ysiddo-ai-projects.app").rstrip("/")
     url = f"{frontend_url}/camera/mobile"
     if token:
         url += f"?token={token}"
@@ -503,9 +501,10 @@ async def camera_upload(
     token: str = Form(...),
     file: UploadFile = File(...),
     doc_type: str = Form("default"),
-    route: str = Form("vision_route_b"),
+    route: Optional[str] = Form(None),
 ):
-    """Mobile device uploads photo; processes via vision pipeline (defaults to Route B with auto-fallback),
+    """Mobile device uploads photo; processes via vision pipeline (defaults to DOCINTEL_MOBILE_ROUTE,
+    configurable via environment variable to Route B or Route C OCR fallback),
     and stores the result on the session so the desktop side that generated the QR can pick
     it up via GET /camera/status/{token} — see /camera/status below."""
     session = _camera.validate_mobile(token)
@@ -513,7 +512,8 @@ async def camera_upload(
         raise HTTPException(403, "Invalid or expired token")
     data = await _read_upload(file)
     t0 = time.time()
-    out = await _run_route(data, route=route, doc_type=doc_type)
+    effective_route = route or os.getenv("DOCINTEL_MOBILE_ROUTE") or getattr(settings, "DOCINTEL_MOBILE_ROUTE", "vision_route_b")
+    out = await _run_route(data, route=effective_route, doc_type=doc_type)
     result = {
         "fields": out["fields"],
         "confidence": _confidence_of(out["fields"]),

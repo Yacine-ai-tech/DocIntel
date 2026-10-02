@@ -126,8 +126,12 @@ class Settings:
     # which a local file never was. Unset by default: self-hosters running a
     # single container don't need Postgres, and the JSON-file fallback (see
     # services/batch_processor.py, services/camera.py) keeps working exactly as
-    # before with zero configuration.
     POSTGRES_URL = os.getenv("POSTGRES_URL", "")
+
+    # ─── Mobile Camera Upload Route ──────────────────────────────────────────
+    # Route for mobile camera uploads: "vision_route_b" (default, Ollama vision) or
+    # "ocr_fallback" (Route C, Surya/Tesseract OCR + LLM cleanup for low-resource VPS/CPU).
+    DOCINTEL_MOBILE_ROUTE = os.getenv("DOCINTEL_MOBILE_ROUTE", "vision_route_b")
 
 
 settings = Settings()
