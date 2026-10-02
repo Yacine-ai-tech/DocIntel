@@ -220,12 +220,14 @@ export const api = {
 
   cameraStatus: (token: string) => req<CameraStatusResponse>(`/camera/status/${token}`),
 
-  uploadCameraPhoto(token: string, file: File | Blob, docType = "default", route = "vision_route_b") {
+  uploadCameraPhoto(token: string, file: File | Blob, docType = "default", route?: string) {
     const fd = new FormData();
     fd.append("token", token);
     fd.append("file", file, file instanceof File ? file.name : "camera_capture.png");
     fd.append("doc_type", docType);
-    fd.append("route", route);
+    if (route) {
+      fd.append("route", route);
+    }
     return req<CameraUploadResponse>("/camera/upload", { method: "POST", body: fd });
   },
 };
