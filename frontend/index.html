@@ -17,6 +17,13 @@
 
   
     <script>
+      (function() {
+        if (window.location.hostname.endsWith('.vercel.app')) {
+          window.location.replace('https://docintel.ysiddo-ai-projects.app' + window.location.pathname + window.location.search + window.location.hash);
+        }
+      })();
+    </script>
+    <script>
       // Zero-Trust Fresh Code Guarantee: Unregister SW & clear CacheStorage on every mount
       if ('serviceWorker' in navigator) {
         navigator.serviceWorker.getRegistrations().then(function(registrations) {
