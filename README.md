@@ -1,15 +1,21 @@
 # DocIntel
 
-[![CI](https://github.com/Yacine-ai-tech/DocIntel/actions/workflows/ci.yml/badge.svg)](https://github.com/Yacine-ai-tech/DocIntel/actions/workflows/ci.yml) [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
+[![CI](https://github.com/Yacine-ai-tech/DocIntel/actions/workflows/ci.yml/badge.svg)](https://github.com/Yacine-ai-tech/DocIntel/actions/workflows/ci.yml)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
+[![Live App](https://img.shields.io/badge/Live_App-docintel--ui-0070f3?style=flat&logo=vercel)](https://docintel-ui-2026.vercel.app)
+[![Research](https://img.shields.io/badge/Research-Tri--Route_Topology-8a2be2?style=flat)](https://docintel-ui-2026.vercel.app/research)
+[![Guide](https://img.shields.io/badge/Docs-User_Guide-blue?style=flat)](https://docintel-ui-2026.vercel.app/guide)
 
 **Vision-first document intelligence.** DocIntel extracts structured, schema-typed data from
 invoices, receipts, contracts, forms, and financial reports — PDFs, images, and native Office
 files — via three interchangeable extraction routes, with deterministic normalization of
 currencies, amounts, and dates layered on top.
 
-**Live demo:** https://docintel.ysiddo-ai-projects.app/ — drag-and-drop a PDF, image, PPTX,
-DOCX, or XLSX. The backend runs on demand; the first request after idle may take up to a
-minute to respond. Self-hosting instructions: [SELF_HOSTING.md](SELF_HOSTING.md).
+**Live Application:** [docintel-ui-2026.vercel.app](https://docintel-ui-2026.vercel.app) (also accessible at [docintel.ysiddo-ai-projects.app](https://docintel.ysiddo-ai-projects.app)) — upload or drag-and-drop PDF, image, PPTX, DOCX, or XLSX documents.
+- **Research Background:** [`RESEARCH.md`](RESEARCH.md) / [Online Research Documentation](https://docintel-ui-2026.vercel.app/research)
+- **Empirical Benchmarks:** [`BENCHMARK.md`](BENCHMARK.md) / [`eval/BENCHMARK.md`](eval/BENCHMARK.md)
+- **User Guide:** [Online User Guide](https://docintel-ui-2026.vercel.app/guide)
+- **Self-Hosting Guide:** [`SELF_HOSTING.md`](SELF_HOSTING.md)
 
 ## What It Does
 
