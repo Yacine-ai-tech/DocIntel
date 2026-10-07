@@ -13,7 +13,7 @@ A rerun skips any already-measured concurrency level. Zero duplicate spend.
 
 Usage:
     python eval/run_concurrency_benchmark.py
-    python eval/run_concurrency_benchmark.py --api-url https://docintel-f4g1.onrender.com
+    python eval/run_concurrency_benchmark.py --api-url https://docintel.ysiddo-ai-projects.app
     python eval/run_concurrency_benchmark.py --concurrency 1 4 8 16
     python eval/run_concurrency_benchmark.py --docs-per-level 20
 """
@@ -32,7 +32,7 @@ EVAL_DIR = ROOT / "eval"
 BENCH_DIR = EVAL_DIR / "benchmark"
 CACHE_FILE = EVAL_DIR / "cache" / "docintel_concurrency_cache.jsonl"
 
-DEFAULT_API_URL = os.getenv("DOCINTEL_URL", "https://docintel-f4g1.onrender.com")
+DEFAULT_API_URL = os.getenv("DOCINTEL_URL", "https://docintel.ysiddo-ai-projects.app")
 DEFAULT_CONCURRENCY_LEVELS = [1, 4, 8, 16, 32]
 DEFAULT_DOCS_PER_LEVEL = 16  # docs per concurrency level
 
