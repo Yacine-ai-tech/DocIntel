@@ -1,8 +1,9 @@
 import UserGuidePage from './pages/UserGuidePage';
+import ResearchPage from './pages/ResearchPage';
 import ApiDocs from './pages/ApiDocs';
 import { Component, ReactNode, lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
-import { Camera, FileScan, Image, Layers, BarChart3, Cpu, History, Workflow, GitCompareArrows, FolderOpen, Settings2, Code2, BookOpen } from "lucide-react";
+import { Camera, FileScan, Image, Layers, BarChart3, Cpu, History, Workflow, GitCompareArrows, FolderOpen, Settings2, Code2, BookOpen, GraduationCap } from "lucide-react";
 import { AppShell } from "./kit/AppShell";
 import { WakingBackend } from "./kit/misc";
 import { Skeleton } from "./kit/primitives";
@@ -79,6 +80,7 @@ const NAV = [
   { to: "/pipelines", label: "Pipelines", icon: Workflow },
   { to: "/compare", label: "Compare Routes", icon: GitCompareArrows },
   { to: "/batch", label: "Batch", icon: Layers },
+  { to: "/research", label: "Research", icon: GraduationCap },
   { to: "/benchmarks", label: "Benchmarks", icon: BarChart3 },
   { to: "/models", label: "Vision Models", icon: Cpu },
   { to: "/activity", label: "Activity", icon: History },
@@ -136,6 +138,7 @@ export default function App() {
                     <Route path="/compare" element={<Compare />} />
                     <Route path="/batch" element={<Batch />} />
                     <Route path="/benchmarks" element={<Benchmarks />} />
+                    <Route path="/research" element={<ResearchPage />} />
                     <Route path="/models" element={<Models />} />
                     <Route path="/activity" element={<Activity />} />
                     <Route path="/settings" element={<Settings />} />
@@ -146,6 +149,7 @@ export default function App() {
                         links working instead of 404ing or silently landing on Workspace. */}
                     <Route path="/benchmark" element={<Navigate to="/benchmarks" replace />} />
                     <Route path="/user-guide" element={<UserGuidePage />} />
+                    <Route path="/guide" element={<Navigate to="/user-guide" replace />} />
                     <Route path="*" element={<Workspace />} />
                   </Routes>
                 </RouteErrorBoundary>
