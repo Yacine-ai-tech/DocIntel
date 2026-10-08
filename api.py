@@ -213,6 +213,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from fastapi.middleware.gzip import GZipMiddleware
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
 
 try:
     _assets_dir = _os.path.join(_os.path.dirname(__file__), "frontend", "dist", "assets")
@@ -570,16 +573,19 @@ async def health() -> Dict[str, Any]:
     return body if ok else JSONResponse(status_code=503, content=body)
 
 
+_BENCHMARK_CACHE_TIME = 0.0
+_BENCHMARK_CACHE_DATA = None
+
+
 @app.get("/benchmarks")
 async def benchmarks() -> Dict[str, Any]:
     """Serves eval/BENCHMARK.md's real numbers to the frontend's /benchmarks and /benchmark
-    pages, read from disk on every request. Both pages used to carry their own hand-copied
-    snapshot of these numbers (one a curated summary, one a literal copy-paste of the whole
-    file) with nothing forcing them to stay in sync with each other or with the real benchmark
-    as it's re-run over time. This is the fix: one endpoint, reading the same two files a human
-    auditing the benchmark would read, so the UI can't drift from them the way the old hardcoded
-    copies already had.
-    """
+    pages, read from disk on every request. Micro-cached in memory for 60 seconds."""
+    global _BENCHMARK_CACHE_TIME, _BENCHMARK_CACHE_DATA
+    now = time.time()
+    if _BENCHMARK_CACHE_DATA is not None and (now - _BENCHMARK_CACHE_TIME) < 60.0:
+        return _BENCHMARK_CACHE_DATA
+
     root = Path(__file__).resolve().parent
     summary: Dict[str, Any] = {}
     summary_path = root / "eval" / "benchmark_summary.json"
@@ -597,7 +603,10 @@ async def benchmarks() -> Dict[str, Any]:
         except Exception:
             log.exception("Failed to read eval/BENCHMARK.md")
 
-    return {"summary": summary, "markdown": markdown}
+    result = {"summary": summary, "markdown": markdown}
+    _BENCHMARK_CACHE_TIME = now
+    _BENCHMARK_CACHE_DATA = result
+    return result
 
 
 @app.post("/classify", response_model=ProcessResponse)
