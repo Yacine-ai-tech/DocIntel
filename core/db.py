@@ -29,6 +29,14 @@ _pool_lock = threading.Lock()
 _schema_ready = False
 
 
+def _get_pooler_url(url: str) -> str:
+    """Enforce Neon PgBouncer -pooler endpoint to eliminate TCP/TLS handshake latency."""
+    if not url or "-pooler" in url or "neon.tech" not in url:
+        return url
+    import re
+    return re.sub(r'(@ep-[a-z0-9-]+)(\.[a-z0-9-.]*neon\.tech)', r'\1-pooler\2', url)
+
+
 def _get_pool():
     global _pool
     if _pool is not None:
@@ -36,7 +44,19 @@ def _get_pool():
     with _pool_lock:
         if _pool is None:
             from psycopg_pool import ConnectionPool
-            _pool = ConnectionPool(settings.POSTGRES_URL, min_size=1, max_size=5, open=True)
+            pool_url = _get_pooler_url(settings.POSTGRES_URL)
+            _pool = ConnectionPool(
+                pool_url,
+                min_size=2,
+                max_size=10,
+                max_idle=300,
+                timeout=10.0,
+                reconnect_timeout=30,
+                reconnect_failed=None,
+                check=ConnectionPool.check_connection,
+                open=True,
+            )
+            log.info("✅ DocIntel Neon connection pool initialized (min=2, max=10, pooler enabled)")
     return _pool
 
 
