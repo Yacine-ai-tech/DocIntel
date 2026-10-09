@@ -136,8 +136,15 @@ def ensure_schema() -> None:
         return
     with get_conn() as conn:
         conn.execute(_SCHEMA)
-        # Idempotent migration for tables created before owner_session_id existed.
+        # Idempotent migration for tables created before owner_session_id and is_seed existed.
         conn.execute("ALTER TABLE batch_jobs ADD COLUMN IF NOT EXISTS owner_session_id TEXT")
+        conn.execute("ALTER TABLE docintel_documents ADD COLUMN IF NOT EXISTS is_seed BOOLEAN DEFAULT FALSE")
+        conn.execute("""
+            UPDATE docintel_documents 
+            SET is_seed = TRUE 
+            WHERE filename IN ('test_invoice_sample.pdf', 'receipt_sample.png', 'invoice_sample.png')
+               OR (metadata IS NOT NULL AND metadata->>'is_seed' = 'true')
+        """)
         conn.commit()
     _schema_ready = True
     log.info("Postgres schema ready (batch_jobs, batch_results, camera_sessions, docintel_documents)")
@@ -370,10 +377,10 @@ def list_documents(
         params.append(route)
     if not is_admin and owner_session_id != "*":
         if owner_session_id:
-            clauses.append("(owner_session_id = %s OR owner_session_id IS NULL)")
+            clauses.append("(owner_session_id = %s OR is_seed = TRUE)")
             params.append(owner_session_id)
         else:
-            clauses.append("owner_session_id IS NULL")
+            clauses.append("is_seed = TRUE")
     if search:
         clauses.append("(filename ILIKE %s OR doc_type ILIKE %s OR raw_text ILIKE %s)")
         term = f"%{search}%"
@@ -420,10 +427,10 @@ def count_documents(
         params.append(route)
     if not is_admin and owner_session_id != "*":
         if owner_session_id:
-            clauses.append("(owner_session_id = %s OR owner_session_id IS NULL)")
+            clauses.append("(owner_session_id = %s OR is_seed = TRUE)")
             params.append(owner_session_id)
         else:
-            clauses.append("owner_session_id IS NULL")
+            clauses.append("is_seed = TRUE")
     if search:
         clauses.append("(filename ILIKE %s OR doc_type ILIKE %s OR raw_text ILIKE %s)")
         term = f"%{search}%"
@@ -463,10 +470,10 @@ def get_documents_stats(owner_session_id: Optional[str] = None, is_admin: bool =
         where_sql = ""
         params: List[Any] = []
     elif owner_session_id:
-        where_sql = " WHERE (owner_session_id = %s OR owner_session_id IS NULL)"
+        where_sql = " WHERE (owner_session_id = %s OR is_seed = TRUE)"
         params = [owner_session_id]
     else:
-        where_sql = " WHERE owner_session_id IS NULL"
+        where_sql = " WHERE is_seed = TRUE"
         params = []
 
     with get_conn() as conn:
