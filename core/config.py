@@ -24,8 +24,9 @@ class Settings:
     LOG_FORMAT = os.getenv("LOG_FORMAT", "%(asctime)s [%(levelname)s] %(name)s: %(message)s")
     LOGS_DIR = str(LOGS_DIR)
 
-    # ─── Route A: Claude Sonnet Vision (premium) ─────────────────────────────
+    # ─── Route A: Vision LLM (cloud multimodal) ──────────────────────────────
     LLM_VISION_ROUTE_A = os.getenv("LLM_VISION_ROUTE_A", "anthropic/claude-sonnet-4-6")
+    LLM_VISION_ROUTE_A_FALLBACK = os.getenv("LLM_VISION_ROUTE_A_FALLBACK", "")
     LLM_DEFAULT = os.getenv("LLM_DEFAULT", "groq/openai/gpt-oss-120b")
     LLM_REASONING = os.getenv("LLM_REASONING", "anthropic/claude-sonnet-4-6")
 
@@ -73,7 +74,13 @@ class Settings:
     # Raise to 2-3 only for high-end remote endpoints.
     ROUTE_B_CHUNK_CONCURRENCY = int(os.getenv("ROUTE_B_CHUNK_CONCURRENCY", "1"))
 
-    # ─── Route C: OCR fallback ────────────────────────────────────────────────
+    # Optional override for constrained demo/test environments (default false for normal self-hosting).
+    # If true, Route B immediately falls back to Route C (OCR) without waiting on CPU Ollama.
+    ROUTE_B_FORCE_FALLBACK = os.getenv("ROUTE_B_FORCE_FALLBACK", "false").strip().lower() in ("1", "true", "yes")
+
+    # ─── Route C: OCR fallback (Surya OCR primary, Tesseract fallback) ────────
+    # Surya OCR enabled by default; automatically falls back to Tesseract on any failure.
+    SURYA_ENABLED = os.getenv("SURYA_ENABLED", "true").strip().lower() in ("1", "true", "yes")
     # Cheaper model for the OCR-route text→JSON cleanup (cost-optimized default).
     LLM_CLEANUP = os.getenv(
         "LLM_CLEANUP",
