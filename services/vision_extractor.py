@@ -197,19 +197,29 @@ async def _vision_call_route_a(
         messages=messages, max_tokens=2048, temperature=0.1,
         timeout=settings.LLM_CALL_TIMEOUT, num_retries=settings.LLM_CALL_RETRIES,
     )
-    try:
-        response = await acompletion(model=model, **_call_kwargs)
-    except Exception as exc:
-        _auth_signals = ("AuthenticationError", "PermissionDeniedError", "401", "403",
-                         "invalid_api_key", "invalid api key")
-        is_auth = any(s.lower() in str(exc).lower() or s.lower() in type(exc).__name__.lower()
-                      for s in _auth_signals)
-        fallback_model = os.getenv("LLM_VISION_ROUTE_A_FALLBACK", "")
-        if is_auth and fallback_model and fallback_model != model:
-            log.warning("Route A model %s auth failed — retrying with fallback %s", model, fallback_model)
-            response = await acompletion(model=fallback_model, **_call_kwargs)
-        else:
-            raise
+    candidate_models = [model]
+    fallback_model = os.getenv("LLM_VISION_ROUTE_A_FALLBACK", "")
+    if fallback_model and fallback_model not in candidate_models:
+        candidate_models.append(fallback_model)
+    if os.getenv("GEMINI_API_KEY"):
+        for gm in ("gemini/gemini-flash-lite-latest", "gemini/gemini-flash-latest"):
+            if gm not in candidate_models:
+                candidate_models.append(gm)
+
+    response = None
+    last_exc = None
+    for cand in candidate_models:
+        try:
+            log.info("Route A attempting vision call with model %s", cand)
+            response = await acompletion(model=cand, **_call_kwargs)
+            break
+        except Exception as exc:
+            last_exc = exc
+            log.warning("Route A vision model %s failed: %s — trying next candidate if available", cand, exc)
+
+    if response is None:
+        raise last_exc or RuntimeError("All Route A vision models failed")
+
     log.debug("Route A call took %.2fs", time.monotonic() - t0)
     return response.choices[0].message.content, _completion_cost_usd(response)
 
