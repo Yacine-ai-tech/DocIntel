@@ -92,7 +92,7 @@ def _warm_up_models():
     Runs regardless of TELEMETRY_OPT_OUT — unrelated to telemetry."""
     try:
         from services.surya_extractor import SuryaExtractor
-        SuryaExtractor()._ensure_models()
+        SuryaExtractor()._ensure_models(warmup=True)
     except Exception:
         pass
 
