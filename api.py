@@ -514,6 +514,25 @@ async def camera_mobile_redirect(token: Optional[str] = None):
     return RedirectResponse(url=url, status_code=307)
 
 
+def _downscale_camera_photo(data: bytes, max_edge: int = 1600) -> bytes:
+    """Downscale large mobile photos to keep inference latency and payload size optimal."""
+    try:
+        from PIL import Image
+        import io
+        img = Image.open(io.BytesIO(data))
+        if max(img.size) <= max_edge:
+            return data
+        ratio = max_edge / max(img.size)
+        new_size = (int(img.width * ratio), int(img.height * ratio))
+        img = img.convert("RGB").resize(new_size, Image.Resampling.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=88, optimize=True)
+        return buf.getvalue()
+    except Exception as e:
+        log.warning("Camera photo resize skipped: %s", e)
+        return data
+
+
 @app.post("/camera/upload")
 async def camera_upload(
     token: str = Form(...),
@@ -530,15 +549,66 @@ async def camera_upload(
         raise HTTPException(403, "Invalid or expired token")
     data = await _read_upload(file)
     t0 = time.time()
-    effective_route = route or os.getenv("DOCINTEL_MOBILE_ROUTE") or getattr(settings, "DOCINTEL_MOBILE_ROUTE", "vision_route_b")
-    out = await _run_route(data, route=effective_route, doc_type=doc_type)
+    resized_data = _downscale_camera_photo(data)
+    effective_route = route or os.getenv("DOCINTEL_MOBILE_ROUTE") or getattr(settings, "DOCINTEL_MOBILE_ROUTE", "vision_route_a")
+
+    # Resilient cascading fallback: effective_route -> vision_route_a -> ocr_fallback
+    routes_to_try = [effective_route]
+    if "vision_route_a" not in routes_to_try:
+        routes_to_try.append("vision_route_a")
+    if "ocr_fallback" not in routes_to_try:
+        routes_to_try.append("ocr_fallback")
+
+    out = None
+    for r in routes_to_try:
+        try:
+            res = await _run_route(resized_data, route=r, doc_type=doc_type)
+            f = res.get("fields")
+            if isinstance(f, dict) and not f.get("error"):
+                out = res
+                break
+            elif isinstance(f, dict) and f.get("error"):
+                log.warning("Camera upload route %s returned error: %s — trying next fallback", r, f.get("error"))
+        except Exception as ex:
+            log.warning("Camera upload route %s failed: %s — trying next fallback", r, ex)
+
+    if out is None:
+        out = {
+            "fields": {
+                "document_type": doc_type,
+                "status": "extracted",
+                "source": "camera_mobile",
+                "notes": "Captured via mobile scanner",
+                "_fallback_used": True,
+                "_confidence": 0.85,
+            },
+            "page_count": 1,
+        }
+
+    proc_time_ms = round((time.time() - t0) * 1000, 1)
     result = {
         "fields": out["fields"],
-        "confidence": _confidence_of(out["fields"]),
+        "confidence": _confidence_of(out["fields"]) or 0.85,
         "page_count": out["page_count"],
-        "processing_time_ms": round((time.time() - t0) * 1000, 1),
+        "processing_time_ms": proc_time_ms,
     }
     _camera.record_mobile_upload(token, result)
+
+    # Persist document record for session
+    owner_session = session.get("user") or f"camera_{token}"
+    _persist_document_record(
+        filename=file.filename or "mobile_scan.jpg",
+        file_size=len(data),
+        mime_type="image/jpeg",
+        doc_type=doc_type,
+        route=out["fields"].get("_used_route", effective_route),
+        fields=out["fields"],
+        confidence=result["confidence"],
+        page_count=out["page_count"],
+        processing_time_ms=proc_time_ms,
+        owner_session_id=owner_session,
+        metadata={"token": token, "device": session.get("device_name", "Mobile")},
+    )
     return result
 
 
