@@ -25,10 +25,10 @@ class Settings:
     LOGS_DIR = str(LOGS_DIR)
 
     # ─── Route A: Vision LLM (cloud multimodal) ──────────────────────────────
-    LLM_VISION_ROUTE_A = os.getenv("LLM_VISION_ROUTE_A", "anthropic/claude-sonnet-4-6")
-    LLM_VISION_ROUTE_A_FALLBACK = os.getenv("LLM_VISION_ROUTE_A_FALLBACK", "")
+    LLM_VISION_ROUTE_A = os.getenv("LLM_VISION_ROUTE_A", "gemini/gemini-3.5-flash")
+    LLM_VISION_ROUTE_A_FALLBACK = os.getenv("LLM_VISION_ROUTE_A_FALLBACK", "gemini/gemini-3-flash-preview")
     LLM_DEFAULT = os.getenv("LLM_DEFAULT", "groq/openai/gpt-oss-120b")
-    LLM_REASONING = os.getenv("LLM_REASONING", "anthropic/claude-sonnet-4-6")
+    LLM_REASONING = os.getenv("LLM_REASONING", "gemini/gemini-3.5-flash")
 
     # ─── Route B: Ollama Vision (local / self-hosted only — never a third-party API) ──
     # Mode: "local" (Ollama on this machine/container) or "remote" (Ollama on hardware

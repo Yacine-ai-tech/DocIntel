@@ -21,9 +21,9 @@ const STAGES = [
 ];
 
 const ROUTES = [
-  { icon: Cloud, name: "vision_premium", model: "Claude Sonnet 4.6 Vision", when: "default — photos, scans, complex and multi-page layouts" },
+  { icon: Cloud, name: "vision_premium", model: "Gemini 3.5 Flash Vision / Claude Sonnet", when: "default — photos, scans, complex and multi-page layouts" },
   { icon: Cpu, name: "vision_local", model: "qwen2.5-VL 7B (Ollama)", when: "private path on a GPU host; degrades to OCR with an explicit note when asleep" },
-  { icon: ScanText, name: "ocr_fallback", model: "Tesseract + Claude Haiku cleanup", when: "clean digital documents; also the automatic fallback for both vision routes" },
+  { icon: ScanText, name: "ocr_fallback", model: "Surya OCR + Claude Haiku cleanup", when: "clean digital documents; also the automatic fallback for both vision routes" },
 ];
 
 export default function Pipelines() {

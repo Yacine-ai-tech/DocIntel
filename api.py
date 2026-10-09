@@ -556,69 +556,75 @@ async def camera_upload(
     session = _camera.validate_mobile(token)
     if not session:
         raise HTTPException(403, "Invalid or expired token")
-    data = await _read_upload(file)
-    t0 = time.time()
-    resized_data = _downscale_camera_photo(data)
-    effective_route = route or os.getenv("DOCINTEL_MOBILE_ROUTE") or getattr(settings, "DOCINTEL_MOBILE_ROUTE", "vision_route_a")
+    _camera.set_processing(token)
 
-    # Resilient cascading fallback: effective_route -> vision_route_a -> ocr_fallback
-    routes_to_try = [effective_route]
-    if "vision_route_a" not in routes_to_try:
-        routes_to_try.append("vision_route_a")
-    if "ocr_fallback" not in routes_to_try:
-        routes_to_try.append("ocr_fallback")
+    try:
+        data = await _read_upload(file)
+        t0 = time.time()
+        resized_data = _downscale_camera_photo(data)
+        effective_route = route or os.getenv("DOCINTEL_MOBILE_ROUTE") or getattr(settings, "DOCINTEL_MOBILE_ROUTE", "vision_route_a")
 
-    out = None
-    for r in routes_to_try:
-        try:
-            res = await _run_route(resized_data, route=r, doc_type=doc_type)
-            f = res.get("fields")
-            if isinstance(f, dict) and not f.get("error"):
-                out = res
-                break
-            elif isinstance(f, dict) and f.get("error"):
-                log.warning("Camera upload route %s returned error: %s — trying next fallback", r, f.get("error"))
-        except Exception as ex:
-            log.warning("Camera upload route %s failed: %s — trying next fallback", r, ex)
+        # Resilient cascading fallback: effective_route -> vision_route_a -> ocr_fallback
+        routes_to_try = [effective_route]
+        if "vision_route_a" not in routes_to_try:
+            routes_to_try.append("vision_route_a")
+        if "ocr_fallback" not in routes_to_try:
+            routes_to_try.append("ocr_fallback")
 
-    if out is None:
-        out = {
-            "fields": {
-                "document_type": doc_type,
-                "status": "extracted",
-                "source": "camera_mobile",
-                "notes": "Captured via mobile scanner",
-                "_fallback_used": True,
-                "_confidence": 0.85,
-            },
-            "page_count": 1,
+        out = None
+        for r in routes_to_try:
+            try:
+                res = await _run_route(resized_data, route=r, doc_type=doc_type)
+                f = res.get("fields")
+                if isinstance(f, dict) and not f.get("error"):
+                    out = res
+                    break
+                elif isinstance(f, dict) and f.get("error"):
+                    log.warning("Camera upload route %s returned error: %s — trying next fallback", r, f.get("error"))
+            except Exception as ex:
+                log.warning("Camera upload route %s failed: %s — trying next fallback", r, ex)
+
+        if out is None:
+            out = {
+                "fields": {
+                    "document_type": doc_type,
+                    "status": "extracted",
+                    "source": "camera_mobile",
+                    "notes": "Captured via mobile scanner",
+                    "_fallback_used": True,
+                    "_confidence": 0.85,
+                },
+                "page_count": 1,
+            }
+
+        proc_time_ms = round((time.time() - t0) * 1000, 1)
+        result = {
+            "fields": out["fields"],
+            "confidence": _confidence_of(out["fields"]) or 0.85,
+            "page_count": out["page_count"],
+            "processing_time_ms": proc_time_ms,
         }
+        _camera.record_mobile_upload(token, result)
 
-    proc_time_ms = round((time.time() - t0) * 1000, 1)
-    result = {
-        "fields": out["fields"],
-        "confidence": _confidence_of(out["fields"]) or 0.85,
-        "page_count": out["page_count"],
-        "processing_time_ms": proc_time_ms,
-    }
-    _camera.record_mobile_upload(token, result)
-
-    # Persist document record for session
-    owner_session = session.get("user") or f"camera_{token}"
-    _persist_document_record(
-        filename=file.filename or "mobile_scan.jpg",
-        file_size=len(data),
-        mime_type="image/jpeg",
-        doc_type=doc_type,
-        route=out["fields"].get("_used_route", effective_route),
-        fields=out["fields"],
-        confidence=result["confidence"],
-        page_count=out["page_count"],
-        processing_time_ms=proc_time_ms,
-        owner_session_id=owner_session,
-        metadata={"token": token, "device": session.get("device_name", "Mobile")},
-    )
-    return result
+        # Persist document record for session
+        owner_session = session.get("user") or f"camera_{token}"
+        _persist_document_record(
+            filename=file.filename or "mobile_scan.jpg",
+            file_size=len(data),
+            mime_type="image/jpeg",
+            doc_type=doc_type,
+            route=out["fields"].get("_used_route", effective_route),
+            fields=out["fields"],
+            confidence=result["confidence"],
+            page_count=out["page_count"],
+            processing_time_ms=proc_time_ms,
+            owner_session_id=owner_session,
+            metadata={"token": token, "device": session.get("device_name", "Mobile")},
+        )
+        return result
+    except Exception as ex:
+        _camera.record_mobile_upload(token, error=str(ex))
+        raise
 
 
 @app.get("/camera/status/{token}")
