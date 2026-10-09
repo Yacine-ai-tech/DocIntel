@@ -197,14 +197,30 @@ async def _vision_call_route_a(
         messages=messages, max_tokens=2048, temperature=0.1,
         timeout=settings.LLM_CALL_TIMEOUT, num_retries=settings.LLM_CALL_RETRIES,
     )
-    candidate_models = [model]
+    candidate_models: List[str] = []
+    if model and "sonnet-4-6" not in model:
+        candidate_models.append(model)
+    elif model:
+        candidate_models.extend(["anthropic/claude-3-5-sonnet-20241022", "anthropic/claude-3-7-sonnet-20250219"])
+
     fallback_model = os.getenv("LLM_VISION_ROUTE_A_FALLBACK", "")
     if fallback_model and fallback_model not in candidate_models:
         candidate_models.append(fallback_model)
+
     if os.getenv("GEMINI_API_KEY"):
-        for gm in ("gemini/gemini-flash-lite-latest", "gemini/gemini-flash-latest"):
+        for gm in (
+            "gemini/gemini-3.8-flash",
+            "gemini/gemini-3.5-flash",
+            "gemini/gemini-2.5-flash-image",
+            "gemini/gemini-2.5-flash-lite",
+        ):
             if gm not in candidate_models:
                 candidate_models.append(gm)
+
+    if os.getenv("ANTHROPIC_API_KEY"):
+        for am in ("anthropic/claude-3-5-sonnet-20241022", "anthropic/claude-3-7-sonnet-20250219"):
+            if am not in candidate_models:
+                candidate_models.append(am)
 
     response = None
     last_exc = None
