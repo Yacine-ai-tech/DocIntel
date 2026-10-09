@@ -97,8 +97,25 @@ function isIdempotent(init?: RequestInit): boolean {
   return method === "GET" || method === "HEAD";
 }
 
+// One anonymous, per-browser id — isolates each visitor's uploaded documents and extractions
+// from other demo visitors while preserving global analytics for operators.
+export function demoSessionId(): string {
+  const key = "docintel.demo_session_id";
+  let id = typeof localStorage !== "undefined" ? localStorage.getItem(key) : null;
+  if (!id) {
+    id = typeof crypto !== "undefined" && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem(key, id);
+    }
+  }
+  return id;
+}
+
 async function req<T>(path: string, init?: RequestInit, retryCount = 0): Promise<T> {
   const headers = new Headers(init?.headers);
+  headers.set("X-Demo-Session-Id", demoSessionId());
   if (INTERNAL_TOKEN) headers.set("X-DocIntel-Internal-Token", INTERNAL_TOKEN);
   const finalInit: RequestInit = { ...init, headers };
   try {

@@ -356,8 +356,9 @@ def list_documents(
     route: Optional[str] = None,
     search: Optional[str] = None,
     owner_session_id: Optional[str] = None,
+    is_admin: bool = False,
 ) -> List[Dict[str, Any]]:
-    """List documents with optional filtering, pagination, and sorting."""
+    """List documents with optional filtering, pagination, and session scoping."""
     clauses: List[str] = []
     params: List[Any] = []
 
@@ -367,9 +368,12 @@ def list_documents(
     if route and route != "all":
         clauses.append("route = %s")
         params.append(route)
-    if owner_session_id:
-        clauses.append("owner_session_id = %s")
-        params.append(owner_session_id)
+    if not is_admin and owner_session_id != "*":
+        if owner_session_id:
+            clauses.append("(owner_session_id = %s OR owner_session_id IS NULL)")
+            params.append(owner_session_id)
+        else:
+            clauses.append("owner_session_id IS NULL")
     if search:
         clauses.append("(filename ILIKE %s OR doc_type ILIKE %s OR raw_text ILIKE %s)")
         term = f"%{search}%"
@@ -402,6 +406,7 @@ def count_documents(
     route: Optional[str] = None,
     search: Optional[str] = None,
     owner_session_id: Optional[str] = None,
+    is_admin: bool = False,
 ) -> int:
     """Return total count of documents matching the filter criteria."""
     clauses: List[str] = []
@@ -413,9 +418,12 @@ def count_documents(
     if route and route != "all":
         clauses.append("route = %s")
         params.append(route)
-    if owner_session_id:
-        clauses.append("owner_session_id = %s")
-        params.append(owner_session_id)
+    if not is_admin and owner_session_id != "*":
+        if owner_session_id:
+            clauses.append("(owner_session_id = %s OR owner_session_id IS NULL)")
+            params.append(owner_session_id)
+        else:
+            clauses.append("owner_session_id IS NULL")
     if search:
         clauses.append("(filename ILIKE %s OR doc_type ILIKE %s OR raw_text ILIKE %s)")
         term = f"%{search}%"
@@ -449,10 +457,17 @@ def clear_all_documents(owner_session_id: Optional[str] = None) -> int:
         return cur.rowcount
 
 
-def get_documents_stats(owner_session_id: Optional[str] = None) -> Dict[str, Any]:
+def get_documents_stats(owner_session_id: Optional[str] = None, is_admin: bool = False) -> Dict[str, Any]:
     """Compute aggregate statistical metrics across stored documents in Neon DB."""
-    where_sql = " WHERE owner_session_id = %s" if owner_session_id else ""
-    params = [owner_session_id] if owner_session_id else []
+    if is_admin or owner_session_id == "*":
+        where_sql = ""
+        params: List[Any] = []
+    elif owner_session_id:
+        where_sql = " WHERE (owner_session_id = %s OR owner_session_id IS NULL)"
+        params = [owner_session_id]
+    else:
+        where_sql = " WHERE owner_session_id IS NULL"
+        params = []
 
     with get_conn() as conn:
         # Aggregates

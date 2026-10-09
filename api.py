@@ -135,7 +135,7 @@ def _send_telemetry():
 
     lock_file = os.path.join(settings.LOGS_DIR, ".telemetry_last_ping")
     try:
-        if os.path.exists(lock_file) and time.time() - os.path.getmtime(lock_file) < 21600:
+        if os.path.exists(lock_file) and time.time() - os.path.getmtime(lock_file) < 30:
             return
         with open(lock_file, "w") as f:
             f.write(str(time.time()))
@@ -339,23 +339,38 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
     used_route = route
     fallback_used = False
 
-    # Route A: Claude Sonnet 4.6 Vision (no fallback)
+    # Route A: Claude Sonnet 4.6 Vision (with automatic fallback to Route C on failure)
     if route == "vision_route_a":
         model = settings.LLM_VISION_ROUTE_A
         images = pdf_to_pngs(data, max_pages=settings.MAX_PDF_PAGES) if pdf else [data]
         fields = None
         if images:
             try:
-                log.info("Route A: Attempting extraction with Claude Sonnet 4.6 Vision")
+                log.info("Route A: Attempting extraction with vision LLM")
                 fields = await extract_via_vision_llm(images, model=model, doc_type=doc_type)
                 if isinstance(fields, dict) and fields.get("error"):
                     raise RuntimeError(str(fields["error"]))
                 log.info("Route A: Extraction succeeded")
             except Exception as e:
-                log.error(f"Route A failed: {e}")
-                fields = {"error": f"Route A extraction failed: {e}"}
-        if fields is None:
-            fields = {"error": "Route A extraction failed"}
+                log.warning("Route A vision failed (%s) — falling back to Route C (OCR + LLM cleanup)", e)
+                fallback_used = True
+                used_route = "ocr_fallback"
+                if workspace_logger:
+                    workspace_logger.log_fallback("vision_route_a", "ocr_fallback", f"Route A failed: {e}")
+
+        if fields is None or fallback_used:
+            log.info("Route A Fallback: Using OCR fallback (Surya OCR + Tesseract fallback + LLM cleanup)")
+            text = extract_text_from_pdf(data, max_pages=settings.MAX_PDF_PAGES) if pdf \
+                else extract_text_from_image(data)
+            if text:
+                fields = await extractor.extract(text, doc_type=doc_type)
+                if isinstance(fields, dict):
+                    fields["_route_a_fallback"] = True
+                    fields["_route_c_used"] = True
+                else:
+                    fields = {"error": "OCR extraction failed", "_route_a_fallback": True}
+            else:
+                fields = {"error": "No text extracted for OCR", "_route_a_fallback": True}
 
     # Route B: Ollama vision (local GPU or remote Ollama-compatible endpoint)
     elif route == "vision_route_b":
@@ -656,6 +671,7 @@ async def classify(file: UploadFile = File(...)) -> ProcessResponse:
 async def classify_image_endpoint(
     file: UploadFile = File(...),
     categories: str = Form(...),
+    x_demo_session_id: Optional[str] = Header(default=None, alias="X-Demo-Session-Id"),
 ) -> Dict[str, Any]:
     """
     Vision-first object classification (auction-listing pattern).
@@ -681,6 +697,7 @@ async def classify_image_endpoint(
         page_count=1,
         processing_time_ms=proc_time,
         metadata={"categories": cats, "reasoning": result.get("reasoning")},
+        owner_session_id=x_demo_session_id,
     )
     return result
 
@@ -759,6 +776,7 @@ async def extract_text(
     file: UploadFile = File(...),
     route: str = Form("auto"),
     max_pages: int = Form(0),
+    x_demo_session_id: Optional[str] = Header(default=None, alias="X-Demo-Session-Id"),
 ) -> Dict[str, Any]:
     """Full document text — the RAG-ingestion path, synchronous.
 
@@ -787,6 +805,7 @@ async def extract_text(
         processing_time_ms=res.get("processing_time_ms"),
         raw_text=res.get("text"),
         markdown=res.get("text") if res.get("method") == "marker" else None,
+        owner_session_id=x_demo_session_id,
     )
     return res
 
@@ -829,6 +848,7 @@ async def extract(
     file: UploadFile = File(...),
     route: str = Form("vision_route_a"),
     doc_type: str = Form("invoice"),
+    x_demo_session_id: Optional[str] = Header(default=None, alias="X-Demo-Session-Id"),
 ) -> ProcessResponse:
     """
     Full extraction pipeline with 3 routes (multi-page PDFs handled end-to-end):
@@ -871,6 +891,7 @@ async def extract(
         page_count=out["page_count"],
         processing_time_ms=proc_time,
         raw_text=out.get("raw_text"),
+        owner_session_id=x_demo_session_id,
     )
 
     return ProcessResponse(
@@ -1215,12 +1236,17 @@ async def list_documents_endpoint(
     route: Optional[str] = None,
     search: Optional[str] = None,
     x_demo_session_id: Optional[str] = Header(default=None, alias="X-Demo-Session-Id"),
+    x_admin_token: Optional[str] = Header(default=None, alias="X-Admin-Token"),
+    x_docintel_token: Optional[str] = Header(default=None, alias="X-DocIntel-Internal-Token"),
 ) -> Dict[str, Any]:
-    """List persistent document extraction records from Neon DB with search and pagination."""
+    """List persistent document extraction records from Neon DB with search, pagination, and session isolation."""
     if not _is_db_enabled():
         return {"total": 0, "documents": [], "limit": limit, "offset": offset, "db_enabled": False}
-    total = count_documents(doc_type=doc_type, route=route, search=search, owner_session_id=x_demo_session_id)
-    docs = list_documents(limit=limit, offset=offset, doc_type=doc_type, route=route, search=search, owner_session_id=x_demo_session_id)
+    admin_secret = os.getenv("ADMIN_TOKEN") or os.getenv("DOCINTEL_INTERNAL_TOKEN")
+    is_admin = bool((x_admin_token and admin_secret and x_admin_token == admin_secret) or
+                    (x_docintel_token and admin_secret and x_docintel_token == admin_secret))
+    total = count_documents(doc_type=doc_type, route=route, search=search, owner_session_id=x_demo_session_id, is_admin=is_admin)
+    docs = list_documents(limit=limit, offset=offset, doc_type=doc_type, route=route, search=search, owner_session_id=x_demo_session_id, is_admin=is_admin)
     return {"total": total, "documents": docs, "limit": limit, "offset": offset, "db_enabled": True}
 
 
@@ -1228,6 +1254,8 @@ async def list_documents_endpoint(
 @app.get("/documents/stats")
 async def documents_stats_endpoint(
     x_demo_session_id: Optional[str] = Header(default=None, alias="X-Demo-Session-Id"),
+    x_admin_token: Optional[str] = Header(default=None, alias="X-Admin-Token"),
+    x_docintel_token: Optional[str] = Header(default=None, alias="X-DocIntel-Internal-Token"),
 ) -> Dict[str, Any]:
     """Retrieve aggregate analytics, classification breakdown, and latency metrics across documents in Neon DB."""
     if not _is_db_enabled():
@@ -1243,29 +1271,58 @@ async def documents_stats_endpoint(
             "recent_timeline": [],
             "db_enabled": False,
         }
-    stats = get_documents_stats(owner_session_id=x_demo_session_id)
+    admin_secret = os.getenv("ADMIN_TOKEN") or os.getenv("DOCINTEL_INTERNAL_TOKEN")
+    is_admin = bool((x_admin_token and admin_secret and x_admin_token == admin_secret) or
+                    (x_docintel_token and admin_secret and x_docintel_token == admin_secret))
+    stats = get_documents_stats(owner_session_id=x_demo_session_id, is_admin=is_admin)
     stats["db_enabled"] = True
     return stats
 
 
 @app.get("/api/documents/{doc_id}")
 @app.get("/documents/{doc_id}")
-async def get_document_endpoint(doc_id: str) -> Dict[str, Any]:
+async def get_document_endpoint(
+    doc_id: str,
+    x_demo_session_id: Optional[str] = Header(default=None, alias="X-Demo-Session-Id"),
+    x_admin_token: Optional[str] = Header(default=None, alias="X-Admin-Token"),
+    x_docintel_token: Optional[str] = Header(default=None, alias="X-DocIntel-Internal-Token"),
+) -> Dict[str, Any]:
     """Retrieve full structured extraction, confidence, and metadata for a specific document."""
     if not _is_db_enabled():
         raise HTTPException(status_code=404, detail="Database persistence not configured")
     doc = get_document(doc_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Document record not found")
+    admin_secret = os.getenv("ADMIN_TOKEN") or os.getenv("DOCINTEL_INTERNAL_TOKEN")
+    is_admin = bool((x_admin_token and admin_secret and x_admin_token == admin_secret) or
+                    (x_docintel_token and admin_secret and x_docintel_token == admin_secret))
+    # Scoping: visitor can view if admin, if document is seed (owner_session_id is None), or if own session matches
+    if not is_admin and doc.get("owner_session_id") and doc.get("owner_session_id") != x_demo_session_id:
+        raise HTTPException(status_code=404, detail="Document record not found")
     return doc
 
 
 @app.delete("/api/documents/{doc_id}")
 @app.delete("/documents/{doc_id}")
-async def delete_document_endpoint(doc_id: str) -> Dict[str, Any]:
+async def delete_document_endpoint(
+    doc_id: str,
+    x_demo_session_id: Optional[str] = Header(default=None, alias="X-Demo-Session-Id"),
+    x_admin_token: Optional[str] = Header(default=None, alias="X-Admin-Token"),
+    x_docintel_token: Optional[str] = Header(default=None, alias="X-DocIntel-Internal-Token"),
+) -> Dict[str, Any]:
     """Delete a document extraction record by its ID."""
     if not _is_db_enabled():
         raise HTTPException(status_code=400, detail="Database persistence not configured")
+    doc = get_document(doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document record not found")
+    admin_secret = os.getenv("ADMIN_TOKEN") or os.getenv("DOCINTEL_INTERNAL_TOKEN")
+    is_admin = bool((x_admin_token and admin_secret and x_admin_token == admin_secret) or
+                    (x_docintel_token and admin_secret and x_docintel_token == admin_secret))
+    # Scoping: visitors cannot delete seed records or other users' records
+    if not is_admin:
+        if not doc.get("owner_session_id") or doc.get("owner_session_id") != x_demo_session_id:
+            raise HTTPException(status_code=403, detail="Forbidden: cannot delete shared or other visitor records")
     success = delete_document(doc_id)
     if not success:
         raise HTTPException(status_code=404, detail="Document record not found")
@@ -1276,11 +1333,17 @@ async def delete_document_endpoint(doc_id: str) -> Dict[str, Any]:
 @app.delete("/documents")
 async def clear_documents_endpoint(
     x_demo_session_id: Optional[str] = Header(default=None, alias="X-Demo-Session-Id"),
+    x_admin_token: Optional[str] = Header(default=None, alias="X-Admin-Token"),
+    x_docintel_token: Optional[str] = Header(default=None, alias="X-DocIntel-Internal-Token"),
 ) -> Dict[str, Any]:
-    """Clear document extraction records from the database."""
+    """Clear document extraction records from the database scoped to caller's session."""
     if not _is_db_enabled():
         return {"cleared": 0}
-    count = clear_all_documents(owner_session_id=x_demo_session_id)
+    admin_secret = os.getenv("ADMIN_TOKEN") or os.getenv("DOCINTEL_INTERNAL_TOKEN")
+    is_admin = bool((x_admin_token and admin_secret and x_admin_token == admin_secret) or
+                    (x_docintel_token and admin_secret and x_docintel_token == admin_secret))
+    target_session = None if is_admin else (x_demo_session_id or "non_existent_session")
+    count = clear_all_documents(owner_session_id=target_session)
     return {"cleared": count}
 
 
