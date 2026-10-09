@@ -31,7 +31,7 @@ import uuid as _uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import BackgroundTasks, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -1320,6 +1320,8 @@ async def list_documents_endpoint(
     doc_type: Optional[str] = None,
     route: Optional[str] = None,
     search: Optional[str] = None,
+    session_id: Optional[str] = Query(default=None),
+    include_seed: bool = Query(default=False),
     x_demo_session_id: Optional[str] = Header(default=None, alias="X-Demo-Session-Id"),
     x_admin_token: Optional[str] = Header(default=None, alias="X-Admin-Token"),
     x_docintel_token: Optional[str] = Header(default=None, alias="X-DocIntel-Internal-Token"),
@@ -1327,17 +1329,35 @@ async def list_documents_endpoint(
     """List persistent document extraction records from Neon DB with search, pagination, and session isolation."""
     if not _is_db_enabled():
         return {"total": 0, "documents": [], "limit": limit, "offset": offset, "db_enabled": False}
-    admin_secret = os.getenv("ADMIN_TOKEN") or os.getenv("DOCINTEL_INTERNAL_TOKEN")
-    is_admin = bool((x_admin_token and admin_secret and x_admin_token == admin_secret) or
-                    (x_docintel_token and admin_secret and x_docintel_token == admin_secret))
-    total = count_documents(doc_type=doc_type, route=route, search=search, owner_session_id=x_demo_session_id, is_admin=is_admin)
-    docs = list_documents(limit=limit, offset=offset, doc_type=doc_type, route=route, search=search, owner_session_id=x_demo_session_id, is_admin=is_admin)
+    admin_secret = os.getenv("ADMIN_TOKEN")
+    is_admin = bool(x_admin_token and admin_secret and x_admin_token == admin_secret)
+    effective_session = session_id or x_demo_session_id
+    total = count_documents(
+        doc_type=doc_type,
+        route=route,
+        search=search,
+        owner_session_id=effective_session,
+        is_admin=is_admin,
+        include_seed=include_seed,
+    )
+    docs = list_documents(
+        limit=limit,
+        offset=offset,
+        doc_type=doc_type,
+        route=route,
+        search=search,
+        owner_session_id=effective_session,
+        is_admin=is_admin,
+        include_seed=include_seed,
+    )
     return {"total": total, "documents": docs, "limit": limit, "offset": offset, "db_enabled": True}
 
 
 @app.get("/api/documents/stats")
 @app.get("/documents/stats")
 async def documents_stats_endpoint(
+    session_id: Optional[str] = Query(default=None),
+    include_seed: bool = Query(default=False),
     x_demo_session_id: Optional[str] = Header(default=None, alias="X-Demo-Session-Id"),
     x_admin_token: Optional[str] = Header(default=None, alias="X-Admin-Token"),
     x_docintel_token: Optional[str] = Header(default=None, alias="X-DocIntel-Internal-Token"),
@@ -1356,10 +1376,14 @@ async def documents_stats_endpoint(
             "recent_timeline": [],
             "db_enabled": False,
         }
-    admin_secret = os.getenv("ADMIN_TOKEN") or os.getenv("DOCINTEL_INTERNAL_TOKEN")
-    is_admin = bool((x_admin_token and admin_secret and x_admin_token == admin_secret) or
-                    (x_docintel_token and admin_secret and x_docintel_token == admin_secret))
-    stats = get_documents_stats(owner_session_id=x_demo_session_id, is_admin=is_admin)
+    admin_secret = os.getenv("ADMIN_TOKEN")
+    is_admin = bool(x_admin_token and admin_secret and x_admin_token == admin_secret)
+    effective_session = session_id or x_demo_session_id
+    stats = get_documents_stats(
+        owner_session_id=effective_session,
+        is_admin=is_admin,
+        include_seed=include_seed,
+    )
     stats["db_enabled"] = True
     return stats
 
@@ -1368,6 +1392,7 @@ async def documents_stats_endpoint(
 @app.get("/documents/{doc_id}")
 async def get_document_endpoint(
     doc_id: str,
+    session_id: Optional[str] = Query(default=None),
     x_demo_session_id: Optional[str] = Header(default=None, alias="X-Demo-Session-Id"),
     x_admin_token: Optional[str] = Header(default=None, alias="X-Admin-Token"),
     x_docintel_token: Optional[str] = Header(default=None, alias="X-DocIntel-Internal-Token"),
@@ -1378,11 +1403,11 @@ async def get_document_endpoint(
     doc = get_document(doc_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Document record not found")
-    admin_secret = os.getenv("ADMIN_TOKEN") or os.getenv("DOCINTEL_INTERNAL_TOKEN")
-    is_admin = bool((x_admin_token and admin_secret and x_admin_token == admin_secret) or
-                    (x_docintel_token and admin_secret and x_docintel_token == admin_secret))
+    admin_secret = os.getenv("ADMIN_TOKEN")
+    is_admin = bool(x_admin_token and admin_secret and x_admin_token == admin_secret)
+    effective_session = session_id or x_demo_session_id
     # Scoping: visitor can view if admin, if document is seed (owner_session_id is None), or if own session matches
-    if not is_admin and doc.get("owner_session_id") and doc.get("owner_session_id") != x_demo_session_id:
+    if not is_admin and doc.get("owner_session_id") and doc.get("owner_session_id") != effective_session:
         raise HTTPException(status_code=404, detail="Document record not found")
     return doc
 
@@ -1391,6 +1416,7 @@ async def get_document_endpoint(
 @app.delete("/documents/{doc_id}")
 async def delete_document_endpoint(
     doc_id: str,
+    session_id: Optional[str] = Query(default=None),
     x_demo_session_id: Optional[str] = Header(default=None, alias="X-Demo-Session-Id"),
     x_admin_token: Optional[str] = Header(default=None, alias="X-Admin-Token"),
     x_docintel_token: Optional[str] = Header(default=None, alias="X-DocIntel-Internal-Token"),
@@ -1401,12 +1427,12 @@ async def delete_document_endpoint(
     doc = get_document(doc_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Document record not found")
-    admin_secret = os.getenv("ADMIN_TOKEN") or os.getenv("DOCINTEL_INTERNAL_TOKEN")
-    is_admin = bool((x_admin_token and admin_secret and x_admin_token == admin_secret) or
-                    (x_docintel_token and admin_secret and x_docintel_token == admin_secret))
+    admin_secret = os.getenv("ADMIN_TOKEN")
+    is_admin = bool(x_admin_token and admin_secret and x_admin_token == admin_secret)
+    effective_session = session_id or x_demo_session_id
     # Scoping: visitors cannot delete seed records or other users' records
     if not is_admin:
-        if not doc.get("owner_session_id") or doc.get("owner_session_id") != x_demo_session_id:
+        if not doc.get("owner_session_id") or doc.get("owner_session_id") != effective_session:
             raise HTTPException(status_code=403, detail="Forbidden: cannot delete shared or other visitor records")
     success = delete_document(doc_id)
     if not success:
@@ -1417,6 +1443,7 @@ async def delete_document_endpoint(
 @app.delete("/api/documents")
 @app.delete("/documents")
 async def clear_documents_endpoint(
+    session_id: Optional[str] = Query(default=None),
     x_demo_session_id: Optional[str] = Header(default=None, alias="X-Demo-Session-Id"),
     x_admin_token: Optional[str] = Header(default=None, alias="X-Admin-Token"),
     x_docintel_token: Optional[str] = Header(default=None, alias="X-DocIntel-Internal-Token"),
@@ -1424,10 +1451,10 @@ async def clear_documents_endpoint(
     """Clear document extraction records from the database scoped to caller's session."""
     if not _is_db_enabled():
         return {"cleared": 0}
-    admin_secret = os.getenv("ADMIN_TOKEN") or os.getenv("DOCINTEL_INTERNAL_TOKEN")
-    is_admin = bool((x_admin_token and admin_secret and x_admin_token == admin_secret) or
-                    (x_docintel_token and admin_secret and x_docintel_token == admin_secret))
-    target_session = None if is_admin else (x_demo_session_id or "non_existent_session")
+    admin_secret = os.getenv("ADMIN_TOKEN")
+    is_admin = bool(x_admin_token and admin_secret and x_admin_token == admin_secret)
+    effective_session = session_id or x_demo_session_id
+    target_session = None if is_admin else (effective_session or "non_existent_session")
     count = clear_all_documents(owner_session_id=target_session)
     return {"cleared": count}
 
