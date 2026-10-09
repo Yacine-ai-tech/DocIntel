@@ -384,7 +384,16 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
         images = pdf_to_pngs(data, max_pages=settings.MAX_PDF_PAGES) if pdf else [data]
         fields = None
 
-        if images:
+        force_fallback = getattr(settings, "ROUTE_B_FORCE_FALLBACK", False) or (
+            os.getenv("ROUTE_B_FORCE_FALLBACK", "false").strip().lower() in ("1", "true", "yes")
+        )
+        if force_fallback:
+            log.info("Route B: ROUTE_B_FORCE_FALLBACK active — falling back directly to Route C (OCR)")
+            fallback_used = True
+            used_route = "ocr_fallback"
+            if workspace_logger:
+                workspace_logger.log_fallback("vision_route_b", "ocr_fallback", "ROUTE_B_FORCE_FALLBACK active in environment")
+        elif images:
             try:
                 fields = await extract_via_vision_llm(images, doc_type=doc_type, route_b=True)
                 if isinstance(fields, dict) and (fields.get("_route_b_failed") or fields.get("error")):

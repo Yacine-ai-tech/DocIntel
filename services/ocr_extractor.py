@@ -22,12 +22,18 @@ from core.logger import get_logger
 
 log = get_logger(__name__)
 
-# Try to import optional OCR libraries
+try:
+    from PIL import Image
+    _PIL = True
+except ImportError:
+    Image = None
+    _PIL = False
+
 try:
     import pytesseract
-    from PIL import Image
     _TESSERACT = True
 except ImportError:
+    pytesseract = None
     _TESSERACT = False
 
 try:
@@ -78,7 +84,7 @@ def extract_text_from_image(image_bytes: bytes, lang: Optional[str] = None) -> s
         if surya_res.get("text"):
             return surya_res["text"]
     except Exception as e:
-        log.warning("Surya OCR skipped/failed: %s", e)
+        log.warning("Surya OCR skipped/failed: %s — falling back to Tesseract OCR", e)
 
     if not _TESSERACT:
         log.warning("pytesseract/Tesseract not installed — OCR route unavailable")
