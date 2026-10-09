@@ -11,6 +11,8 @@ export default function CameraDashboard() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<CameraUploadResult | null>(null);
+  const [scanStatus, setScanStatus] = useState<"waiting" | "processing" | "completed" | "error">("waiting");
+  const [statusError, setStatusError] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stopPolling = () => {
@@ -26,6 +28,8 @@ export default function CameraDashboard() {
     setLoading(true);
     setError("");
     setResult(null);
+    setScanStatus("waiting");
+    setStatusError(null);
     try {
       const data = await api.pairCamera();
       setQrCode(data.qr_code);
@@ -37,7 +41,13 @@ export default function CameraDashboard() {
           const status = await api.cameraStatus(data.token);
           if (status.last_result) {
             setResult(status.last_result);
+            setScanStatus("completed");
             stopPolling(); // stop after the first result; "Scan Another" starts a fresh session
+          } else if (status.status === "processing" || (status.last_upload && !status.last_result && status.status !== "error")) {
+            setScanStatus("processing");
+          } else if (status.status === "error" || status.last_error) {
+            setScanStatus("error");
+            setStatusError(status.last_error || "Extraction failed");
           } else if (!status.active) {
             stopPolling(); // token expired/revoked with nothing uploaded
           }
@@ -57,6 +67,8 @@ export default function CameraDashboard() {
     setQrCode(null);
     setToken("");
     setResult(null);
+    setScanStatus("waiting");
+    setStatusError(null);
   };
 
   return (
@@ -112,10 +124,21 @@ export default function CameraDashboard() {
                   />
                 </div>
                 <p className="text-sm font-mono text-zinc-500">Token: {token}</p>
-                <div className="flex items-center justify-center space-x-2 text-emerald-400">
-                  <RefreshCw className="animate-spin" size={16} />
-                  <span>Waiting for mobile upload...</span>
-                </div>
+                {scanStatus === "processing" ? (
+                  <div className="flex items-center justify-center space-x-2 text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-xl py-2.5 px-4 animate-pulse">
+                    <RefreshCw className="animate-spin text-amber-400" size={16} />
+                    <span className="font-medium text-sm">Photo received! Extracting fields via Vision AI…</span>
+                  </div>
+                ) : scanStatus === "error" ? (
+                  <div className="text-rose-400 bg-rose-500/10 border border-rose-500/30 rounded-xl py-2.5 px-4 text-sm text-center">
+                    <span>Upload error: {statusError || "Extraction failed"}. Please retry from your phone.</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-center space-x-2 text-emerald-400">
+                    <RefreshCw className="animate-spin" size={16} />
+                    <span>Waiting for mobile upload...</span>
+                  </div>
+                )}
               </>
             )}
 

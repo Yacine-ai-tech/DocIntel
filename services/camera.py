@@ -157,6 +157,8 @@ class MobilePairing:
                 "uploads": 0,
                 "last_upload": None,
                 "last_result": None,
+                "status": "waiting",
+                "last_error": None,
                 "active": True,
             }
         self._persist(token)
@@ -178,7 +180,19 @@ class MobilePairing:
                 return None
         return session
 
-    def record_upload(self, token: str, result: Optional[Dict[str, Any]] = None) -> bool:
+    def set_processing(self, token: str) -> bool:
+        """Mark session as actively processing an uploaded document."""
+        with self._token_lock:
+            session = self._sessions.get(token)
+            if session and session["active"]:
+                session["status"] = "processing"
+                session["last_upload"] = _utcnow()
+                session["last_error"] = None
+                self._persist(token)
+                return True
+        return False
+
+    def record_upload(self, token: str, result: Optional[Dict[str, Any]] = None, error: Optional[str] = None) -> bool:
         """Record a successful upload for this token, storing the extraction result
         (if given) so the desktop session that generated the QR can poll for it."""
         with self._token_lock:
@@ -186,6 +200,12 @@ class MobilePairing:
             if session and session["active"]:
                 session["uploads"] += 1
                 session["last_upload"] = _utcnow()
+                if error:
+                    session["status"] = "error"
+                    session["last_error"] = error
+                else:
+                    session["status"] = "completed"
+                    session["last_error"] = None
                 if result is not None:
                     session["last_result"] = result
                 self._persist(token)
@@ -205,6 +225,8 @@ class MobilePairing:
                 "uploads": session["uploads"],
                 "last_upload": session["last_upload"].isoformat() if session["last_upload"] else None,
                 "last_result": session.get("last_result"),
+                "status": session.get("status", "waiting"),
+                "last_error": session.get("last_error"),
             }
 
     def qr_bytes(self, token: str, frontend_url: Optional[str] = None) -> Optional[bytes]:
@@ -300,6 +322,10 @@ class CameraManager:
         and if so, what did extraction return."""
         return self.pairing.get_status(token)
 
-    def record_mobile_upload(self, token: str, result: Optional[Dict[str, Any]] = None) -> bool:
-        """Record successful upload from paired device, with its extraction result."""
-        return self.pairing.record_upload(token, result)
+    def set_processing(self, token: str) -> bool:
+        """Mark pairing session as actively processing an uploaded document."""
+        return self.pairing.set_processing(token)
+
+    def record_mobile_upload(self, token: str, result: Optional[Dict[str, Any]] = None, error: Optional[str] = None) -> bool:
+        """Record upload from paired device, with its extraction result or error."""
+        return self.pairing.record_upload(token, result=result, error=error)
