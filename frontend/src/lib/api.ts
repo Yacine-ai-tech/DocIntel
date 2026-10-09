@@ -68,6 +68,8 @@ export type CameraStatusResponse = {
   uploads: number;
   last_upload: string | null;
   last_result: CameraUploadResult | null;
+  status?: "waiting" | "processing" | "completed" | "error";
+  last_error?: string | null;
 };
 
 export type CameraUploadResponse = CameraUploadResult;

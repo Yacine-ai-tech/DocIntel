@@ -62,8 +62,12 @@ except ImportError:
 
 # Default environment tuning for Surya local llama-server backend to eliminate latency
 os.environ.setdefault("SURYA_INFERENCE_KEEP_ALIVE", "true")
-os.environ.setdefault("SURYA_INFERENCE_PARALLEL", "2")
+os.environ.setdefault("SURYA_INFERENCE_PARALLEL", "1")
 os.environ.setdefault("SURYA_INFERENCE_CTX_SIZE", "16384")
+os.environ.setdefault("LLAMA_CPP_EXTRA_ARGS", "-t 6")
+
+_GLOBAL_DET: Optional[Any] = None
+_GLOBAL_REC: Optional[Any] = None
 
 
 def _enabled() -> bool:
@@ -80,24 +84,27 @@ class SuryaExtractor:
 
     def __init__(self, langs: Optional[List[str]] = None):
         self.langs = langs or ["en"]
-        self._rec: Optional[Any] = None
-        self._det: Optional[Any] = None
+        self._rec: Optional[Any] = _GLOBAL_REC
+        self._det: Optional[Any] = _GLOBAL_DET
 
     def _ensure_models(self, warmup: bool = False) -> None:
         """Called eagerly at startup (api.py's warm-up) so the first real request isn't slow.
         No-ops unless local mode is actually enabled — remote mode has nothing local to load,
         and the disabled default shouldn't pay any startup cost for a feature that's off."""
+        global _GLOBAL_DET, _GLOBAL_REC
         if not _enabled() or _mode() != "local":
             return
-        if self._rec is None and _SURYA:
-            log.info("Loading Surya detection + recognition models (first call only)...")
-            self._det = DetectionPredictor()
+        if _GLOBAL_REC is None and _SURYA:
+            log.info("Loading Surya detection + recognition models (cached singleton)...")
+            _GLOBAL_DET = DetectionPredictor()
             # surya recent: RecognitionPredictor(FoundationPredictor()); older: no-arg
             try:
                 from surya.foundation import FoundationPredictor
-                self._rec = RecognitionPredictor(FoundationPredictor())
+                _GLOBAL_REC = RecognitionPredictor(FoundationPredictor())
             except Exception:
-                self._rec = RecognitionPredictor()
+                _GLOBAL_REC = RecognitionPredictor()
+        self._det = _GLOBAL_DET
+        self._rec = _GLOBAL_REC
         if warmup and self._rec is not None and _PIL:
             try:
                 dummy_img = Image.new("RGB", (64, 32), color=(255, 255, 255))
