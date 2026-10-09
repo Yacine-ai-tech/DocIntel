@@ -371,6 +371,7 @@ export async function fetchDocuments(params?: {
   doc_type?: string;
   route?: string;
   search?: string;
+  include_seed?: boolean;
 }): Promise<DocumentListResponse> {
   const q = new URLSearchParams();
   if (params?.limit) q.set("limit", String(params.limit));
@@ -378,23 +379,31 @@ export async function fetchDocuments(params?: {
   if (params?.doc_type) q.set("doc_type", params.doc_type);
   if (params?.route) q.set("route", params.route);
   if (params?.search) q.set("search", params.search);
+  q.set("session_id", demoSessionId());
+  if (params?.include_seed) q.set("include_seed", "true");
   const qs = q.toString();
   return req<DocumentListResponse>(`/api/documents${qs ? `?${qs}` : ""}`);
 }
 
-export async function fetchDocumentStats(): Promise<DocumentStats> {
-  return req<DocumentStats>("/api/documents/stats");
+export async function fetchDocumentStats(includeSeed = false): Promise<DocumentStats> {
+  const q = new URLSearchParams();
+  q.set("session_id", demoSessionId());
+  if (includeSeed) q.set("include_seed", "true");
+  return req<DocumentStats>(`/api/documents/stats?${q.toString()}`);
 }
 
 export async function fetchDocumentById(id: string): Promise<DocIntelDocument> {
-  return req<DocIntelDocument>(`/api/documents/${id}`);
+  const q = new URLSearchParams({ session_id: demoSessionId() });
+  return req<DocIntelDocument>(`/api/documents/${id}?${q.toString()}`);
 }
 
 export async function deleteDocumentApi(id: string): Promise<{ status: string; id: string }> {
-  return req<{ status: string; id: string }>(`/api/documents/${id}`, { method: "DELETE" });
+  const q = new URLSearchParams({ session_id: demoSessionId() });
+  return req<{ status: string; id: string }>(`/api/documents/${id}?${q.toString()}`, { method: "DELETE" });
 }
 
 export async function clearAllDocumentsApi(): Promise<{ cleared: number }> {
-  return req<{ cleared: number }>("/api/documents", { method: "DELETE" });
+  const q = new URLSearchParams({ session_id: demoSessionId() });
+  return req<{ cleared: number }>(`/api/documents?${q.toString()}`, { method: "DELETE" });
 }
 
