@@ -187,6 +187,8 @@ async def _vision_call_route_a(
     content: List[Dict[str, Any]] = []
     if user_text:
         content.append({"type": "text", "text": user_text})
+    else:
+        content.append({"type": "text", "text": "Extract document data as structured JSON."})
     content.extend(map(_image_block, imgs))
     t0 = time.monotonic()
     messages = [
@@ -209,7 +211,10 @@ async def _vision_call_route_a(
     for cand in candidate_models:
         try:
             log.info("Route A attempting vision call with model %s", cand)
-            response = await acompletion(model=cand, **_call_kwargs)
+            call_kwargs = dict(_call_kwargs)
+            if "gemini" in cand.lower():
+                call_kwargs["temperature"] = 1.0
+            response = await acompletion(model=cand, **call_kwargs)
             break
         except Exception as exc:
             last_exc = exc
