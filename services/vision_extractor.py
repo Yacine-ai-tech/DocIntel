@@ -197,30 +197,12 @@ async def _vision_call_route_a(
         messages=messages, max_tokens=2048, temperature=0.1,
         timeout=settings.LLM_CALL_TIMEOUT, num_retries=settings.LLM_CALL_RETRIES,
     )
-    candidate_models: List[str] = []
-    if model and "sonnet-4-6" not in model:
-        candidate_models.append(model)
-    elif model:
-        candidate_models.extend(["anthropic/claude-3-5-sonnet-20241022", "anthropic/claude-3-7-sonnet-20250219"])
+    primary_model = model or getattr(settings, "LLM_VISION_ROUTE_A", "anthropic/claude-sonnet-4-6")
+    candidate_models: List[str] = [primary_model]
 
-    fallback_model = os.getenv("LLM_VISION_ROUTE_A_FALLBACK", "")
+    fallback_model = os.getenv("LLM_VISION_ROUTE_A_FALLBACK", "").strip()
     if fallback_model and fallback_model not in candidate_models:
         candidate_models.append(fallback_model)
-
-    if os.getenv("GEMINI_API_KEY"):
-        for gm in (
-            "gemini/gemini-3.8-flash",
-            "gemini/gemini-3.5-flash",
-            "gemini/gemini-2.5-flash-image",
-            "gemini/gemini-2.5-flash-lite",
-        ):
-            if gm not in candidate_models:
-                candidate_models.append(gm)
-
-    if os.getenv("ANTHROPIC_API_KEY"):
-        for am in ("anthropic/claude-3-5-sonnet-20241022", "anthropic/claude-3-7-sonnet-20250219"):
-            if am not in candidate_models:
-                candidate_models.append(am)
 
     response = None
     last_exc = None
@@ -231,10 +213,13 @@ async def _vision_call_route_a(
             break
         except Exception as exc:
             last_exc = exc
-            log.warning("Route A vision model %s failed: %s — trying next candidate if available", cand, exc)
+            log.warning(
+                "Route A vision model %s failed: %s%s",
+                cand, exc, " — trying configured fallback model" if cand != candidate_models[-1] else ""
+            )
 
     if response is None:
-        raise last_exc or RuntimeError("All Route A vision models failed")
+        raise last_exc or RuntimeError("Route A vision call failed")
 
     log.debug("Route A call took %.2fs", time.monotonic() - t0)
     return response.choices[0].message.content, _completion_cost_usd(response)
