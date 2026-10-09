@@ -60,6 +60,12 @@ except ImportError:
     _SURYA = False
 
 
+# Default environment tuning for Surya local llama-server backend to eliminate latency
+os.environ.setdefault("SURYA_INFERENCE_KEEP_ALIVE", "true")
+os.environ.setdefault("SURYA_INFERENCE_PARALLEL", "2")
+os.environ.setdefault("SURYA_INFERENCE_CTX_SIZE", "16384")
+
+
 def _enabled() -> bool:
     return os.environ.get("SURYA_ENABLED", "true").strip().lower() in ("1", "true", "yes")
 
@@ -77,7 +83,7 @@ class SuryaExtractor:
         self._rec: Optional[Any] = None
         self._det: Optional[Any] = None
 
-    def _ensure_models(self) -> None:
+    def _ensure_models(self, warmup: bool = False) -> None:
         """Called eagerly at startup (api.py's warm-up) so the first real request isn't slow.
         No-ops unless local mode is actually enabled — remote mode has nothing local to load,
         and the disabled default shouldn't pay any startup cost for a feature that's off."""
@@ -92,6 +98,13 @@ class SuryaExtractor:
                 self._rec = RecognitionPredictor(FoundationPredictor())
             except Exception:
                 self._rec = RecognitionPredictor()
+        if warmup and self._rec is not None and _PIL:
+            try:
+                dummy_img = Image.new("RGB", (64, 32), color=(255, 255, 255))
+                self._rec([dummy_img])
+                log.info("Surya OCR warm-up completed successfully.")
+            except Exception as e:
+                log.warning("Surya OCR warm-up dummy call notice: %s", e)
 
     def extract(self, image_bytes: bytes) -> Dict[str, Any]:
         """
