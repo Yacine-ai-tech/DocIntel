@@ -61,7 +61,7 @@ except ImportError:
 
 
 def _enabled() -> bool:
-    return os.environ.get("SURYA_ENABLED", "").strip().lower() in ("1", "true", "yes")
+    return os.environ.get("SURYA_ENABLED", "true").strip().lower() in ("1", "true", "yes")
 
 
 def _mode() -> str:
