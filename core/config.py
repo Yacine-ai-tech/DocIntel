@@ -136,9 +136,19 @@ class Settings:
     POSTGRES_URL = os.getenv("POSTGRES_URL", "")
 
     # ─── Mobile Camera Upload Route ──────────────────────────────────────────
-    # Route for mobile camera uploads: "vision_route_b" (default, Ollama vision) or
-    # "ocr_fallback" (Route C, Surya/Tesseract OCR + LLM cleanup for low-resource VPS/CPU).
-    DOCINTEL_MOBILE_ROUTE = os.getenv("DOCINTEL_MOBILE_ROUTE", "vision_route_b")
+    # Route for mobile camera uploads: "ocr_fallback" (default, Route C for reliable CPU/low-resource execution),
+    # "vision_route_b" (Route B, Ollama vision), or "vision_route_a" (Route A, Claude / Cloud vision).
+    # Configurable dynamically via environment variable with support for aliases.
+    @property
+    def DOCINTEL_MOBILE_ROUTE(self) -> str:
+        r = os.getenv("DOCINTEL_MOBILE_ROUTE", "ocr_fallback").strip().lower()
+        if r in ("route_c", "route-c", "c", "ocr_fallback"):
+            return "ocr_fallback"
+        elif r in ("route_b", "route-b", "b", "vision_route_b"):
+            return "vision_route_b"
+        elif r in ("route_a", "route-a", "a", "vision_route_a", "vision_premium"):
+            return "vision_route_a"
+        return r or "ocr_fallback"
 
 
 settings = Settings()
