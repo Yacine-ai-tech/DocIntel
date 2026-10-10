@@ -562,7 +562,20 @@ async def camera_upload(
         data = await _read_upload(file)
         t0 = time.time()
         resized_data = _downscale_camera_photo(data)
-        effective_route = route or os.getenv("DOCINTEL_MOBILE_ROUTE") or getattr(settings, "DOCINTEL_MOBILE_ROUTE", "vision_route_a")
+
+        import base64
+        preview_b64 = base64.b64encode(resized_data).decode("utf-8")
+        preview_image = f"data:image/jpeg;base64,{preview_b64}"
+
+        raw_route = route or getattr(settings, "DOCINTEL_MOBILE_ROUTE", "ocr_fallback")
+        if raw_route in ("route_c", "route-c", "c"):
+            effective_route = "ocr_fallback"
+        elif raw_route in ("route_b", "route-b", "b"):
+            effective_route = "vision_route_b"
+        elif raw_route in ("route_a", "route-a", "a"):
+            effective_route = "vision_route_a"
+        else:
+            effective_route = raw_route
 
         # Resilient cascading fallback: effective_route -> vision_route_a -> ocr_fallback
         routes_to_try = [effective_route]
@@ -603,6 +616,7 @@ async def camera_upload(
             "confidence": _confidence_of(out["fields"]) or 0.85,
             "page_count": out["page_count"],
             "processing_time_ms": proc_time_ms,
+            "preview_image": preview_image,
         }
         _camera.record_mobile_upload(token, result)
 
@@ -619,7 +633,11 @@ async def camera_upload(
             page_count=out["page_count"],
             processing_time_ms=proc_time_ms,
             owner_session_id=owner_session,
-            metadata={"token": token, "device": session.get("device_name", "Mobile")},
+            metadata={
+                "token": token,
+                "device": session.get("device_name", "Mobile"),
+                "preview_image": preview_image,
+            },
         )
         return result
     except Exception as ex:
