@@ -61,6 +61,9 @@ export type CameraUploadResult = {
   confidence: number | null;
   page_count: number | null;
   processing_time_ms: number;
+  preview_image?: string | null;
+  doc_type?: string | null;
+  route?: string | null;
 };
 
 export type CameraStatusResponse = {
@@ -226,9 +229,11 @@ export const api = {
   batchStatus: (id: string) => req<BatchStatus>(`/batch/${id}`),
   batchResults: (id: string) => req<BatchResults>(`/batch/${id}/results`),
 
-  pairCamera(user = "demo_user", device = "Mobile", frontendUrl?: string) {
+  pairCamera(user?: string, device = "Mobile", frontendUrl?: string) {
     const fd = new FormData();
-    fd.append("user", user);
+    // Fall back to the session's demo ID so camera uploads are linked to the
+    // same session as the history page, making them visible in the doc list.
+    fd.append("user", user || demoSessionId());
     fd.append("device", device);
     const origin = frontendUrl || (typeof window !== "undefined" && window.location?.origin ? window.location.origin : "");
     if (origin) {
