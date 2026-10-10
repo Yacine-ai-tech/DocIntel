@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   FileText, Trash2, FolderOpen, RefreshCw, Search, Filter,
-  Database, CheckCircle2, Clock, Layers, Download, Eye,
+  Database, CheckCircle2, Clock, Layers, Download, Eye, Camera,
 } from "lucide-react";
 import { PageHeader } from "../kit/AppShell";
 import { Button, Card, Chip, ConfidenceBadge, EmptyState, StatTile } from "../kit/primitives";
@@ -108,7 +108,7 @@ export default function Documents() {
     }
   };
 
-  const docTypes = ["all", "invoice", "receipt", "contract", "financial_report", "form", "text_extraction", "default"];
+  const docTypes = ["all", "mobile_scan", "invoice", "receipt", "contract", "financial_report", "form", "text_extraction", "default"];
 
   return (
     <div className="space-y-6">
@@ -215,7 +215,11 @@ export default function Documents() {
                   className="flex w-full cursor-pointer flex-wrap items-center gap-3 text-left"
                   onClick={() => setOpenId(isOpen ? null : d.id)}
                 >
-                  <FileText size={18} className="shrink-0 text-dim" />
+                  {d.filename?.startsWith("camera_") || (d as any).metadata?.source === "camera" || d.doc_type === "mobile_scan" ? (
+                    <Camera size={18} className="shrink-0 text-emerald-400" aria-label="Mobile Scan" />
+                  ) : (
+                    <FileText size={18} className="shrink-0 text-dim" />
+                  )}
                   <div className="min-w-0 flex-1 truncate">
                     <span className="text-sm font-semibold text-body">{d.filename}</span>
                     <span className="ml-2 font-mono text-[11px] text-muted">{d.id}</span>
@@ -306,6 +310,20 @@ export default function Documents() {
                         <div className="max-h-36 overflow-y-auto rounded-btn border border-line bg-surface-2 p-3 font-mono text-xs text-dim whitespace-pre-wrap">
                           {d.raw_text}
                         </div>
+                      </div>
+                    )}
+
+                    {(d as any).metadata?.preview_image && (
+                      <div>
+                        <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted flex items-center gap-1">
+                          <Camera size={12} /> Scanned Document Photo
+                        </div>
+                        <img
+                          src={(d as any).metadata.preview_image}
+                          alt="Scanned document"
+                          className="w-full max-h-64 object-contain rounded-lg border border-line bg-zinc-950 cursor-zoom-in"
+                          onClick={() => window.open((d as any).metadata.preview_image, "_blank")}
+                        />
                       </div>
                     )}
 
