@@ -115,6 +115,7 @@ jobs:
           import os
           import time
           import httpx
+          from urllib.parse import urlsplit
 
           api_url = os.environ.get('DOCINTEL_URL', '').rstrip('/')
           if not api_url:
@@ -124,14 +125,17 @@ jobs:
           # DOCINTEL_URL may be the API root (/api); health is served at service root.
           service_url = api_url[:-4] if api_url.endswith('/api') else api_url
           health_url = f'{service_url}/health'
+          parsed_health_url = urlsplit(health_url)
+          print(f'Health target: host={parsed_health_url.hostname}, path={parsed_health_url.path}')
           for i in range(15):
               try:
                   response = httpx.get(health_url, timeout=15)
+                  print(f'Health attempt {i + 1}: HTTP {response.status_code}')
                   if response.status_code == 200:
                       print(f'Health check passed: {response.status_code}')
                       break
               except Exception as e:
-                  print(f'Waiting for live service (attempt {i+1}/15): {e}')
+                  print(f'Health attempt {i + 1}: request failed ({type(e).__name__})')
                   time.sleep(5)
           else:
               response = httpx.get(health_url, timeout=15)
