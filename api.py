@@ -33,6 +33,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -51,14 +52,12 @@ from core.db import (
     get_documents_stats,
 )
 
-
-def _is_db_enabled() -> bool:
-    return bool(_core_db.DB_ENABLED or DB_ENABLED or getattr(settings, "POSTGRES_URL", None))
 from core.logger import get_logger
 from services.batch_processor import BatchProcessor
 from services.camera import CameraManager
 from services.llm_extractor import LLMExtractor
 from services.marker_extractor import MarkerExtractor
+from services.vision_extractor import classify_image, extract_via_vision_llm
 from services.webhook import WebhookURLRejected, _validate_webhook_url
 
 # Optional: if this checkout sits alongside a shared logging helper in a sibling
@@ -72,7 +71,10 @@ try:
 except ImportError:
     workspace_logger = None
 
-from services.vision_extractor import classify_image, extract_via_vision_llm
+
+def _is_db_enabled() -> bool:
+    return bool(_core_db.DB_ENABLED or DB_ENABLED or getattr(settings, "POSTGRES_URL", None))
+
 
 log = get_logger(__name__)
 
@@ -213,7 +215,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from fastapi.middleware.gzip import GZipMiddleware
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
