@@ -127,9 +127,12 @@ jobs:
           health_url = f'{service_url}/health'
           parsed_health_url = urlsplit(health_url)
           print(f'Health target: host={parsed_health_url.hostname}, path={parsed_health_url.path}')
+          headers = {
+              'X-DocIntel-Internal-Token': os.environ.get('DOCINTEL_INTERNAL_TOKEN', '')
+          }
           for i in range(15):
               try:
-                  response = httpx.get(health_url, timeout=15)
+                  response = httpx.get(health_url, headers=headers, timeout=15)
                   print(f'Health attempt {i + 1}: HTTP {response.status_code}')
                   if response.status_code == 200:
                       print(f'Health check passed: {response.status_code}')
@@ -138,7 +141,7 @@ jobs:
                   print(f'Health attempt {i + 1}: request failed ({type(e).__name__})')
                   time.sleep(5)
           else:
-              response = httpx.get(health_url, timeout=15)
+              response = httpx.get(health_url, headers=headers, timeout=15)
               assert response.status_code == 200
           PY
 
