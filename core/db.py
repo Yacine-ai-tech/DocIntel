@@ -376,7 +376,7 @@ def list_documents(
     if route and route != "all":
         clauses.append("route = %s")
         params.append(route)
-    if not is_admin and owner_session_id != "*":
+    if not is_admin:
         if owner_session_id:
             if include_seed:
                 clauses.append("(owner_session_id = %s OR is_seed = TRUE)")
@@ -433,7 +433,7 @@ def count_documents(
     if route and route != "all":
         clauses.append("route = %s")
         params.append(route)
-    if not is_admin and owner_session_id != "*":
+    if not is_admin:
         if owner_session_id:
             if include_seed:
                 clauses.append("(owner_session_id = %s OR is_seed = TRUE)")
@@ -480,7 +480,7 @@ def clear_all_documents(owner_session_id: Optional[str] = None) -> int:
 
 def get_documents_stats(owner_session_id: Optional[str] = None, is_admin: bool = False, include_seed: bool = False) -> Dict[str, Any]:
     """Compute aggregate statistical metrics across stored documents in Neon DB."""
-    if is_admin or owner_session_id == "*":
+    if is_admin:
         where_sql = ""
         params: List[Any] = []
     elif owner_session_id:
@@ -561,4 +561,3 @@ def get_documents_stats(owner_session_id: Optional[str] = None, is_admin: bool =
         "by_route": by_route,
         "recent_timeline": recent_timeline,
     }
-
