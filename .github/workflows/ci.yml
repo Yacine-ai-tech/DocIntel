@@ -134,8 +134,11 @@ jobs:
                   if response.status_code == 200:
                       print(f'Health check passed: {response.status_code}')
                       break
-                  if response.status_code == 403:
-                      print('GitHub Actions is denied by the upstream edge; health is checked from the production host.')
+                  if response.status_code == 403 and (
+                      'cf-ray' in response.headers
+                      or 'cloudflare' in response.headers.get('server', '').lower()
+                  ):
+                      print('Cloudflare denied GitHub Actions; health is checked from the production host.')
                       raise SystemExit(0)
               except Exception as e:
                   print(f'Health attempt {i + 1}: request failed ({type(e).__name__})')
@@ -161,8 +164,11 @@ jobs:
 
           response = httpx.get(f'{service_url}/health', timeout=15)
           print(f'Health: {response.status_code}')
-          if response.status_code == 403:
-              print('GitHub Actions is denied by the upstream edge; route smoke is checked from the production host.')
+          if response.status_code == 403 and (
+              'cf-ray' in response.headers
+              or 'cloudflare' in response.headers.get('server', '').lower()
+          ):
+              print('Cloudflare denied GitHub Actions; route smoke is checked from the production host.')
               raise SystemExit(0)
           assert response.status_code == 200, f'expected 200, got {response.status_code}'
 
