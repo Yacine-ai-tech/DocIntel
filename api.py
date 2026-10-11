@@ -1346,11 +1346,13 @@ async def list_documents_endpoint(
     x_docintel_token: Optional[str] = Header(default=None, alias="X-DocIntel-Internal-Token"),
 ) -> Dict[str, Any]:
     """List persistent document extraction records from Neon DB with search, pagination, and session isolation."""
-    if not _is_db_enabled():
-        return {"total": 0, "documents": [], "limit": limit, "offset": offset, "db_enabled": False}
     admin_secret = os.getenv("ADMIN_TOKEN")
     is_admin = bool(x_admin_token and admin_secret and x_admin_token == admin_secret)
     effective_session = session_id or x_demo_session_id
+    if effective_session == "*" and not is_admin:
+        raise HTTPException(status_code=403, detail="admin_required_for_unscoped_access")
+    if not _is_db_enabled():
+        return {"total": 0, "documents": [], "limit": limit, "offset": offset, "db_enabled": False}
     total = count_documents(
         doc_type=doc_type,
         route=route,
@@ -1382,6 +1384,11 @@ async def documents_stats_endpoint(
     x_docintel_token: Optional[str] = Header(default=None, alias="X-DocIntel-Internal-Token"),
 ) -> Dict[str, Any]:
     """Retrieve aggregate analytics, classification breakdown, and latency metrics across documents in Neon DB."""
+    admin_secret = os.getenv("ADMIN_TOKEN")
+    is_admin = bool(x_admin_token and admin_secret and x_admin_token == admin_secret)
+    effective_session = session_id or x_demo_session_id
+    if effective_session == "*" and not is_admin:
+        raise HTTPException(status_code=403, detail="admin_required_for_unscoped_access")
     if not _is_db_enabled():
         return {
             "total_documents": 0,
@@ -1395,9 +1402,6 @@ async def documents_stats_endpoint(
             "recent_timeline": [],
             "db_enabled": False,
         }
-    admin_secret = os.getenv("ADMIN_TOKEN")
-    is_admin = bool(x_admin_token and admin_secret and x_admin_token == admin_secret)
-    effective_session = session_id or x_demo_session_id
     stats = get_documents_stats(
         owner_session_id=effective_session,
         is_admin=is_admin,

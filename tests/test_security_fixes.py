@@ -253,3 +253,24 @@ def test_health_endpoint_reflects_real_dependency_failure(monkeypatch):
     resp = client.get("/health")
     assert resp.status_code == 503
     assert resp.json()["checks"]["logs_dir_writable"] is False
+
+
+@pytest.mark.parametrize("path", ["/documents?session_id=*", "/documents/stats?session_id=*"])
+def test_document_wildcard_requires_admin(path, monkeypatch):
+    monkeypatch.setenv("ADMIN_TOKEN", "admin-test-token")
+
+    response = client.get(path)
+    assert response.status_code == 403
+    assert response.json()["detail"] == "admin_required_for_unscoped_access"
+
+
+def test_document_wildcard_remains_available_to_admin(monkeypatch):
+    monkeypatch.setenv("ADMIN_TOKEN", "admin-test-token")
+    monkeypatch.setattr("api._is_db_enabled", lambda: False)
+
+    response = client.get(
+        "/documents?session_id=*",
+        headers={"X-Admin-Token": "admin-test-token"},
+    )
+    assert response.status_code == 200
+    assert response.json()["db_enabled"] is False
