@@ -111,43 +111,57 @@ jobs:
 
       - name: Health check
         run: |
-          python -c "
-          import httpx, time
-          url = '${{ env.DOCINTEL_URL }}'
-          if not url:
+          python - <<'PY'
+          import os
+          import time
+          import httpx
+
+          api_url = os.environ.get('DOCINTEL_URL', '').rstrip('/')
+          if not api_url:
               print('DOCINTEL_URL not configured — skipping live health check')
-              exit(0)
+              raise SystemExit(0)
+
+          # DOCINTEL_URL may be the API root (/api); health is served at service root.
+          service_url = api_url[:-4] if api_url.endswith('/api') else api_url
+          health_url = f'{service_url}/health'
           for i in range(15):
               try:
-                  response = httpx.get(f'{url}/health', timeout=15)
+                  response = httpx.get(health_url, timeout=15)
                   if response.status_code == 200:
-                      print(f'Health check passed: {response.json()}')
+                      print(f'Health check passed: {response.status_code}')
                       break
               except Exception as e:
                   print(f'Waiting for live service (attempt {i+1}/15): {e}')
                   time.sleep(5)
           else:
-              response = httpx.get(f'{url}/health', timeout=15)
+              response = httpx.get(health_url, timeout=15)
               assert response.status_code == 200
-          "
+          PY
 
       - name: Route availability test
         if: env.DOCINTEL_URL != ''
         run: |
-          python -c "
+          python - <<'PY'
+          import os
           import httpx
-          headers = {'X-DocIntel-Internal-Token': '${{ env.DOCINTEL_INTERNAL_TOKEN }}'}
 
-          response = httpx.get('${{ env.DOCINTEL_URL }}/health', timeout=15)
+          service_url = os.environ.get('DOCINTEL_URL', '').rstrip('/')
+          if service_url.endswith('/api'):
+              service_url = service_url[:-4]
+          headers = {
+              'X-DocIntel-Internal-Token': os.environ.get('DOCINTEL_INTERNAL_TOKEN', '')
+          }
+
+          response = httpx.get(f'{service_url}/health', timeout=15)
           print(f'Health: {response.status_code}')
           assert response.status_code == 200, f'expected 200, got {response.status_code}'
 
-          response = httpx.post('${{ env.DOCINTEL_URL }}/classify', timeout=15)
+          response = httpx.post(f'{service_url}/classify', headers=headers, timeout=15)
           print(f'Classify: {response.status_code}')
           assert response.status_code == 422, f'expected 422 (missing file), got {response.status_code}'
 
           print('All endpoints accessible and responding as expected')
-          "
+          PY
 
   # ═══════════════════════════════════════════════════════════════════════════
   # PHASE 3.5 — Frontend E2E (Playwright, against the deployed backend)
