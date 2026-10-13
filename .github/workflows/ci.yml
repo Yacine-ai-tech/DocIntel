@@ -313,4 +313,4 @@ jobs:
       
       - name: Deployment Notice
         run: |
-          echo "Production deployment hosted on Contabo VPS (origin.example.invalid) via Docker Compose."
+          echo "Deployment is verified against the public health endpoint after the image is built."
