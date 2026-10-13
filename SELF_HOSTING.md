@@ -18,3 +18,19 @@
    testing. Plain `http://192.168.x.x:8001` on a LAN will generally NOT be allowed to open the
    camera; put a reverse proxy with TLS (Caddy, nginx + certbot, a Cloudflare Tunnel, etc.) in
    front of it, or accept that mobile scan won't work over bare HTTP on your network.
+
+## Route B (Ollama vision) is optional
+
+Route B needs an Ollama-compatible vision model, which in turn needs real memory (about
+8 GB on CPU for a 7B model, much less latency on a GPU). It is controlled by configuration only:
+
+| Variable | Effect |
+|---|---|
+| `ROUTE_B_FORCE_FALLBACK=true` | Requests for `vision_route_b` are processed by Route C (OCR) and flagged `_route_b_fallback` in the result. `/health` reports Route B as `enabled: false`. |
+| `ROUTE_B_FORCE_FALLBACK=false` | Route B calls your Ollama host. If it fails, the request still falls back to Route C. |
+| `ROUTE_B_MODE=local` or `remote` | Ollama on this machine or on hardware you control elsewhere. |
+| `OLLAMA_HOST`, `OLLAMA_MODEL`, `OLLAMA_FALLBACK_MODEL` | Which host and model to use. |
+
+`docker-compose.ollama.yml` runs Ollama next to DocIntel; it is not started by any other
+compose file. Turning Route B on later is an environment change and a model pull, not a code change.
+
