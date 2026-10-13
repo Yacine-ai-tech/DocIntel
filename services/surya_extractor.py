@@ -147,10 +147,8 @@ class SuryaExtractor:
                 return {"text": "", "lines": [], "error": "surya_api_mismatch", "method": "surya"}
             page = preds[0]
             # The foundation-model (surya-2) API returns PageOCRResult.blocks (HTML content,
-            # reading-order-sorted), not the older .text_lines attribute this originally
-            # targeted — .text_lines doesn't exist on this result type at all, so the old
-            # code silently produced empty output on every call regardless of OCR quality.
-            # Falls back to .text_lines for older Surya versions that still have it.
+            # reading-order-sorted), not the older .text_lines attribute. Falls back to
+            # .text_lines for older Surya versions that still have it.
             blocks = getattr(page, "blocks", None)
             if blocks:
                 lines = [

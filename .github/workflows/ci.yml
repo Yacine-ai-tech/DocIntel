@@ -190,9 +190,8 @@ jobs:
     # deploy.yml's workflow_run trigger gates on this ENTIRE run's conclusion, not
     # individual job results, so without continue-on-error a flaky spec in here
     # silently blocks every real deploy regardless of the `needs:` graph below.
-    # Confirmed by this job's first-ever CI run: 4 pre-existing, unrelated failures
-    # (Service Worker registration/caching specs, one page-load spec) that predate
-    # this session's changes, none touching anything this session modified.
+    # Known failing specs (Service Worker registration/caching, one page-load spec)
+    # are tracked separately, so this job reports without gating the deploy.
     continue-on-error: true
     # Job-level `if:` only has access to github/needs/vars/inputs — not env, and
     # not secrets either (confirmed via `gh workflow run` dry-run rejecting both
@@ -272,7 +271,7 @@ jobs:
   # PHASE 3.6 — .dockerignore regression check
   # ═══════════════════════════════════════════════════════════════════════════
   # Dockerfile does `COPY . .` with no separate build-context allowlist — the
-  # .dockerignore file added this session is the only thing standing between a
+  # .dockerignore file is the only thing standing between a
   # `docker build` and a real .env (with live API keys/tokens) landing inside a
   # published image layer. This job proves that holds, on every push, without
   # needing DockerHub credentials (no push — build-only, local to the runner).

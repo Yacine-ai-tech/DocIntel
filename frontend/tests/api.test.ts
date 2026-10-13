@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// Regression tests for two frontend audit findings fixed this session:
+// Regression tests for two frontend behaviours:
 //   - api.ts retried ALL methods (including POST) on 5xx/network failure,
 //     risking a duplicate paid vision/LLM call or duplicate batch job
 //   - VITE_DOCINTEL_INTERNAL_TOKEN was never actually sent by the shipped

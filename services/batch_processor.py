@@ -6,15 +6,11 @@ hundreds/thousands of documents without exhausting memory or hammering the LLM p
 Each file is isolated: one failure never aborts the batch.
 
 Job state is kept in memory for fast access but persisted on every state change, and
-reloaded on startup. Previously state lived only in the in-memory `_jobs` dict: a
-process restart (deploy, crash, OOM, a host recycling the instance) silently dropped
-every in-flight/completed job — a client polling GET /batch/{job_id} afterward got
-"unknown job" with no indication it ever ran. Completed jobs also never left memory at
-all, growing unbounded for the process's lifetime (jobs retain every file's full
-extracted results, not just metadata). Both are fixed here: persistence for durability
-across restarts, and BATCH_JOB_TTL_SECONDS-based eviction (checked lazily on every
-new_job() call, not a dedicated background loop) so the in-memory dict and the backing
-store both stay bounded.
+reloaded on startup, so a process restart does not lose in-flight or completed jobs and
+a client polling GET /batch/{job_id} afterward still finds its job. Completed jobs
+retain every file's full extracted results, so they are evicted after
+BATCH_JOB_TTL_SECONDS (checked lazily on every new_job() call, not by a dedicated
+background loop), which keeps the in-memory dict and the backing store bounded.
 
 Persistence backend: Postgres (core.db) when POSTGRES_URL is set — durable across
 restarts/redeploys and correct if this app ever runs as more than one instance, which a
