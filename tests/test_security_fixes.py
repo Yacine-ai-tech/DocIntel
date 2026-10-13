@@ -274,3 +274,19 @@ def test_document_wildcard_remains_available_to_admin(monkeypatch):
     )
     assert response.status_code == 200
     assert response.json()["db_enabled"] is False
+
+
+# ─── Input validation: unknown routes and unreadable files are client errors ───
+
+def test_extract_unknown_route_is_422():
+    resp = client.post("/extract", files={"file": ("x.png", TINY_PNG, "image/png")},
+                       data={"route": "../../etc/passwd"})
+    assert resp.status_code == 422
+    assert "unknown route" in resp.json()["detail"]
+
+
+def test_extract_corrupt_image_is_422():
+    resp = client.post("/extract", files={"file": ("bad.png", b"\x00\x01\x02 not an image", "image/png")},
+                       data={"route": "ocr_fallback"})
+    assert resp.status_code == 422
+    assert "unreadable_document" in resp.json()["detail"]
