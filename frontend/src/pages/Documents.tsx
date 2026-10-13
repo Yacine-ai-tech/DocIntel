@@ -114,7 +114,7 @@ export default function Documents() {
     <div className="space-y-6">
       <PageHeader
         title="Document Intelligence Records"
-        sub="Persistent document extraction repository, audit metadata, and structured outputs backed by Neon PostgreSQL."
+        sub="Persistent document extraction repository, audit metadata, and structured outputs backed by PostgreSQL."
         actions={
           <div className="flex items-center gap-2">
             <Button variant="secondary" onClick={loadData} disabled={refreshing}>
@@ -134,7 +134,7 @@ export default function Documents() {
         <StatTile
           label="Total Documents"
           value={stats?.total_documents ?? docs.length}
-          sub={dbConnected ? "Neon DB Persistent" : "Local Storage Session"}
+          sub={dbConnected ? "Database persistent" : "Local Storage Session"}
           icon={Database}
         />
         <StatTile
@@ -202,7 +202,7 @@ export default function Documents() {
           <EmptyState
             icon={FolderOpen}
             title="No document records found"
-            hint="Process documents via Workspace or API — extractions are recorded into Neon PostgreSQL and displayed here."
+            hint="Process documents via Workspace or API — extractions are recorded in the database and displayed here."
           />
         </Card>
       ) : (
@@ -278,7 +278,7 @@ export default function Documents() {
                       <div className="text-xs text-muted flex items-center gap-3">
                         {d.processing_time_ms && <span>Processing: {d.processing_time_ms} ms</span>}
                         {d.file_size && <span>Size: {(d.file_size / 1024).toFixed(1)} KB</span>}
-                        <span className="badge ok">Neon DB</span>
+                        <span className="badge ok">Database</span>
                       </div>
                     </div>
 
