@@ -79,8 +79,18 @@ def extract_text_from_image(image_bytes: bytes, lang: Optional[str] = None) -> s
     Returns '' when neither is available or finds no text — the caller decides how to degrade.
     """
     try:
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FutTimeout
         from services.surya_extractor import SuryaExtractor
-        surya_res = SuryaExtractor(langs=[lang] if lang else None).extract(image_bytes)
+        timeout = float(_os.getenv("SURYA_LOCAL_TIMEOUT") or "45")
+        pool = ThreadPoolExecutor(max_workers=1)
+        fut = pool.submit(lambda: SuryaExtractor(langs=[lang] if lang else None).extract(image_bytes))
+        try:
+            surya_res = fut.result(timeout=timeout)
+        except _FutTimeout:
+            log.warning("Surya OCR exceeded %.0fs — falling back to Tesseract OCR", timeout)
+            surya_res = {}
+        finally:
+            pool.shutdown(wait=False)
         if surya_res.get("text"):
             return surya_res["text"]
     except Exception as e:

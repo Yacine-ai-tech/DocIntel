@@ -290,3 +290,24 @@ def test_extract_corrupt_image_is_422():
                        data={"route": "ocr_fallback"})
     assert resp.status_code == 422
     assert "unreadable_document" in resp.json()["detail"]
+
+
+def test_slow_surya_falls_back_instead_of_blocking(monkeypatch):
+    import time as _t
+    from services import ocr_extractor, surya_extractor
+
+    class _Slow:
+        def __init__(self, *a, **k):
+            pass
+
+        def extract(self, image_bytes):
+            _t.sleep(2.0)
+            return {"text": "late surya text"}
+
+    monkeypatch.setattr(surya_extractor, "SuryaExtractor", _Slow)
+    monkeypatch.setenv("SURYA_LOCAL_TIMEOUT", "0.2")
+    monkeypatch.setattr(ocr_extractor, "_TESSERACT", False)
+    t0 = _t.time()
+    out = ocr_extractor.extract_text_from_image(TINY_PNG)
+    assert _t.time() - t0 < 1.5
+    assert out == ""
