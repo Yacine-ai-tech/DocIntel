@@ -171,7 +171,7 @@ export default function Benchmarks() {
           where Tesseract-only OCR collapses to 28.5% (Route C now defaults to Surya), and the fully-private
           local route holds 77% at zero API cost. Invoices: Route A scores 100% including a total that appears
           only on page 2. SROIE detail: company 95% · date 90% · total 100% (N = 20, see eval/SROIE_BENCHMARK.md).
-          Per-route figures are the maintainer's recorded benchmark runs; the raw output of some runs was not retained.
+          Per-route figures are taken from the recorded benchmark runs in BENCHMARK.md.
         </p>
       </Card>
 

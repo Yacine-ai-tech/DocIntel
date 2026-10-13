@@ -1,8 +1,7 @@
-"""Regression tests for the security/reliability audit findings fixed this session.
+"""Regression tests for security and reliability behaviour.
 
-Each test is named after (and directly verifies) one specific finding, so a future
-regression in any of these shows up as a named, specific failure rather than a
-generic "something broke."
+Each test is named after (and directly verifies) one specific behaviour, so a
+regression shows up as a named, specific failure.
 """
 import io
 import os
@@ -31,7 +30,7 @@ def _set_internal_token(monkeypatch, token: str = "test-secret-token"):
     return token
 
 
-# ─── F-01: REQUIRE_INTERNAL_TOKEN must actually protect the routes that matter ──
+# ─── REQUIRE_INTERNAL_TOKEN must actually protect the routes that matter ──
 
 def test_require_internal_token_actually_blocks_extract(monkeypatch):
     _set_internal_token(monkeypatch)
@@ -70,7 +69,7 @@ def test_require_internal_token_still_allows_health_and_docs(monkeypatch):
     assert client.get("/docs").status_code == 200
 
 
-# ─── F-03: webhook_url SSRF ──────────────────────────────────────────────────
+# ─── webhook_url SSRF ──────────────────────────────────────────────────
 
 def test_webhook_url_rejects_private_ip():
     resp = client.post(
@@ -108,7 +107,7 @@ def test_webhook_url_accepts_valid_public_https():
     _validate_webhook_url("https://example.com/webhook")  # must not raise
 
 
-# ─── F-11: upload size cap ───────────────────────────────────────────────────
+# ─── upload size cap ───────────────────────────────────────────────────
 
 def test_extract_rejects_oversized_upload(monkeypatch):
     # _MAX_UPLOAD_BYTES is computed once from settings at import time, not re-read
@@ -129,7 +128,7 @@ def test_small_upload_is_not_rejected():
     assert resp.status_code != 413
 
 
-# ─── F-20: constant-time token comparison ────────────────────────────────────
+# ─── constant-time token comparison ────────────────────────────────────
 
 def test_internal_token_comparison_uses_constant_time_compare():
     """Code-inspection-style regression test: asserts the middleware actually
@@ -142,7 +141,7 @@ def test_internal_token_comparison_uses_constant_time_compare():
     assert "compare_digest" in src
 
 
-# ─── F-14: multi-language classifier ─────────────────────────────────────────
+# ─── multi-language classifier ─────────────────────────────────────────
 
 def test_classify_non_english_document():
     from services.ocr_extractor import DocumentClassifier
@@ -162,13 +161,13 @@ def test_classify_english_document_still_works():
     assert confidence > 0.3
 
 
-# ─── F-04: merge_doc_fields partial-failure signal ───────────────────────────
+# ─── merge_doc_fields partial-failure signal ───────────────────────────
 # (Direct unit tests for this live in tests/test_doc_merge.py, alongside the
 # rest of that module's tests — see test_errored_chunks_dropped_but_signaled
 # and test_partial_failure_signaled_even_with_only_one_surviving_chunk.)
 
 
-# ─── F-06 / F-08: batch job persistence + TTL eviction ───────────────────────
+# ─── batch job persistence + TTL eviction ───────────────────────
 
 def test_batch_jobs_are_evicted_after_ttl(monkeypatch, tmp_path):
     monkeypatch.setenv("BATCH_JOB_TTL_SECONDS", "1")
@@ -231,7 +230,7 @@ def test_camera_sessions_are_evicted_after_expiry(monkeypatch, tmp_path):
     importlib.reload(camera_module)
 
 
-# ─── F-17: /health checks a real dependency ──────────────────────────────────
+# ─── /health checks a real dependency ──────────────────────────────────
 
 def test_health_endpoint_reports_checks():
     resp = client.get("/health")
@@ -243,8 +242,8 @@ def test_health_endpoint_reports_checks():
 
 def test_health_endpoint_reflects_real_dependency_failure(monkeypatch):
     """Break the one real dependency /health checks (LOGS_DIR writability) and
-    confirm it actually reports non-200 — previously this endpoint was an
-    unconditional 200 regardless of any real failure."""
+    confirm it reports non-200: the endpoint must reflect real failures, not
+    return an unconditional 200."""
     import api as api_module
     from core.config import settings
 

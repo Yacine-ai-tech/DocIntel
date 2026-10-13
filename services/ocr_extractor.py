@@ -263,7 +263,7 @@ def pdf_page_count(pdf_bytes: bytes) -> int:
 
 
 def _remote_render(pdf_bytes: bytes, dpi: int, max_pages: int) -> Optional[List[bytes]]:
-    """Offload PDF rasterisation to a remote inference host for *big* PDFs so the 512MB app tier
+    """Offload PDF rasterisation to a remote inference host for *big* PDFs so the app process
     never holds every decoded page in RAM. Only kicks in when RENDER_URL is set and the doc exceeds
     RENDER_PAGE_THRESHOLD pages — small docs render locally (no round-trip). Returns the PNG pages,
     or None to fall back to local rendering."""
@@ -302,7 +302,7 @@ def _remote_render(pdf_bytes: bytes, dpi: int, max_pages: int) -> Optional[List[
 
 def pdf_to_pngs(pdf_bytes: bytes, dpi: int = 150, max_pages: int = 20) -> List[bytes]:
     """Render every page of a PDF to PNG bytes (capped at ``max_pages`` for cost/safety), with
-    **bounded memory** so multi-page PDFs don't OOM a 512MB host.
+    **bounded memory** so multi-page PDFs do not exhaust the process's RAM.
 
     This is what makes the vision routes multi-page: each page becomes one image and all images
     are sent to the vision LLM (chunked) so it can reason across pages (e.g. an invoice whose

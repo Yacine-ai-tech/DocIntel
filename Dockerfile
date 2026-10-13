@@ -32,6 +32,6 @@ EXPOSE 8001
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:${PORT:-8001}/health || exit 1
 
-# Honor the platform-injected $PORT (Render/Fly/Heroku); default 8001 locally.
+# Honor an injected $PORT; default 8001.
 # exec via sh so $PORT expands AND uvicorn becomes PID 1 (clean SIGTERM shutdown).
 CMD ["sh", "-c", "exec uvicorn api:app --host 0.0.0.0 --port ${PORT:-8001} --workers 1"]

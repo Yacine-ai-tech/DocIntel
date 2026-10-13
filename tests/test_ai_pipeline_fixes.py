@@ -1,9 +1,8 @@
-"""Regression tests for the AI/LLM pipeline audit findings fixed this session:
+"""Regression tests for the AI/LLM pipeline:
 Route A timeout/retry configuration, and prompt-injection role separation.
 
 These are structural/contract tests (asserting what gets sent to the LLM call,
-not depending on real model behavior) — the audit's own recommendation for a
-"real, model-independent" way to catch a regression here.
+not depending on real model behavior) — a model-independent way to catch a regression here.
 """
 import sys
 from pathlib import Path
@@ -26,8 +25,8 @@ class _FakeResponse:
 
 @pytest.mark.asyncio
 async def test_route_a_timeout_and_retries_are_configurable(monkeypatch):
-    """F-10: Route A previously had no timeout/retry at all on the one route
-    documented as having no fallback. Asserts the acompletion call actually
+    """Route A is documented as having no fallback, so its timeout and retry settings
+    matter. Asserts the acompletion call actually
     receives timeout=/num_retries= sourced from settings, not that any
     particular retry behavior happens inside LiteLLM itself (out of this
     codebase's control to test meaningfully without mocking litellm internals)."""
@@ -78,10 +77,10 @@ async def test_llm_extractor_timeout_and_retries_are_configurable(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_vision_route_a_separates_system_instructions_from_content(monkeypatch):
-    """F-09: instructions must go in a system-role message, images/data in a
-    separate user-role message — not blended into one user message the way it
-    was before. A document/data value that looked like an override instruction
-    previously had no structural signal it wasn't equally authoritative."""
+    """instructions must go in a system-role message, images/data in a
+    separate user-role message — not blended into one user message, so a
+    document/data value that looks like an override instruction carries no
+    instruction authority."""
     import services.vision_extractor as ve
 
     captured = {}
@@ -106,8 +105,8 @@ async def test_vision_route_a_separates_system_instructions_from_content(monkeyp
 
 @pytest.mark.asyncio
 async def test_classify_image_categories_stay_in_user_message_not_system(monkeypatch):
-    """F-09 concretely: /classify-image's `categories` is client-supplied and
-    was previously interpolated directly into the single instruction string.
+    """/classify-image's `categories` is client-supplied and must not be
+    interpolated into the instruction string.
     Confirms untrusted category values land in the user-role message as
     labeled data, never inside the system-role instructions — even a category
     value crafted to look like an override instruction stays confined there."""
@@ -136,8 +135,7 @@ async def test_classify_image_categories_stay_in_user_message_not_system(monkeyp
 @pytest.mark.asyncio
 async def test_classify_image_bounds_categories_count_and_length(monkeypatch):
     """Defense-in-depth alongside role separation: an unbounded categories list
-    or an extremely long single category was previously passed straight
-    through with no limit at all."""
+    or an extremely long single category must be bounded before it reaches the model."""
     import services.vision_extractor as ve
 
     captured = {}
@@ -158,9 +156,8 @@ async def test_classify_image_bounds_categories_count_and_length(monkeypatch):
 
 
 def test_route_b_separates_system_instructions_from_image_content(monkeypatch):
-    """F-09, Route B (Ollama /api/chat). Previously instructions and image data
-    sat in one user-role message with no separation at all — same fix as Route A,
-    different transport (Ollama's native chat protocol, not LiteLLM)."""
+    """Route B (Ollama /api/chat): instructions and image data must be in separate
+    messages, as for Route A, over Ollama's native chat protocol instead of LiteLLM."""
     import json as json_module
     import services.route_b as rb
 

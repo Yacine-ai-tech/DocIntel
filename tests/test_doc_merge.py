@@ -52,12 +52,10 @@ def test_confidence_is_minimum():
 
 
 def test_errored_chunks_dropped_but_signaled():
-    # A failed chunk's data is still dropped from the merge (nothing to salvage from
-    # an errored extraction) — but unlike before, the result now says so instead of
-    # looking identical to a fully successful merge. This is the actual regression
-    # test for the "silent partial data loss" bug: previously this exact result had
-    # no error, no _partial, nothing — a caller had zero signal a whole chunk's
-    # fields/line-items were missing.
+    # A failed chunk's data is dropped from the merge (nothing to salvage from an
+    # errored extraction), and the result must say so instead of looking identical to
+    # a fully successful merge, so a caller can tell a whole chunk's fields/line-items
+    # are missing.
     merged = merge_doc_fields([{"error": "boom"}, {"vendor": "Acme", "total": 5}])
     assert merged["vendor"] == "Acme" and "error" not in merged
     assert merged["_partial"] is True
@@ -66,9 +64,7 @@ def test_errored_chunks_dropped_but_signaled():
 
 
 def test_partial_failure_signaled_even_with_only_one_surviving_chunk():
-    # The len(good) == 1 path used to early-return before any partial-failure
-    # signaling existed at all — this is the case that slipped through even the
-    # original (already limited) failure handling.
+    # The single-surviving-chunk path must signal the partial failure as well.
     merged = merge_doc_fields([{"vendor": "Acme"}, {"error": "timeout"}])
     assert merged["vendor"] == "Acme"
     assert merged["_partial"] is True

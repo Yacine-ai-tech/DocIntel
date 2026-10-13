@@ -71,7 +71,7 @@
       "ocr_fallback": 97.4
     }
   ],
-  "route_comparison_note": "Figures are the maintainer's recorded benchmark runs; raw output of some runs was not retained. Route C on receipts is the Tesseract-only result; Surya is the current default engine. Route A on the FCFA set was a single document.",
+  "route_comparison_note": "Figures are taken from the recorded benchmark runs in BENCHMARK.md. Route C on receipts is the Tesseract-only result; Surya is the current default engine. Route A on the FCFA set was a single document.",
   "stat_tiles": {
     "route_a_invoices": {
       "correct": 39,

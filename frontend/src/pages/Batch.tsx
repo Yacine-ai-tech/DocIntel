@@ -102,7 +102,7 @@ export default function Batch() {
           <Card>
             <EmptyState
               icon={Layers}
-              title="No batch jobs this session"
+              title="No batch jobs yet"
               hint="Select several documents and start a batch — each file is processed with per-file error isolation."
             />
           </Card>

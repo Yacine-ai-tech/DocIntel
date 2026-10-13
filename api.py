@@ -230,13 +230,9 @@ _MAX_UPLOAD_BYTES = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
 async def _read_upload(file: UploadFile) -> bytes:
     """Read an uploaded file's bytes with a size cap.
 
-    Every upload route used to read the whole body in one bare call — no
-    Content-Length check, no cap — buffering the entire upload into memory
-    regardless of size.
-    An oversized upload (or many concurrent ones, especially via unauthenticated
-    routes) could exhaust process memory. Reads in chunks so a request can be
-    rejected as soon as it exceeds the cap, without ever buffering the full
-    oversized body first.
+    Reads in chunks so a request is rejected as soon as it exceeds the cap, without
+    ever buffering the full oversized body (an oversized upload, or many concurrent
+    ones, could otherwise exhaust process memory).
     """
     chunks: List[bytes] = []
     total = 0
@@ -375,9 +371,7 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
                         Auto-fallback to Route C (OCR) on any failure.
       - ocr_fallback:   Surya OCR (primary) + Tesseract (fallback) + LLM cleanup (Route C)
     """
-    from services.ocr_extractor import (
-        extract_text_from_image, extract_text_from_pdf, is_pdf, pdf_page_count, pdf_to_pngs,
-    )
+    from services.ocr_extractor import is_pdf, pdf_page_count, pdf_to_pngs
 
     if route not in _KNOWN_ROUTES:
         raise HTTPException(
@@ -1090,10 +1084,7 @@ async def _process_full(data: bytes, route: str, doc_type: str) -> Dict[str, Any
     """
     t0 = time.time()
 
-    from services.ocr_extractor import (
-        DocumentClassifier, extract_text_from_image, extract_text_from_pdf,
-        extract_text_native_office, is_pdf,
-    )
+    from services.ocr_extractor import DocumentClassifier, extract_text_native_office, is_pdf
 
     # raw_text has always been declared on ProcessResponse but was never populated —
     # every consumer wanting the document's actual prose (RAG ingesters especially) got
