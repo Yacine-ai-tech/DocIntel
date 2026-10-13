@@ -1,13 +1,11 @@
 name: Production Health and Image Publish
 
-# Runs after "DocIntel CI & Deploy" (ci.yml) finishes on this same push, not on
-# push directly. Previously both this workflow and ci.yml triggered off the same
-# push event independently — a commit that failed pytest/lint in ci.yml could
-# still have its Docker image built and pushed as :latest here, since GitHub
-# Actions doesn't serialize independent workflow files by default. workflow_run
-# + the conclusion check below closes that gap: this only runs, and only
-# deploys/publishes, once ci.yml's own test/frontend-test/e2e-smoke jobs have
-# actually succeeded on this commit.
+# Runs after "DocIntel CI & Deploy" (ci.yml) finishes on this same push, not on push
+# directly: GitHub Actions does not serialize independent workflow files, so a commit
+# that failed pytest/lint in ci.yml could otherwise still have its Docker image built
+# and pushed as :latest. workflow_run + the conclusion check below ensure this only
+# runs, and only deploys/publishes, once ci.yml's test/frontend-test/e2e-smoke jobs
+# have succeeded on this commit.
 on:
   workflow_run:
     workflows: ["DocIntel CI & Deploy"]

@@ -240,10 +240,7 @@ jobs:
           done
           echo "preview server did not come up in time" && exit 1
 
-      # 656 lines of real Playwright specs (frontend/e2e/*.spec.ts) previously
-      # existed but were never wired into any workflow — only a tautological
-      # vitest file (`expect(true).toBe(true)`) ran in CI, giving zero real
-      # frontend coverage. This is that wiring.
+      # Runs the Playwright specs in frontend/e2e/*.spec.ts against the preview server.
       - name: Run Playwright E2E suite
         if: env.DOCINTEL_URL != ''
         continue-on-error: true
