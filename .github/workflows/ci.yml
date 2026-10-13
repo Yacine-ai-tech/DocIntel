@@ -299,7 +299,7 @@ jobs:
           echo ".env correctly excluded from the built image"
 
   # ═══════════════════════════════════════════════════════════════════════════
-  # PHASE 4 — Deploy: Trigger Render deploy
+  # PHASE 4 — Production deployment verification
   # ═══════════════════════════════════════════════════════════════════════════
   deploy:
     name: "Production Deployment Verification"

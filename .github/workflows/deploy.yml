@@ -1,4 +1,4 @@
-name: Deploy to Render
+name: Production Health and Image Publish
 
 # Runs after "DocIntel CI & Deploy" (ci.yml) finishes on this same push, not on
 # push directly. Previously both this workflow and ci.yml triggered off the same
