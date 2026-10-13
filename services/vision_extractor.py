@@ -34,6 +34,7 @@ import re
 import time
 from typing import Any, Dict, List, Optional, Union
 
+from core import keypool
 from core.config import settings
 from core.logger import get_logger
 from services.doc_merge import merge_doc_fields
@@ -214,7 +215,7 @@ async def _vision_call_route_a(
             call_kwargs = dict(_call_kwargs)
             if "gemini" in cand.lower():
                 call_kwargs["temperature"] = 1.0
-            response = await acompletion(model=cand, **call_kwargs)
+            response = await keypool.acompletion_pooled(acompletion, cand, **call_kwargs)
             break
         except Exception as exc:
             last_exc = exc
