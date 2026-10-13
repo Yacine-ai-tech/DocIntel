@@ -371,9 +371,7 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
                         Auto-fallback to Route C (OCR) on any failure.
       - ocr_fallback:   Surya OCR (primary) + Tesseract (fallback) + LLM cleanup (Route C)
     """
-    from services.ocr_extractor import (
-        extract_text_from_image, extract_text_from_pdf, is_pdf, pdf_page_count, pdf_to_pngs,
-    )
+    from services.ocr_extractor import is_pdf, pdf_page_count, pdf_to_pngs
 
     if route not in _KNOWN_ROUTES:
         raise HTTPException(
@@ -1086,10 +1084,7 @@ async def _process_full(data: bytes, route: str, doc_type: str) -> Dict[str, Any
     """
     t0 = time.time()
 
-    from services.ocr_extractor import (
-        DocumentClassifier, extract_text_from_image, extract_text_from_pdf,
-        extract_text_native_office, is_pdf,
-    )
+    from services.ocr_extractor import DocumentClassifier, extract_text_native_office, is_pdf
 
     # raw_text has always been declared on ProcessResponse but was never populated —
     # every consumer wanting the document's actual prose (RAG ingesters especially) got
