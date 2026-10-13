@@ -315,6 +315,15 @@ def _persist_document_record(
         return None
 
 
+def _ocr_sync(data: bytes, pdf: bool) -> str:
+    """Blocking OCR for a PDF or an image; always called through a worker thread so a slow
+    page cannot hold up the event loop."""
+    from services.ocr_extractor import extract_text_from_image, extract_text_from_pdf
+    if pdf:
+        return extract_text_from_pdf(data, max_pages=settings.MAX_PDF_PAGES)
+    return extract_text_from_image(data)
+
+
 _KNOWN_ROUTES = {"vision_route_a", "vision_route_b", "ocr_fallback", "vision_premium", "vision_local"}
 
 
@@ -407,8 +416,7 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
 
         if fields is None or fallback_used:
             log.info("Route A Fallback: Using OCR fallback (Surya OCR + Tesseract fallback + LLM cleanup)")
-            text = extract_text_from_pdf(data, max_pages=settings.MAX_PDF_PAGES) if pdf \
-                else extract_text_from_image(data)
+            text = await asyncio.to_thread(_ocr_sync, data, pdf)
             if text:
                 fields = await extractor.extract(text, doc_type=doc_type)
                 if isinstance(fields, dict):
@@ -456,8 +464,7 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
 
         if fields is None or fallback_used:
             log.info("Route C: Using OCR fallback (Surya OCR + Tesseract fallback + LLM cleanup)")
-            text = extract_text_from_pdf(data, max_pages=settings.MAX_PDF_PAGES) if pdf \
-                else extract_text_from_image(data)
+            text = await asyncio.to_thread(_ocr_sync, data, pdf)
             if text:
                 fields = await extractor.extract(text, doc_type=doc_type)
                 if isinstance(fields, dict):
@@ -475,8 +482,7 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
     # Route C: OCR fallback
     elif route == "ocr_fallback":
         log.info("Route C: Using OCR fallback (Surya OCR + Tesseract fallback + LLM cleanup)")
-        text = extract_text_from_pdf(data, max_pages=settings.MAX_PDF_PAGES) if pdf \
-            else extract_text_from_image(data)
+        text = await asyncio.to_thread(_ocr_sync, data, pdf)
         if text:
             fields = await extractor.extract(text, doc_type=doc_type)
         else:
@@ -807,7 +813,7 @@ async def classify(file: UploadFile = File(...)) -> ProcessResponse:
         from services.ocr_extractor import (
             DocumentClassifier, extract_text_from_image, extract_text_from_pdf, is_pdf,
         )
-        sample = extract_text_from_pdf(data, max_pages=2) if is_pdf(data) else extract_text_from_image(data)
+        sample = await asyncio.to_thread(lambda: extract_text_from_pdf(data, max_pages=2) if is_pdf(data) else extract_text_from_image(data))
         if sample and sample.strip():
             detected, conf = DocumentClassifier.classify_document(sample)
             doc_type = {"report": "financial_report", "general": "default"}.get(detected, detected)
@@ -1109,8 +1115,7 @@ async def _process_full(data: bytes, route: str, doc_type: str) -> Dict[str, Any
         if office_text is not None:
             raw_text = office_text
         else:
-            raw_text = extract_text_from_pdf(data, max_pages=settings.MAX_PDF_PAGES) if is_pdf(data) \
-                else extract_text_from_image(data)
+            raw_text = await asyncio.to_thread(_ocr_sync, data, is_pdf(data))
     except Exception:
         log.exception("raw_text extraction failed (non-fatal)")
 
