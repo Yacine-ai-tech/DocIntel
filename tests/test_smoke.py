@@ -59,3 +59,21 @@ def test_llm_extractor_instantiates():
     from services.llm_extractor import LLMExtractor
     ex = LLMExtractor()
     assert ex.model
+
+
+def test_health_reports_route_capabilities(monkeypatch):
+    from fastapi.testclient import TestClient
+    import api
+
+    monkeypatch.setenv("ROUTE_B_FORCE_FALLBACK", "true")
+    monkeypatch.setattr(api.settings, "ROUTE_B_FORCE_FALLBACK", False, raising=False)
+    routes = TestClient(api.app).get("/health").json()["routes"]
+    assert routes["vision_route_a"]["enabled"] is True
+    assert routes["vision_route_b"]["enabled"] is False
+    assert routes["vision_route_b"]["redirects_to"] == "ocr_fallback"
+    assert routes["ocr_fallback"]["enabled"] is True
+
+    monkeypatch.setenv("ROUTE_B_FORCE_FALLBACK", "false")
+    routes = TestClient(api.app).get("/health").json()["routes"]
+    assert routes["vision_route_b"]["enabled"] is True
+    assert "redirects_to" not in routes["vision_route_b"]

@@ -1,0 +1,36 @@
+# Optional Route B (Ollama vision) for self-hosters.
+#
+# Route B is off unless you provide an Ollama-compatible vision host. This file runs one
+# next to DocIntel. Nothing here is specific to a provider or machine; every value that
+# matters comes from your .env.
+#
+#   1. In .env set:  ROUTE_B_FORCE_FALLBACK=false
+#                    ROUTE_B_MODE=local
+#                    OLLAMA_HOST=http://ollama:11434
+#                    OLLAMA_MODEL=qwen2.5vl:7b          # any Ollama vision model tag
+#   2. docker compose -f docker-compose.dev.yml -f docker-compose.ollama.yml up -d
+#   3. Pull the model once:  docker compose -f docker-compose.ollama.yml exec ollama ollama pull "$OLLAMA_MODEL"
+#
+# A 7B vision model needs roughly 8 GB of RAM on CPU (a GPU is much faster). Limits below
+# are overridable with OLLAMA_CPUS and OLLAMA_MEMORY.
+#
+# To run Ollama on a different machine instead, skip this file and set ROUTE_B_MODE=remote
+# with the endpoint variables documented in .env.example.
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama_models:/root/.ollama
+    environment:
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-15m}
+      OLLAMA_NUM_PARALLEL: ${OLLAMA_NUM_PARALLEL:-1}
+    deploy:
+      resources:
+        limits:
+          cpus: "${OLLAMA_CPUS:-4.0}"
+          memory: ${OLLAMA_MEMORY:-8000M}
+
+volumes:
+  ollama_models: {}
