@@ -20,8 +20,10 @@ standard benchmark for receipt key-information extraction). Reproducible:
 
 ## Discussion
 On a world-recognized benchmark, **zero-shot** Claude vision reaches **95% field accuracy** with no
-task-specific fine-tuning. Published SROIE state of the art is ~96–98% F1 from *task-fine-tuned*
-LayoutLM-class models, so this is near-SOTA out of the box — supporting the vision-first design.
+task-specific fine-tuning. Published SROIE results for *task-fine-tuned* LayoutLM-class models are around 96–98% F1.
+That metric is not the same as the field accuracy reported here, and N = 20 is small, so the two
+numbers are not directly comparable; they indicate only that zero-shot vision extraction is in
+the same range without any fine-tuning.
 
 ## Limitations
 - **N = 20:** this Hugging Face mirror's test split is small; the figure is indicative, not a

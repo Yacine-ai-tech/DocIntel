@@ -134,9 +134,9 @@ recommended.
 - **Surya**: a layout-aware OCR engine that is Route C's **default, primary** OCR engine
   (`services/surya_extractor.py`) — Tesseract is retained only as the automatic fallback
   when Surya is unavailable (it requires a GPU; no CPU-viable path in the currently
-  installed version) or returns empty text. Surya is heavily benchmarked at the top-level
-  [`BENCHMARK.md`](../BENCHMARK.md)'s Route C section, including a full French/FCFA
-  sub-corpus rerun; not installed by default in a CPU-only environment (heavy ML
+  installed version) or returns empty text. Surya's results, including a full French/FCFA
+  sub-corpus rerun, are reported in the Route C section of the top-level
+  [`BENCHMARK.md`](../BENCHMARK.md). It is not installed by default in a CPU-only environment (heavy ML
   dependency — see `requirements-ml.txt`).
 - **Marker**: a specialized PDF-to-Markdown route, used for extracting full-text structure from
   born-digital documents prior to LLM/RAG processing (`/extract/text`, `route=marker`).
@@ -146,7 +146,7 @@ recommended.
 - **Cloud spend is bounded by sampling**: the cheap OCR-cleanup route runs broadly; the premium
   vision route runs on a representative sample. Corpus assembly and the `--scale-only` robustness
   pass incur no API cost (LLM-wise; OCR compute is real).
-- **Route B** runs on a GPU that wakes on demand and is released after use.
+- **Route B** figures above were measured on a GPU host that was started on demand and released after each run.
 - The pure-OCR scale pass uses English Tesseract for throughput; multilingual OCR (multiple
   language packs) is more accurate but slower — see [EVAL_REAL.md](EVAL_REAL.md).
 
