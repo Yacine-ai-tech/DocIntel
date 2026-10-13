@@ -315,6 +315,42 @@ def _persist_document_record(
         return None
 
 
+_KNOWN_ROUTES = {"vision_route_a", "vision_route_b", "ocr_fallback", "vision_premium", "vision_local"}
+
+
+def _looks_like_supported_document(data: bytes) -> bool:
+    """True for a decodable image, an OOXML container, or plain text."""
+    if not data:
+        return False
+    if data[:4] == b"PK\x03\x04":
+        return True
+    try:
+        from PIL import Image
+        import io as _io
+        with Image.open(_io.BytesIO(data)) as im:
+            im.verify()
+        return True
+    except Exception:
+        pass
+    try:
+        text = data[:4096].decode("utf-8")
+        return bool(text.strip()) and text.isprintable() or "\n" in text
+    except UnicodeDecodeError:
+        return False
+
+
+async def _run_route_bounded(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
+    """_run_route under an overall deadline so a stalled provider returns a clear 504
+    before an edge proxy gives up on the connection."""
+    try:
+        return await asyncio.wait_for(_run_route(data, route, doc_type), timeout=settings.EXTRACT_DEADLINE_SECONDS)
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=504,
+            detail=f"extraction_timed_out_after_{settings.EXTRACT_DEADLINE_SECONDS}s: the model providers did not answer in time; retry or use route ocr_fallback",
+        )
+
+
 async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
     """Shared extraction core used by /extract, /process and batch.
 
@@ -334,7 +370,18 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
         extract_text_from_image, extract_text_from_pdf, is_pdf, pdf_page_count, pdf_to_pngs,
     )
 
+    if route not in _KNOWN_ROUTES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"unknown route '{route[:40]}'; use one of: {', '.join(sorted(_KNOWN_ROUTES))}",
+        )
+
     pdf = is_pdf(data)
+    if not pdf and not _looks_like_supported_document(data):
+        raise HTTPException(
+            status_code=422,
+            detail="unreadable_document: send a PDF, an image (PNG, JPEG, TIFF, WebP), or an Office or text file",
+        )
     page_count = pdf_page_count(data) if pdf else 1
     used_route = route
     fallback_used = False
@@ -997,7 +1044,7 @@ async def extract(
     if workspace_logger:
         workspace_logger.log_request("/extract", {"route": route, "doc_type": doc_type})
 
-    out = await _run_route(data, route, doc_type)
+    out = await _run_route_bounded(data, route, doc_type)
 
     if workspace_logger:
         workspace_logger.log_response("/extract", 200, (time.time() - t0) * 1000)
@@ -1073,7 +1120,7 @@ async def _process_full(data: bytes, route: str, doc_type: str) -> Dict[str, Any
         # Map the classifier's labels onto the extractor's schema keys.
         doc_type = {"report": "financial_report", "general": "default"}.get(detected, detected)
 
-    out = await _run_route(data, route, doc_type)
+    out = await _run_route_bounded(data, route, doc_type)
     fields = out["fields"]
 
     # raw_text above is ALWAYS plain OCR/native-text-layer extraction, regardless of
@@ -1215,7 +1262,7 @@ async def extract_fields(
     """
     t0 = time.time()
     data = await _read_upload(file)
-    out = await _run_route(data, route, doc_type="form")
+    out = await _run_route_bounded(data, route, doc_type="form")
     fields = out["fields"] if isinstance(out["fields"], dict) else {}
     proc_time = round((time.time() - t0) * 1000, 1)
     conf = _confidence_of(fields)

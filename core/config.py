@@ -102,7 +102,9 @@ class Settings:
     # Route A/C LLM call timeout + retry count. Route A is documented as having
     # no fallback on failure (unlike B→C), so a hung or transiently-erroring
     # call previously had no recovery at all — same reasoning as ROUTE_B_TIMEOUT.
-    LLM_CALL_TIMEOUT = int(os.getenv("LLM_CALL_TIMEOUT", "120"))
+    LLM_CALL_TIMEOUT = int(os.getenv("LLM_CALL_TIMEOUT") or "40")
+    # Overall deadline for one extraction request, kept under typical edge-proxy limits.
+    EXTRACT_DEADLINE_SECONDS = int(os.getenv("EXTRACT_DEADLINE_SECONDS") or "85")
     LLM_CALL_RETRIES = int(os.getenv("LLM_CALL_RETRIES", "1"))
     # Separate from LLM_CALL_RETRIES: specifically for provider rate-limit errors
     # (e.g. Groq's per-minute token budget), where waiting the provider's own
