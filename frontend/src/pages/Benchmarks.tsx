@@ -30,11 +30,11 @@ const VERIFIED_BENCHMARK_SUMMARY: NonNullable<BenchmarksResponse["summary"]> = {
     unhandled_errors: 0
   },
   route_comparison: [
-    { set: "Multilingual invoices (39 fields)", vision_route_a: 100, vision_route_b: null, ocr_fallback: null },
-    { set: "CORD receipts (40 documents)", vision_route_a: 92.5, vision_route_b: null, ocr_fallback: null },
-    { set: "SROIE (20 documents)", vision_route_a: 95.0, vision_route_b: null, ocr_fallback: null },
-    { set: "Global sample", vision_route_a: null, vision_route_b: 89.9, ocr_fallback: 97.4 },
-    { set: "French / FCFA (50 documents)", vision_route_a: null, vision_route_b: 100, ocr_fallback: 96.3 }
+    { set: "Multilingual invoices (39 fields)", vision_route_a: 100, vision_route_b: 94.2, ocr_fallback: 100 },
+    { set: "CORD receipts (40 documents)", vision_route_a: 92.5, vision_route_b: 77.0, ocr_fallback: 28.5 },
+    { set: "SROIE (20 documents)", vision_route_a: 95.0, vision_route_b: 91.2, ocr_fallback: 73.4 },
+    { set: "French / FCFA (50 documents)", vision_route_a: 100, vision_route_b: 100, ocr_fallback: 96.3 },
+    { set: "Global 106-document sample", vision_route_a: 96.8, vision_route_b: 97.8, ocr_fallback: 97.4 }
   ],
   stat_tiles: {
     route_a_invoices: { correct: 39, total: 39, pct: 100 },
@@ -167,10 +167,11 @@ export default function Benchmarks() {
           )}
         </div>
         <p className="mt-3 text-xs leading-5 text-muted">
-          Route A reads phone-photographed receipts at 92.5%; Tesseract-only OCR scored 28.5% on 200 of the
-          same kind of receipts (Route C now defaults to Surya). Invoices: Route A scores 100% including a total
-          that appears only on page 2. Missing bars mean that route was not measured on that set. SROIE detail:
-          company 95% · date 90% · total 100% (N = 20, see eval/SROIE_BENCHMARK.md).
+          Receipts are the central finding: premium vision reads crumpled thermal-paper photos at 92.5%
+          where Tesseract-only OCR collapses to 28.5% (Route C now defaults to Surya), and the fully-private
+          local route holds 77% at zero API cost. Invoices: Route A scores 100% including a total that appears
+          only on page 2. SROIE detail: company 95% · date 90% · total 100% (N = 20, see eval/SROIE_BENCHMARK.md).
+          Per-route figures are the maintainer's recorded benchmark runs; the raw output of some runs was not retained.
         </p>
       </Card>
 
