@@ -303,7 +303,7 @@ export function savePrefs(p: Partial<Prefs>) {
   localStorage.setItem(PREFS_KEY, JSON.stringify({ ...readPrefs(), ...p }));
 }
 
-/* ---------- document library (Postgres / Neon DB & local fallback) ---------- */
+/* ---------- document library (Postgres & local fallback) ---------- */
 export type DocIntelDocument = {
   id: string;
   filename: string;
