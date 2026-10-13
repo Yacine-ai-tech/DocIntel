@@ -30,7 +30,7 @@ All contributors and maintainers are expected to adhere to professional, respect
 DocIntel is distributed as open-source software under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
 
 - **Open Source Contributions**: All contributions submitted to this repository will be licensed under the AGPL-3.0.
-- **Commercial & Enterprise Licensing**: For organizations requiring closed-source deployments, proprietary SaaS embedding, or exemption from AGPL-3.0 copyleft obligations, commercial licensing is available via **OmniIntelOS**. See [`COMMERCIAL.md`](./COMMERCIAL.md) or contact `siddoyacinetech227@gmail.com`.
+- **Commercial & Enterprise Licensing**: For organizations requiring closed-source deployments, proprietary SaaS embedding, or exemption from AGPL-3.0 copyleft obligations, commercial licensing is available via **OmniIntelOS**. See [`COMMERCIAL.md`](./COMMERCIAL.md) or contact `contact@ysiddo-ai-projects.app`.
 
 ---
 
@@ -133,4 +133,4 @@ Follow [Conventional Commits](https://www.conventionalcommits.org/):
 
 ## 🔒 Security & Vulnerability Disclosure
 
-To report security vulnerabilities, please email `siddoyacinetech227@gmail.com` directly. Do not file public GitHub issues for security reports.
+To report security vulnerabilities, please email `contact@ysiddo-ai-projects.app` directly. Do not file public GitHub issues for security reports.
