@@ -117,7 +117,7 @@ The literature is specific about where the remaining gaps are:
 Not at the level of a new technique or model. Every architectural element described above —
 vision-LLM extraction in place of OCR, deterministic post-processing as a safety layer,
 map-reduce chunking for long documents — is documented, converged-on practice in the field as
-of 2026, cited above. What this project offers is a real, broadly scoped, honestly measured
+of 2026, cited above. What this project offers is a real, broadly scoped, measured
 implementation of that converged-on architecture: three working extraction routes, a
 normalization layer covering a wide range of currency and locale formats, and results measured
 against real third-party documents and standard benchmarks (CORD, SROIE, `invoice2data`) rather

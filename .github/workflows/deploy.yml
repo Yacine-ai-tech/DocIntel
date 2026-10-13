@@ -33,7 +33,7 @@ jobs:
           elif [ "$code" = "403" ] && {
             grep -qi '^cf-ray:' "$headers" || grep -qi '^server: *cloudflare' "$headers"
           }; then
-            echo "::warning::Cloudflare denied the GitHub Actions runner; production health was independently verified from the VPS."
+            echo "::warning::The CDN rejected the CI runner request; confirm production health from another network."
           else
             echo "Health check failed with HTTP $code"
             exit 1

@@ -299,7 +299,7 @@ def pdf_to_pngs(pdf_bytes: bytes, dpi: int = 150, max_pages: int = 20) -> List[b
     totals sit on a later page, or a multi-page contract).
 
     Memory: the old path decoded every page into a PIL image at once (~6.5MB/page → a 24-page PDF
-    held ~150MB and OOM-crashed the free tier). Now poppler rasterises straight to a temp folder
+    held ~150MB). Now poppler rasterises straight to a temp folder
     (``paths_only``) and we read + downscale one page at a time, so peak RAM is ~one page. Huge
     PDFs (> RENDER_PAGE_THRESHOLD pages) are offloaded to a remote inference host when
     ``RENDER_URL`` is set. Returns [] if rendering is unavailable.
