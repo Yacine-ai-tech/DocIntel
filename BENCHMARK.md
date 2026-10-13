@@ -119,12 +119,11 @@ deployment's request-handling configuration.
 |---|---|---|---|
 | A | Invoices | 81.8 s | $0.0122 |
 | A | Receipts | 83.5 s | $0.0048 |
-| B | Invoices | 138.0 s (includes GPU wake) | $0.0021 |
+| B | Invoices | 138.0 s (includes model start-up) | $0.0021 |
 | B | Receipts | 76.6 s | $0.0007 |
 
-Route B's latency figures include cold-start time for the self-hosted GPU host (a deliberate
-cost tradeoff against running a GPU continuously). A warm, uncontended Route B request
-completes end-to-end in 19.7 s.
+Route B's latency figures include model start-up time on the first request. A warm, uncontended
+Route B request completes end-to-end in 19.7 s.
 
 ---
 
