@@ -12,7 +12,7 @@ invoices, receipts, contracts, forms, and financial reports — PDFs, images, an
 files — via three interchangeable extraction routes, with deterministic normalization of
 currencies, amounts, and dates layered on top.
 
-**Live Application:** [docintel.ysiddo-ai-projects.app](https://docintel.ysiddo-ai-projects.app) — upload or drag-and-drop PDF, image, PPTX, DOCX, or XLSX documents.
+**Live application:** [docintel.ysiddo-ai-projects.app](https://docintel.ysiddo-ai-projects.app). Upload or drag and drop a PDF, image, PPTX, DOCX or XLSX file.
 - **Research Background:** [`RESEARCH.md`](RESEARCH.md) / [Online Research Documentation](https://docintel.ysiddo-ai-projects.app/research)
 - **Empirical Benchmarks:** [`BENCHMARK.md`](BENCHMARK.md) / [Online Benchmark Dashboard](https://docintel.ysiddo-ai-projects.app/benchmarks)
 - **User Guide:** [Online User Guide](https://docintel.ysiddo-ai-projects.app/guide)
@@ -47,14 +47,15 @@ currencies, amounts, and dates layered on top.
 - **Schema-typed extraction** for invoices, contracts, receipts, financial reports, auction
   listings, and generic forms, with a confidence score on every extraction and automatic
   retry on malformed model output.
-- **`/classify-image`** — vision-first object classification, for use cases such as
+- **`/classify-image`**: vision-first object classification, for use cases such as
   auction-listing or inventory-photo aggregation.
 - **Batch processing** with bounded concurrency and per-file error isolation, for jobs
   spanning hundreds to thousands of documents.
 - **Workflow-automation integration**: `/batch/upload` accepts a `webhook_url` and posts
   results to it on completion — see [docs/n8n](docs/n8n/README.md).
 - **Mobile capture**: the dashboard's Mobile Scanner page generates a QR code that opens a
-  phone-camera capture flow feeding directly into Route B extraction, with no app install.
+  phone-camera capture flow feeding extraction directly (Route B when it is provisioned,
+  Route C otherwise), with no app install.
 
 ## Quick Start
 
@@ -116,12 +117,14 @@ involved.
 
 ## Validation
 
-Validated against a comprehensive 650-document multi-source corpus spanning CORD-v2 receipts,
-scanned FUNSD forms, multilingual `invoice2data` invoices (English, French, German, Dutch — see
-[eval/EVAL_REAL.md](eval/EVAL_REAL.md)), and West-African French/FCFA documents. Route A and
-Route C both score 100% on the fields present in each invoice document; `/classify-image` returns
-0.98–0.99 confidence on real invoice images. Full results, corpus composition, and
-reproduction commands: [eval/BENCHMARK.md](eval/BENCHMARK.md) and [BENCHMARK.md](BENCHMARK.md).
+The benchmark corpus is assembled from CORD-v2 receipts, scanned FUNSD forms, multilingual
+`invoice2data` invoices (English, French, German, Dutch; see
+[eval/EVAL_REAL.md](eval/EVAL_REAL.md)) and West-African French/FCFA documents, 650 documents
+when built in full. The accuracy figures below come from the reproducible 106-document
+baseline (56 global plus 50 FCFA documents) and from per-set samples, not from a single pass
+over all 650. `/classify-image` returned 0.98 to 0.99 confidence on the real invoice images
+tested. Corpus composition, per-set sizes and reproduction commands:
+[eval/BENCHMARK.md](eval/BENCHMARK.md) and [BENCHMARK.md](BENCHMARK.md).
 
 ## Scope and Limitations
 
@@ -149,6 +152,9 @@ reproduction commands: [eval/BENCHMARK.md](eval/BENCHMARK.md) and [BENCHMARK.md]
 | B | Ollama Qwen 2.5-VL 7B (self-hosted GPU) | French / FCFA sample | 100% |
 | C | Surya OCR (GPU) + LLM cleanup | French / FCFA sub-corpus | 96.3% |
 | C | Surya OCR (GPU) + LLM cleanup | Global sample | 97.4% |
+
+Route B figures were measured against a self-hosted vision model on a separate GPU host. A
+deployment without that host redirects Route B to Route C (see `SELF_HOSTING.md`).
 
 Full methodology, corpus sizes, and reproduction commands: [eval/BENCHMARK.md](eval/BENCHMARK.md).
 
