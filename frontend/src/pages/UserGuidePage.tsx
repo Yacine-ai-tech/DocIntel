@@ -286,10 +286,9 @@ export default function UserGuidePage() {
           </div>
           <p className="text-xs text-gray-500 mt-3">
             The SROIE figure is drawn from a small (N=20) Hugging Face mirror of the test split and
-            is indicative rather than a full-test-set score. Route B numbers are on a self-hosted
-            GPU that wakes on demand and is released after each run. The FCFA sample is a single
-            document in this environment's local corpus, not the 7 an earlier version of this page
-            claimed — see <code>eval/BENCHMARK.md</code> for that discrepancy noted plainly.
+            is indicative rather than a full-test-set score. Route B numbers were measured on a
+            self-hosted GPU host; the public demo does not provision Route B and answers those requests
+            with Route C. See <code>eval/BENCHMARK.md</code> for methodology and corpus sizes.
           </p>
         </Section>
 

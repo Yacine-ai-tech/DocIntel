@@ -15,12 +15,12 @@ const BARS = [
 const VERIFIED_BENCHMARK_SUMMARY: NonNullable<BenchmarksResponse["summary"]> = {
   corpus: {
     total_documents: 650,
-    ground_truth_documents: 600,
+    ground_truth_documents: 650,
     sources: [
-      { name: "CORD-v2 Receipts", type: "receipt", docs: 544, ground_truth: "544 ground truth" },
-      { name: "invoice2data Multilingual", type: "invoice", docs: 6, ground_truth: "6 ground truth" },
-      { name: "FUNSD Scanned Forms", type: "form", docs: 50, ground_truth: "handwriting scan" },
-      { name: "French / FCFA (UEMOA 18% TVA)", type: "invoice/receipt", docs: 50, ground_truth: "50 ground truth" },
+      { name: "CORD-v2", type: "receipt", docs: 544, ground_truth: "total (IDR)" },
+      { name: "invoice2data", type: "invoice", docs: 6, ground_truth: "full fields" },
+      { name: "FUNSD", type: "form", docs: 50, ground_truth: null },
+      { name: "French / FCFA (UEMOA 18% TVA)", type: "invoice/receipt", docs: 50, ground_truth: "full fields" },
     ]
   },
   robustness: {
@@ -30,11 +30,11 @@ const VERIFIED_BENCHMARK_SUMMARY: NonNullable<BenchmarksResponse["summary"]> = {
     unhandled_errors: 0
   },
   route_comparison: [
-    { set: "Multilingual Invoices", vision_route_a: 100, vision_route_b: 94.2, ocr_fallback: 88.5 },
-    { set: "CORD-v2 Receipts", vision_route_a: 92.5, vision_route_b: 77.0, ocr_fallback: 28.5 },
-    { set: "SROIE ICDAR-2019", vision_route_a: 95.0, vision_route_b: 91.2, ocr_fallback: 73.4 },
-    { set: "French / FCFA", vision_route_a: 100, vision_route_b: 100, ocr_fallback: 96.3 },
-    { set: "Global 106-Doc Sample", vision_route_a: 96.8, vision_route_b: 97.8, ocr_fallback: 91.2 }
+    { set: "Multilingual invoices (39 fields)", vision_route_a: 100, vision_route_b: null, ocr_fallback: null },
+    { set: "CORD receipts (40 documents)", vision_route_a: 92.5, vision_route_b: null, ocr_fallback: null },
+    { set: "SROIE (20 documents)", vision_route_a: 95.0, vision_route_b: null, ocr_fallback: null },
+    { set: "Global sample", vision_route_a: null, vision_route_b: 89.9, ocr_fallback: 97.4 },
+    { set: "French / FCFA (50 documents)", vision_route_a: null, vision_route_b: 100, ocr_fallback: 96.3 }
   ],
   stat_tiles: {
     route_a_invoices: { correct: 39, total: 39, pct: 100 },
@@ -42,7 +42,7 @@ const VERIFIED_BENCHMARK_SUMMARY: NonNullable<BenchmarksResponse["summary"]> = {
     fcfa: { correct: 325, total: 325, pct: 100 }
   },
   sroie: {
-    n: 60,
+    n: 20,
     company_pct: 95.0,
     date_pct: 90.0,
     total_pct: 100.0,
@@ -118,7 +118,7 @@ export default function Benchmarks() {
         <StatTile
           label="French + FCFA (XOF)"
           value={tiles ? `${tiles.fcfa.correct} / ${tiles.fcfa.total}` : "…"}
-          sub="UEMOA convention, 18% TVA — Routes A & C"
+          sub="UEMOA convention, 18% TVA — Route B, 50 documents"
           delta={tiles ? { text: `${tiles.fcfa.pct}%` } : undefined}
           icon={Landmark}
         />
@@ -155,11 +155,11 @@ export default function Benchmarks() {
                     color: "var(--text)",
                     fontSize: 12,
                   }}
-                  formatter={(v: number) => [`${v}%`]}
+                  formatter={(v: number | null) => [v == null ? "not measured" : `${v}%`]}
                 />
                 {BARS.map((b) => (
                   <Bar key={b.key} dataKey={b.key} name={b.label} fill={b.color} radius={[6, 6, 0, 0]} maxBarSize={44} isAnimationActive={false}>
-                    <LabelList dataKey={b.key} position="top" formatter={(v: number) => `${v}%`} style={{ fill: "var(--text-2)", fontSize: 10 }} />
+                    <LabelList dataKey={b.key} position="top" formatter={(v: number | null) => (v == null ? "" : `${v}%`)} style={{ fill: "var(--text-2)", fontSize: 10 }} />
                   </Bar>
                 ))}
               </BarChart>
@@ -167,10 +167,10 @@ export default function Benchmarks() {
           )}
         </div>
         <p className="mt-3 text-xs leading-5 text-muted">
-          Receipts are the central finding: premium vision reads crumpled thermal-paper photos at 92.5%
-          where pure OCR collapses to 28.5% — and the fully-private local route holds 77% at zero API cost.
-          Invoices: Route A scores 100% including a total that appears only on page 2. SROIE detail: company
-          95% · date 90% · total 100% (see eval/SROIE_BENCHMARK.md).
+          Route A reads phone-photographed receipts at 92.5%; Tesseract-only OCR scored 28.5% on 200 of the
+          same kind of receipts (Route C now defaults to Surya). Invoices: Route A scores 100% including a total
+          that appears only on page 2. Missing bars mean that route was not measured on that set. SROIE detail:
+          company 95% · date 90% · total 100% (N = 20, see eval/SROIE_BENCHMARK.md).
         </p>
       </Card>
 
