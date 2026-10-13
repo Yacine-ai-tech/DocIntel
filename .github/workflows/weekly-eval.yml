@@ -28,14 +28,24 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Check ANTHROPIC_API_KEY is configured
+      - name: Check ANTHROPIC_API_KEY is configured and accepted
         id: check
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          if [ -n "${{ secrets.ANTHROPIC_API_KEY }}" ]; then
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::ANTHROPIC_API_KEY not set — skipping weekly eval (Route A needs a real key; this costs a small amount of real API usage when enabled)."
+            exit 0
+          fi
+          code=$(curl -s -o /dev/null -w '%{http_code}' \
+            -H "x-api-key: $ANTHROPIC_API_KEY" -H "anthropic-version: 2023-06-01" \
+            https://api.anthropic.com/v1/models || echo 000)
+          if [ "$code" = "200" ]; then
             echo "configured=true" >> "$GITHUB_OUTPUT"
           else
             echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::ANTHROPIC_API_KEY not set — skipping weekly eval (Route A needs a real key; this costs a small amount of real API usage when enabled)."
+            echo "::warning::ANTHROPIC_API_KEY was rejected (HTTP $code) — weekly eval skipped. Rotate the repository secret to re-enable it."
           fi
 
       - name: Install dependencies
