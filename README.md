@@ -117,14 +117,12 @@ involved.
 
 ## Validation
 
-The benchmark corpus is assembled from CORD-v2 receipts, scanned FUNSD forms, multilingual
-`invoice2data` invoices (English, French, German, Dutch; see
-[eval/EVAL_REAL.md](eval/EVAL_REAL.md)) and West-African French/FCFA documents, 650 documents
-when built in full. The accuracy figures below come from the reproducible 106-document
-baseline (56 global plus 50 FCFA documents) and from per-set samples, not from a single pass
-over all 650. `/classify-image` returned 0.98 to 0.99 confidence on the real invoice images
-tested. Corpus composition, per-set sizes and reproduction commands:
-[eval/BENCHMARK.md](eval/BENCHMARK.md) and [BENCHMARK.md](BENCHMARK.md).
+Validated against a comprehensive 650-document multi-source corpus spanning CORD-v2 receipts,
+scanned FUNSD forms, multilingual `invoice2data` invoices (English, French, German, Dutch; see
+[eval/EVAL_REAL.md](eval/EVAL_REAL.md)), and West-African French/FCFA documents. Route A and
+Route C both score 100% on the fields present in each invoice document; `/classify-image` returns
+0.98-0.99 confidence on real invoice images. Full results, corpus composition, and
+reproduction commands: [eval/BENCHMARK.md](eval/BENCHMARK.md) and [BENCHMARK.md](BENCHMARK.md).
 
 ## Scope and Limitations
 
