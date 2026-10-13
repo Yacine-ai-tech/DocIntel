@@ -12,6 +12,7 @@ import os
 import re
 from typing import Any, Dict, Optional
 
+from core import keypool
 from core.config import settings
 from core.logger import get_logger
 from services.doc_merge import merge_doc_fields
@@ -146,8 +147,9 @@ class LLMExtractor:
                     # instead of failing fast — wrapping with our own bound caps the total
                     # wait regardless of what litellm decides is worth retrying.
                     response = await asyncio.wait_for(
-                        acompletion(
-                            model=self.model,
+                        keypool.acompletion_pooled(
+                            acompletion,
+                            self.model,
                             messages=[
                                 {"role": "system", "content": prompt},
                                 {"role": "user", "content": text},
@@ -175,6 +177,9 @@ class LLMExtractor:
                     if rl_attempt >= settings.LLM_RATE_LIMIT_RETRIES:
                         log.warning("LLM rate-limited after %d retries: %s", rl_attempt, e)
                         return {"error": f"rate_limited: {e}", "_cost_usd": cost}
+                    if keypool.other_key_available(keypool.provider_for_model(self.model)):
+                        rl_attempt += 1
+                        continue  # another key of this provider is free: retry at once
                     wait_s = _rate_limit_wait_s(e)
                     log.info("LLM rate-limited (retry %d/%d), waiting %.1fs",
                              rl_attempt + 1, settings.LLM_RATE_LIMIT_RETRIES, wait_s)
