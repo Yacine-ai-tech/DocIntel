@@ -8,7 +8,7 @@ A reproducible benchmark of **real and structured third-party documents across 6
 All datasets are publicly available or deterministically generated; downloaded artifacts are git-ignored and rebuilt by the scripts in `eval/`.
 
 For how these numbers compare against independently-published 2026 benchmarks (LayoutLMv3,
-DocMamba, published Claude Sonnet invoice-extraction studies) — and an honest answer to whether
+DocMamba, published Claude Sonnet invoice-extraction studies) — and an answer to whether
 any of this is novel — see [RESEARCH.md](../RESEARCH.md). This document stays focused on
 DocIntel's own methodology and measured results.
 
@@ -86,10 +86,10 @@ verifying deduplication and memory stability across all document formats.
 |---|---|---|---|
 | A | invoices (3) | 81.8s | $0.0122 |
 | A | receipts (6) | 83.5s (p50 44.5s) | $0.0048 |
-| B | invoices (2) | 138.0s (includes GPU wake) | $0.0021 |
+| B | invoices (2) | 138.0s (includes model start-up) | $0.0021 |
 | B | receipts (4) | 76.6s | $0.0007 |
 
-Route B's latency includes wake-on-demand GPU boot overhead. Steady-state, uncontended Route B requests
+Route B's latency includes model start-up on the first request. Steady-state, uncontended Route B requests
 complete in **19.7s** with zero third-party API spend ($0.00).
 
 ### 5. Historical Route C Baseline (Tesseract-Only Fallback)
@@ -146,7 +146,7 @@ recommended.
 - **Cloud spend is bounded by sampling**: the cheap OCR-cleanup route runs broadly; the premium
   vision route runs on a representative sample. Corpus assembly and the `--scale-only` robustness
   pass incur no API cost (LLM-wise; OCR compute is real).
-- **Route B** figures above were measured on a GPU host that was started on demand and released after each run.
+- **Route B** figures above were measured on a GPU host.
 - The pure-OCR scale pass uses English Tesseract for throughput; multilingual OCR (multiple
   language packs) is more accurate but slower — see [EVAL_REAL.md](EVAL_REAL.md).
 

@@ -21,7 +21,7 @@ export default function ImageIntel() {
 
   // Vision is a GPU-tier capability — a cold backend can take well past
   // a bare spinner's patience to wake and load the model. A running elapsed-time
-  // counter is the honest signal: still working, here's how long, matching the
+  // counter is the clearest signal: still working, here's how long, matching the
   // pattern already used on Workspace.tsx for the same underlying route.
   useEffect(() => {
     if (!busy) return;

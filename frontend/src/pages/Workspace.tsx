@@ -95,10 +95,10 @@ export default function Workspace() {
     timers.current = [1, 2, 3].map((i) =>
       window.setTimeout(() => setStage((s) => Math.max(s, i)), i * 900),
     );
-    // /process on the live deployment can genuinely take 60-100+ seconds (Render free-tier
-    // CPU-throttling during the auto-classify pre-step, or a large/multi-page document) —
+    // /process on the live deployment can take 60-100+ seconds (the auto-classify pre-step,
+    // or a large/multi-page document) —
     // with only the 4 fixed stage icons above, that reads as "hung" well before it finishes.
-    // A running elapsed-time counter is the honest signal: still working, here's how long.
+    // A running elapsed-time counter is the clearest signal: still working, here's how long.
     const startedAt = Date.now();
     setElapsedMs(0);
     window.clearInterval(elapsedInterval.current);

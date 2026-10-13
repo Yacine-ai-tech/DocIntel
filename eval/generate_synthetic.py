@@ -2,7 +2,7 @@
 
 Renders N deterministic, realistic-looking invoice PNGs with known ground truth, and writes
 the matching label file the eval harness reads. This is a stand-in for a hand-labeled set of
-real invoices — accuracy numbers measured against it are honest for *synthetic* documents.
+real invoices — accuracy numbers measured against it are valid for *synthetic* documents only.
 
 Usage:
     python eval/generate_synthetic.py --n 50 --out eval/synthetic_invoices --labels eval/invoices_eval.jsonl
