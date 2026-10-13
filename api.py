@@ -669,6 +669,26 @@ async def dashboard():
     return {"service": "docintel", "docs": "/docs"}
 
 
+def route_capabilities() -> Dict[str, Any]:
+    """Which extraction routes this deployment serves, from configuration only.
+
+    Route B needs an Ollama-compatible vision host. When ROUTE_B_FORCE_FALLBACK is set
+    the route is redirected to Route C, which is reported here so clients and the UI
+    do not present it as available. No host names or credentials are included.
+    """
+    force = getattr(settings, "ROUTE_B_FORCE_FALLBACK", False) or (
+        os.getenv("ROUTE_B_FORCE_FALLBACK", "false").strip().lower() in ("1", "true", "yes")
+    )
+    route_b: Dict[str, Any] = {"enabled": not force, "mode": os.getenv("ROUTE_B_MODE", "local")}
+    if force:
+        route_b.update({"redirects_to": "ocr_fallback", "reason": "disabled by configuration"})
+    return {
+        "vision_route_a": {"enabled": True},
+        "vision_route_b": route_b,
+        "ocr_fallback": {"enabled": True},
+    }
+
+
 @app.get("/health")
 async def health() -> Dict[str, Any]:
     # DocIntel has no database — LOGS_DIR/UPLOADS_DIR writability is the one real
@@ -686,7 +706,8 @@ async def health() -> Dict[str, Any]:
         checks["logs_dir_writable"] = False
 
     ok = all(checks.values())
-    body = {"status": "ok" if ok else "degraded", "service": "docintel", "version": "0.1.0", "checks": checks}
+    body = {"status": "ok" if ok else "degraded", "service": "docintel", "version": "0.1.0",
+            "checks": checks, "routes": route_capabilities()}
     # curl -f (Dockerfile's HEALTHCHECK) and most uptime monitors only look at the
     # HTTP status, not the JSON body — a degraded check has to be a real non-2xx.
     return body if ok else JSONResponse(status_code=503, content=body)
