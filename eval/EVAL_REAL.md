@@ -43,9 +43,9 @@ python eval/run_real_eval.py --route vision_route_b   # Route B — Ollama Qwen2
 
 | Route | Engine | Score (present fields) |
 |-------|--------|------------------------|
-| **A — vision_premium** | Claude Sonnet 4.6 Vision | **39/39 = 100%** |
+| **A — vision_route_a** | Claude Sonnet 4.6 Vision | **39/39 = 100%** |
 | **C — ocr_fallback**   | Tesseract (eng+fra+deu+nld) + LLM | **39/39 = 100%** |
-| **B — vision_local**   | Ollama Qwen2.5-VL 7B (NVIDIA T4) | 25/39 = 64.1% (see note) |
+| **B — vision_route_b**   | Ollama Qwen2.5-VL 7B (NVIDIA T4) | 25/39 = 64.1% (see note) |
 
 Both the cloud (A) and fully-local-text (C) routes extract **every present field correctly across
 all four languages** — vendor, invoice number, date, currency, subtotal, tax, total. Route C
@@ -67,9 +67,9 @@ OCR_LANGS=fra+eng python eval/run_real_eval.py --dataset eval/fcfa_eval.jsonl --
 
 | Route | Engine | Score |
 |-------|--------|-------|
-| **A — vision_premium** | Claude Sonnet 4.6 Vision | **7/7 = 100%** |
+| **A — vision_route_a** | Claude Sonnet 4.6 Vision | **7/7 = 100%** |
 | **C — ocr_fallback (fra+eng)** | Tesseract + LLM | **7/7 = 100%** |
-| **B — vision_local** | Ollama Qwen2.5-VL 7B (NVIDIA T4) | **7/7 = 100%** |
+| **B — vision_route_b** | Ollama Qwen2.5-VL 7B (NVIDIA T4) | **7/7 = 100%** |
 
 All three routes read the French labels, transcribe the space-grouped amounts to plain decimals
 (`1 003 000` → `1003000`), and normalize the currency to **XOF**.
