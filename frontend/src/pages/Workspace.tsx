@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   UploadCloud, FileText, Braces, LayoutGrid, RotateCw, Download, Copy, Check,
@@ -37,6 +37,14 @@ export default function Workspace() {
   const [previewURL, setPreviewURL] = useState<string | null>(null);
   const prefs = readPrefs();
   const [route, setRoute] = useState(prefs.route);
+  const [routeBRedirect, setRouteBRedirect] = useState<string | null>(null);
+  useEffect(() => {
+    // Route availability comes from the service itself, not from a client-side guess.
+    api.health().then((h) => {
+      const b = h.routes?.vision_route_b;
+      setRouteBRedirect(b && !b.enabled ? (b.redirects_to ?? "ocr_fallback") : null);
+    }).catch(() => setRouteBRedirect(null));
+  }, []);
   const [docType, setDocType] = useState(prefs.docType);
   const [phase, setPhase] = useState<Phase>("idle");
   const [stage, setStage] = useState(0);
@@ -149,6 +157,12 @@ export default function Workspace() {
         <div>
           <Label>Extraction route</Label>
           <Segmented value={route} onChange={setRoute} options={ROUTES} />
+          {routeBRedirect && route === "vision_route_b" && (
+            <p className="mt-2 text-xs text-muted">
+              Route B is not provisioned on this deployment; requests are processed with the
+              OCR route and marked as a fallback in the result.
+            </p>
+          )}
         </div>
         <div>
           <Label>Document type</Label>

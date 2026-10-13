@@ -7,6 +7,13 @@ this document is a summary entry point.
 
 ---
 
+
+> **Deployment note.** The Route B figures in this document were measured against a real
+> Ollama vision host. The public demo deployment does not provision Route B: it redirects
+> those requests to Route C (OCR) through `ROUTE_B_FORCE_FALLBACK`, and `/health` reports the
+> route as disabled. Self-hosters can reproduce the Route B numbers by enabling it
+> (see `SELF_HOSTING.md`).
+
 ## Field Accuracy by Route
 
 Measured against real, third-party documents drawn from CORD-v2 (receipts), `invoice2data`

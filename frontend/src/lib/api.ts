@@ -198,7 +198,10 @@ export type BenchmarksResponse = {
 };
 
 export const api = {
-  health: () => req<{ status: string; service: string; version: string }>("/health"),
+  health: () => req<{
+    status: string; service: string; version: string;
+    routes?: Record<string, { enabled: boolean; mode?: string; redirects_to?: string; reason?: string }>;
+  }>("/health"),
 
   benchmarks: () => req<BenchmarksResponse>("/benchmarks"),
 
