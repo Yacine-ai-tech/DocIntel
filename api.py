@@ -144,23 +144,22 @@ def _send_telemetry():
     except Exception:
         pass
 
-    telemetry_url = os.environ.get("TELEMETRY_URL", DEFAULT_TELEMETRY_URL).strip()
+    telemetry_url = (os.environ.get("TELEMETRY_URL") or DEFAULT_TELEMETRY_URL).strip()
     if not telemetry_url:
         return
-    try:
-        import httpx
-        httpx.post(
-            telemetry_url,
-            json={
-                "service": "DocIntel",
-                "event": "startup",
-                "version": getattr(app, "version", "0.1.0"),
-                "instance_id": _telemetry_instance_id(),
-            },
-            timeout=3,
-        )
-    except Exception:
-        pass
+    import httpx
+    payload = {
+        "service": "DocIntel",
+        "event": "startup",
+        "version": getattr(app, "version", "0.1.0"),
+        "instance_id": _telemetry_instance_id(),
+    }
+    for attempt in range(3):
+        try:
+            httpx.post(telemetry_url, json=payload, timeout=3)
+            break
+        except Exception:
+            time.sleep(2 * (attempt + 1))
 
 
 threading.Thread(target=_warm_up_models, daemon=True).start()
