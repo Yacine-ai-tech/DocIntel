@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
 
-// Regression tests for two Workspace.tsx findings fixed this session:
+// Regression tests for two Workspace.tsx behaviours:
 //   - the primary upload dropzone was not keyboard-accessible at all
 //   - dropping a new file mid-extraction could race the in-flight request and
 //     silently attribute a stale result to the wrong file
@@ -98,10 +98,9 @@ test.describe('Workspace upload zone — mid-extraction file-swap guard', () => 
     await analyzeButton.click();
     await expect(page.getByRole('button', { name: /processing/i })).toBeVisible();
 
-    // Attempt to drop a second file while the first request is still in flight —
-    // previously this reset the UI to look idle/ready for the new file while the
-    // first request's result would still land and silently overwrite it. With the
-    // fix, pickFile() no-ops entirely while phase === "working".
+    // Attempt to drop a second file while the first request is still in flight.
+    // pickFile() must no-op entirely while phase === "working", so the first
+    // request's result cannot be attributed to the wrong file.
     const dt = await page.evaluateHandle(() => new DataTransfer());
     await fileInput.setInputFiles(TEST_PNG);
 

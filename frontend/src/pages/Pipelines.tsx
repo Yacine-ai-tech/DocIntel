@@ -63,7 +63,7 @@ export default function Pipelines() {
       </Card>
 
       <div className="mt-4 grid gap-4 sm:grid-cols-3">
-        <StatTile label="Documents this session" value={runs.length} sub="from your browser" />
+        <StatTile label="Documents in this browser" value={runs.length} sub="from your browser" />
         <StatTile
           label="Avg end-to-end time"
           value={avg == null ? "—" : `${(avg / 1000).toFixed(1)}s`}

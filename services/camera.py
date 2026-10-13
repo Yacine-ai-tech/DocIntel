@@ -68,13 +68,10 @@ class MobilePairing:
     """Pair mobile devices for remote document capture.
 
     Session state is persisted to LOGS_DIR/camera_sessions/*.json on every
-    change and reloaded on startup, with TTL-based eviction on every new
-    session creation. Previously state lived only in the in-memory _sessions
-    dict: a process restart silently dropped every pairing (a paired phone
-    mid-scan would find its token suddenly invalid with no explanation), and
-    expired sessions were never actually removed — validate() only flipped
-    active=False, leaving the dict entry (and, before this, nothing on disk to
-    even worry about) growing unbounded for the process's lifetime.
+    change and reloaded on startup, so a restart does not invalidate the token of a
+    paired phone mid-scan. Expired sessions are evicted on every new session creation
+    (validate() only marks a session inactive), which keeps both the in-memory dict
+    and the on-disk files bounded.
     """
     _sessions: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     _token_lock = threading.Lock()

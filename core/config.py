@@ -55,7 +55,7 @@ class Settings:
     #   Your own GPU rig/workstation on the LAN:    http://192.168.1.50:11434
     #   Your own GPU host, over the internet
     #     (via a tunnel/VPN):                       https://inference.your-domain.app
-    #   Self-hosted Ollama on a VPS you rent:        http://1.2.3.4:11434
+    #   Self-hosted Ollama on a server you control:  http://your-server:11434
     ROUTE_B_REMOTE_ENDPOINT = os.getenv("ROUTE_B_REMOTE_ENDPOINT", "")
 
     # Bearer token for the remote endpoint — only needed if you've put your own auth
@@ -70,7 +70,7 @@ class Settings:
     ROUTE_B_TIMEOUT = int(os.getenv("ROUTE_B_TIMEOUT", "60"))
 
     # Max concurrent Route B chunks when processing multi-page PDFs.
-    # Keep at 1 (sequential) for local/single-GPU setups to avoid OOM.
+    # Keep at 1 (sequential) for local/single-GPU setups; GPU memory is the limit.
     # Raise to 2-3 only for high-end remote endpoints.
     ROUTE_B_CHUNK_CONCURRENCY = int(os.getenv("ROUTE_B_CHUNK_CONCURRENCY", "1"))
 
