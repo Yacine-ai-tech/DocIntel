@@ -2,8 +2,8 @@
 
 ## What This Is
 
-DocIntel extracts structured data from documents — invoices, receipts, contracts, forms,
-financial reports — using a vision-LLM-first approach: page images are passed directly to a
+DocIntel extracts structured data from documents (invoices, receipts, contracts, forms,
+financial reports) using a vision-LLM-first approach: page images are passed directly to a
 vision-capable LLM, which returns structured JSON, with no intermediate OCR text layer.
 Pure-OCR pipelines discard layout, table structure, and handwriting information the moment a
 page is flattened into a string of characters; a vision model reasons over the page image
@@ -40,7 +40,7 @@ the model still performs the extraction; this layer standardizes how the result 
   not match a known pattern is left unchanged rather than guessed at.
 - **Currency → ISO 4217**: symbols and codes for 40+ currencies, including the West and
   Central African CFA franc (`FCFA`/`CFA` → `XOF` or `XAF` depending on context) — a
-  currency pair general-purpose LLM normalization typically gets wrong by default.
+  currency pair that general-purpose LLM normalization often gets wrong.
 - **Dates → ISO 8601** via `dateparser`, with a common-format fallback when unavailable.
 
 Covered by `tests/test_normalize.py` (US, EU, Japanese, Indian, UK, Swiss, and FCFA amount
