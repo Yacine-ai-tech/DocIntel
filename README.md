@@ -172,12 +172,19 @@ and an explicit account of what is and isn't novel here are in [RESEARCH.md](RES
 
 ## Anonymous Telemetry
 
-On startup, a background thread sends one HTTP POST, at most once per six hours per running
-instance: `{"service": "DocIntel", "event": "startup", "instance_id": "<random identifier>"}`
-— no document content, filenames, extraction results, API keys, or configuration is included.
-The instance identifier is a randomly generated value, not derived from any hardware
-identifier. Destination is the `TELEMETRY_URL` environment variable, which defaults to blank
-(no request is made without one being set); `TELEMETRY_OPT_OUT=true` disables it explicitly.
+The service sends one small HTTP POST at process start: `{"service": "DocIntel", "event": "startup",
+"version": "<release>", "instance_id": "<random identifier>"}`. The identifier is a random value
+persisted in the logs directory (delete `.telemetry_instance_id` to reset it); it is not derived
+from any hardware identifier. No documents, prompts, credentials, filenames or configuration are
+included, and a guard prevents more than one ping every 30 seconds per instance.
+The receiving endpoint sees the request's network metadata, as any HTTP server does.
+
+Behaviour of the destination setting:
+
+- `TELEMETRY_URL` not defined: the ping goes to the project's collector.
+- `TELEMETRY_URL` defined but empty (the value shipped in `.env.example`): nothing is sent.
+- `TELEMETRY_URL=<your collector>`: the ping goes there instead.
+- `TELEMETRY_OPT_OUT=true` or `DO_NOT_TRACK=1`: nothing is sent, whatever the URL says.
 
 ## Support the project
 
