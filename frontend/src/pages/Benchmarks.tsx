@@ -155,11 +155,11 @@ export default function Benchmarks() {
                     color: "var(--text)",
                     fontSize: 12,
                   }}
-                  formatter={(v: number | null) => [v == null ? "not measured" : `${v}%`]}
+                  formatter={(v: unknown) => [typeof v === "number" ? `${v}%` : "not measured"]}
                 />
                 {BARS.map((b) => (
                   <Bar key={b.key} dataKey={b.key} name={b.label} fill={b.color} radius={[6, 6, 0, 0]} maxBarSize={44} isAnimationActive={false}>
-                    <LabelList dataKey={b.key} position="top" formatter={(v: number | null) => (v == null ? "" : `${v}%`)} style={{ fill: "var(--text-2)", fontSize: 10 }} />
+                    <LabelList dataKey={b.key} position="top" formatter={(v: unknown) => (typeof v === "number" ? `${v}%` : "")} style={{ fill: "var(--text-2)", fontSize: 10 }} />
                   </Bar>
                 ))}
               </BarChart>
