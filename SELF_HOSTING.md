@@ -1,18 +1,18 @@
 # Self-Hosting DocIntel
 
 1. **Environment:** Copy `.env.example` to `.env` and fill in the routes you want (see the
-   comments in that file — Route A/B/C, `FRONTEND_URL`, etc).
+   comments in that file for Routes A, B and C, `FRONTEND_URL` and the rest).
 2. **Docker:** `docker build -t docintel . && docker run -p 8001:8001 --env-file .env docintel`
    (or `docker compose -f docker-compose.dev.yml up` for local dev). FastAPI serves the built
    frontend itself (`frontend/dist/`) at `/`, so frontend and backend share one origin by default.
 3. **GPU Note:** If running Surya or Marker natively, a CUDA GPU with 16GB+ VRAM is recommended.
 4. **Hosting:** Any host that runs a Dockerfile and honors `$PORT` (a VPS with Docker Compose,
-   Render, Fly.io, etc.), or a dedicated on-demand GPU cloud host.
+   a container platform), or a dedicated GPU host.
 5. **Database (optional):** batch-job and camera-pairing-session state persists to local JSON
    files by default — zero configuration needed. Set `POSTGRES_URL` (any Postgres, including
    free-tier serverless providers like Neon or Supabase) if you want that state durable across
    restarts/redeploys or correct under more than one running instance; see `.env.example`.
-5. **Mobile camera scan:** set `FRONTEND_URL` to wherever your phone can actually reach the app
+6. **Mobile camera scan:** set `FRONTEND_URL` to wherever your phone can actually reach the app
    (not `localhost` unless the phone and server are the exact same machine). Most mobile browsers
    only allow camera capture on a secure context — **HTTPS**, or `localhost` for same-device
    testing. Plain `http://192.168.x.x:8001` on a LAN will generally NOT be allowed to open the
