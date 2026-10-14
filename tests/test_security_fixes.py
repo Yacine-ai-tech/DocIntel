@@ -338,3 +338,28 @@ def test_identical_page_is_ocr_d_once(monkeypatch):
     assert ex.extract(b"page-1")["text"] == "hello"
     ex.extract(b"page-2")
     assert len(calls) == 2
+
+
+def test_tesseract_is_used_only_when_surya_is_disabled(monkeypatch):
+    import pytest
+    from services import ocr_extractor
+
+    monkeypatch.setenv("SURYA_ENABLED", "false")
+    assert ocr_extractor.ocr_engine() == "tesseract"
+    monkeypatch.setattr(ocr_extractor, "_tesseract_text", lambda data, lang=None: "from tesseract")
+    assert ocr_extractor.extract_text_from_image(TINY_PNG) == "from tesseract"
+
+    monkeypatch.setenv("SURYA_ENABLED", "true")
+    assert ocr_extractor.ocr_engine() == "surya"
+    from services import surya_extractor
+
+    class _Broken:
+        def __init__(self, *a, **k):
+            pass
+
+        def extract(self, image_bytes):
+            return {"text": "", "lines": [], "error": "engine not ready"}
+
+    monkeypatch.setattr(surya_extractor, "SuryaExtractor", _Broken)
+    with pytest.raises(ocr_extractor.OcrUnavailable):  # no switch to Tesseract
+        ocr_extractor.extract_text_from_image(TINY_PNG)
