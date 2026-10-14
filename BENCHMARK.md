@@ -69,7 +69,7 @@ A confirmation run on the global corpus, under the same configuration, scored **
 accuracy, indicating the accuracy level is consistent across languages and locales rather than
 specific to either sample.
 
-Surya OCR (layout-aware) is the OCR engine for this route. Three factors contribute to
+The OCR engine for this route is selected by `SURYA_ENABLED`: Surya (layout-aware) by default, Tesseract when it is false. Three factors contribute to
 Route C's measured accuracy:
 
 1. **Preprocessing order** — OCR is run on the raw image first, with CLAHE/Otsu contrast

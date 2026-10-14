@@ -25,9 +25,12 @@ currencies, amounts, and dates layered on top.
   - **Route B** — a self-hosted Ollama vision model (Qwen 2.5-VL 7B, validated; the route is
     model-agnostic via `OLLAMA_MODEL`), run on the same host or on separate hardware you
     control. No third-party inference API in this path; no per-call cost.
-  - **Route C** — Surya OCR (layout-aware, running locally as a quantized GGUF model on
-    CPU or GPU), followed by LLM-based cleanup. Surya is the only OCR engine: a failure is
-    reported as an error rather than answered by a lower-accuracy engine.
+  - **Route C** — OCR with the engine selected by `SURYA_ENABLED`: Surya (layout-aware,
+    a quantized GGUF model run locally on CPU or GPU) when it is true (the default), or
+    Tesseract when it is false, followed by LLM-based cleanup. The engine is a
+    configuration choice, never a run-time fallback: a Surya failure is reported as an
+    error rather than answered by Tesseract. Route A and Route B fall back to Route C and
+    therefore use whichever engine is configured.
 - **Multi-currency and multi-locale normalization.** Amounts in US, EU, space-grouped, and
   Swiss formats, and 45+ currencies (including the West African CFA franc, normalized to ISO
   4217 code `XOF`/`XAF`), are converted to a canonical float via a deterministic
@@ -104,8 +107,8 @@ PDF / image ───►│   api.py    │─── render each page, or extrac
              route ┌───┼────┐
                    ▼   ▼    ▼
               Route A  Route B  Route C
-              Claude   Ollama   Surya OCR
-              Vision   Vision   + LLM cleanup
+              Claude   Ollama   Surya OCR or Tesseract
+              Vision   Vision   (SURYA_ENABLED) + LLM cleanup
                    └───┴────┘
                         ▼
         structured JSON { fields..., _confidence, _pages }
@@ -135,9 +138,11 @@ reproduction commands: [eval/BENCHMARK.md](eval/BENCHMARK.md) and [BENCHMARK.md]
 - **Currency and locale coverage** spans ISO-4217-listed currencies plus West African FCFA
   formatting; ambiguous thousands/decimal separators on low-quality scans can still mislead
   the OCR-only route.
-- **Route C's OCR engine** is Surya, run locally from a Q8_0-quantized GGUF baked into the
-  image. It is multilingual, so no per-language packs are needed. On CPU a page takes
-  seconds to tens of seconds depending on size; a GPU is much faster.
+- **Route C's OCR engine** is Surya by default, run locally from a quantized GGUF baked
+  into the image (multilingual; no language packs). On CPU a page takes about 12-15 s warm
+  and about 30 s for a new page; a GPU is much faster. With `SURYA_ENABLED=false`
+  Tesseract is used instead (fast, lower accuracy; non-English text needs the matching
+  `tesseract-ocr-<lang>` pack, English is used if a pack is missing).
 
 ## Benchmark
 

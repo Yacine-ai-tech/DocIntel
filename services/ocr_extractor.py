@@ -30,6 +30,13 @@ except ImportError:
     _PIL = False
 
 try:
+    import pytesseract
+    _TESSERACT = True
+except ImportError:
+    pytesseract = None
+    _TESSERACT = False
+
+try:
     import pdfplumber
     _PDFPLUMBER = True
 except ImportError:
@@ -60,17 +67,65 @@ except ImportError:
     _OPENPYXL = False
 
 
-class OcrUnavailable(RuntimeError):
-    """Surya OCR could not produce a result (engine missing, failed to start, or errored).
+# Tesseract language packs to try when Tesseract is the configured engine (install the
+# matching tesseract-ocr-<lang> packages). Falls back to "eng" if a pack is missing.
+_OCR_LANGS = _os.getenv("OCR_LANGS", "eng+fra")
+_MIN_RAW_OCR_CHARS = 80
 
-    OCR is performed by Surya only; there is no lower-accuracy fallback engine, so an
-    engine failure is reported to the caller as an error instead of a degraded answer.
+
+class OcrUnavailable(RuntimeError):
+    """The configured OCR engine could not produce a result (engine missing, failed to
+    start, or errored).
+
+    The engine is chosen by configuration (SURYA_ENABLED): Surya when enabled, Tesseract
+    when disabled. There is no automatic switch between them at run time, so an engine
+    failure is reported to the caller as an error instead of a different engine's answer.
     """
 
 
+def ocr_engine() -> str:
+    """"surya" when SURYA_ENABLED is true (the default), otherwise "tesseract"."""
+    from services.surya_extractor import _enabled
+    return "surya" if _enabled() else "tesseract"
+
+
+def _tesseract_text(image_bytes: bytes, lang: Optional[str] = None) -> str:
+    if not _TESSERACT or not _PIL:
+        raise OcrUnavailable("Tesseract is not installed")
+    langs = lang or _OCR_LANGS
+
+    def _ocr(data: bytes) -> str:
+        img = Image.open(io.BytesIO(data)).convert("RGB")
+        try:
+            return pytesseract.image_to_string(img, lang=langs).strip()
+        except pytesseract.TesseractError:
+            log.warning("Tesseract langs %r unavailable — using eng", langs)
+            return pytesseract.image_to_string(img, lang="eng").strip()
+
+    try:
+        # Raw first; contrast enhancement only as a second attempt when the raw pass yields
+        # little text, keeping whichever result is longer.
+        text = _ocr(image_bytes)
+        if len(text) < _MIN_RAW_OCR_CHARS:
+            from services.image_preprocess import enhance_contrast_for_ocr
+            enhanced = enhance_contrast_for_ocr(image_bytes)
+            if enhanced is not image_bytes:
+                alt = _ocr(enhanced)
+                if len(alt) > len(text):
+                    text = alt
+        return text
+    except OcrUnavailable:
+        raise
+    except Exception as e:
+        raise OcrUnavailable(f"Tesseract failed: {e}") from e
+
+
 def extract_text_from_image(image_bytes: bytes, lang: Optional[str] = None) -> str:
-    """Route C: layout-aware OCR with Surya. Returns '' for a page with no text and raises
-    OcrUnavailable when the engine fails (never substitutes a different OCR engine)."""
+    """Route C OCR with the configured engine: Surya when SURYA_ENABLED is true, Tesseract
+    when it is false. Returns '' for a page with no text and raises OcrUnavailable when the
+    engine fails; the other engine is never substituted."""
+    if ocr_engine() == "tesseract":
+        return _tesseract_text(image_bytes, lang)
     from services.surya_extractor import SuryaExtractor
 
     res = SuryaExtractor(langs=[lang] if lang else None).extract(image_bytes)
@@ -318,7 +373,7 @@ def pdf_first_page_to_png(pdf_bytes: bytes, dpi: int = 150) -> bytes:
 def extract_text_from_pdf(pdf_bytes: bytes, max_pages: int = 50, ocr_dpi: int = 200) -> str:
     """Full-document text for the OCR route. Uses pdfplumber's native text layer across all
     pages; for scanned PDFs with no embedded text it falls back to rendering each page and
-    running Surya. Pages are separated by a form-feed marker so the LLM sees boundaries.
+    running the configured OCR engine. Pages are separated by a form-feed marker so the LLM sees boundaries.
     """
     if not is_pdf(pdf_bytes):
         log.warning("extract_text_from_pdf called with non-PDF bytes")
@@ -337,7 +392,7 @@ def extract_text_from_pdf(pdf_bytes: bytes, max_pages: int = 50, ocr_dpi: int = 
         return native
     # Scanned PDF (no text layer) → OCR each rendered page.
     if _PDF2IMAGE:
-        log.info("PDF has no text layer — running Surya OCR on each page")
+        log.info("PDF has no text layer — running OCR on each page")
         imgs = pdf_to_pngs(pdf_bytes, dpi=ocr_dpi, max_pages=max_pages)
         return "\n\f\n".join(extract_text_from_image(img) for img in imgs).strip()
     return ""
@@ -484,7 +539,7 @@ class FormFieldDetector:
 # ════════════════════════════════════════════════════════════════════════════
 
 class HandwritingOCR:
-    """OCR for handwritten text in documents (Surya handles print and handwriting)."""
+    """OCR for handwritten text in documents, using the configured OCR engine."""
 
     @staticmethod
     def extract_handwriting(image_bytes: io.BytesIO, language: str = "eng") -> str:
@@ -501,7 +556,18 @@ class HandwritingOCR:
 
     @staticmethod
     def detect_handwriting_regions(image_bytes: io.BytesIO) -> List[Dict[str, Any]]:
-        """Text regions (bounding box, confidence, text) located by Surya."""
+        """Text regions (bounding box, confidence, text) from the configured OCR engine."""
+        if ocr_engine() == "tesseract":
+            if not _TESSERACT:
+                raise OcrUnavailable("Tesseract is not installed")
+            image = Image.open(image_bytes)
+            data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
+            return [
+                {"bbox": {"x": data["left"][i], "y": data["top"][i],
+                          "width": data["width"][i], "height": data["height"][i]},
+                 "confidence": int(conf), "text": data["text"][i]}
+                for i, conf in enumerate(data["conf"]) if int(conf) > 50
+            ]
         from services.surya_extractor import SuryaExtractor
 
         res = SuryaExtractor().extract(image_bytes.getvalue())
