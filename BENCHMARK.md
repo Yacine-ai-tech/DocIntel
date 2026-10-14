@@ -80,8 +80,9 @@ Route C's measured accuracy:
    due (as distinct from a subtotal, tax line, or change amount) as the `total` field, with
    French invoice vocabulary (`Total TTC` vs. `Total HT`) covered for the FCFA corpus.
 
-**Scope note.** The figures above were measured with Surya on a GPU. The same model runs on
-CPU from a quantized build; throughput is lower, accuracy is unchanged in spot checks.
+**Scope note.** The figures above were measured with Surya on a GPU. The same model also runs
+on CPU from a quantized build, which is what a CPU-only deployment uses; throughput is lower.
+The corpus has not been re-scored on that build, so these figures describe the GPU run.
 
 ### SROIE (ICDAR-2019 Task 3)
 
