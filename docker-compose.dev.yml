@@ -1,6 +1,6 @@
 # Lightweight dev compose for DocIntel — meant for a remote dev host (any on-demand
 # cloud box, a home server, etc.) — not just a local machine.
-# Tesseract/poppler are baked into the image (Dockerfile installs via apt).
+# poppler and the Surya OCR model are baked into the image (see the Dockerfile).
 #
 # Usage on the remote host:
 #   docker compose -f docker-compose.dev.yml up --build

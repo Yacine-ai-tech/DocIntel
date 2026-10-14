@@ -59,22 +59,17 @@ def test_surya_enabled_by_default():
         assert surya_enabled() is False
 
 
-def test_route_c_surya_fallback_to_tesseract():
-    """Verify Route C falls back to Tesseract if Surya raises an error."""
-    mock_tesseract = MagicMock()
-    mock_tesseract.image_to_string.return_value = "Tesseract Extracted Text"
-    
-    with patch("services.surya_extractor.SuryaExtractor.extract", side_effect=Exception("llama-server missing")):
-        with patch.dict("sys.modules", {"pytesseract": mock_tesseract}):
-            with patch("services.ocr_extractor._TESSERACT", True):
-                with patch("services.ocr_extractor.pytesseract", mock_tesseract, create=True):
-                    # Create a small valid 50x50 PNG
-                    from PIL import Image
-                    import io
-                    img = Image.new("RGB", (50, 50), color="white")
-                    buf = io.BytesIO()
-                    img.save(buf, format="PNG")
-                    png_bytes = buf.getvalue()
+def test_route_c_reports_surya_failure_instead_of_switching_engine():
+    """A Surya failure is an error: there is no lower-accuracy OCR engine to fall back to."""
+    import io
+    import pytest
+    from PIL import Image
+    from services.ocr_extractor import OcrUnavailable
 
-                    text = extract_text_from_image(png_bytes)
-                    assert "Tesseract Extracted Text" in text
+    with patch("services.surya_extractor.SuryaExtractor.extract",
+               return_value={"text": "", "lines": [], "error": "llama-server missing"}):
+        img = Image.new("RGB", (50, 50), color="white")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        with pytest.raises(OcrUnavailable):
+            extract_text_from_image(buf.getvalue())
