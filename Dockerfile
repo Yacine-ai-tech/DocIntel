@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    poppler-utils curl ca-certificates \
+    poppler-utils curl ca-certificates libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install prebuilt llama-server for Surya OCR (llama.cpp backend)
