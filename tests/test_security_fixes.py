@@ -318,3 +318,23 @@ def test_ocr_engine_failure_is_a_503(monkeypatch):
                        data={"route": "ocr_fallback"})
     assert resp.status_code == 503
     assert "ocr_engine_unavailable" in resp.json()["detail"]
+
+
+def test_identical_page_is_ocr_d_once(monkeypatch):
+    from services import surya_extractor as se
+
+    calls = []
+
+    def fake_local(self, image_bytes):
+        calls.append(1)
+        return {"text": "hello", "lines": [], "method": "surya"}
+
+    monkeypatch.setattr(se, "_enabled", lambda: True)
+    monkeypatch.setattr(se, "_mode", lambda: "local")
+    monkeypatch.setattr(se.SuryaExtractor, "_extract_local", fake_local)
+    se._RESULT_CACHE.clear()
+    ex = se.SuryaExtractor()
+    assert ex.extract(b"page-1")["text"] == "hello"
+    assert ex.extract(b"page-1")["text"] == "hello"
+    ex.extract(b"page-2")
+    assert len(calls) == 2
