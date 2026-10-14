@@ -75,13 +75,16 @@ export default function UserGuidePage() {
               </p>
             </Card>
             <Card>
-              <h3 className="font-semibold text-amber-400 text-lg mb-2">Route C — <code>ocr_fallback</code> (Tesseract + LLM cleanup)</h3>
+              <h3 className="font-semibold text-amber-400 text-lg mb-2">Route C — <code>ocr_fallback</code> (Surya OCR or Tesseract + LLM cleanup)</h3>
               <p className="text-sm text-gray-300">
-                Tesseract OCR extracts raw text, then a cheap LLM (<code>LLM_CLEANUP</code>, default{" "}
-                <code>anthropic/claude-haiku-4-5</code>) structures it into fields. Cheapest and
-                fastest route; excellent on clean, born-digital documents but loses accuracy on
-                noisy phone-photo scans (see benchmark numbers below). Also the automatic landing
-                spot when Route B fails.
+                An OCR engine extracts raw text, then a cheap LLM (<code>LLM_CLEANUP</code>, default{" "}
+                <code>anthropic/claude-haiku-4-5</code>) structures it into fields. The engine is a
+                deployment setting: Surya (layout-aware) when <code>SURYA_ENABLED=true</code>,
+                Tesseract when it is <code>false</code>. It never switches between them at run time;
+                a Surya failure is reported as an error. Routes A and B also land on Route C when
+                they fail, using the configured engine. Tesseract is the fastest option and excellent
+                on clean, born-digital documents but loses accuracy on noisy phone-photo scans (see
+                the benchmark numbers below).
               </p>
             </Card>
           </div>
@@ -142,7 +145,7 @@ export default function UserGuidePage() {
             (true/false) and handwritten field entries in its schema.
           </p>
           <p className="text-sm text-gray-300">
-            Route C also exposes a dedicated Tesseract handwriting path
+            When Tesseract is the configured engine, Route C also exposes a dedicated handwriting path
             (<code>extract_handwriting</code>) for OCR-only pipelines. Robustness on noisy, scanned,
             handwritten forms is validated against the FUNSD dataset (50 documents) as part of the
             scale/ingestion benchmark — see the numbers below.
@@ -152,7 +155,7 @@ export default function UserGuidePage() {
         {/* Multilingual OCR */}
         <Section icon={Languages} iconColor="text-indigo-400" title="Multilingual OCR">
           <p className="text-sm text-gray-300 mb-3">
-            Route C (Tesseract) loads language packs for{" "}
+            With Tesseract as the Route C engine, language packs are loaded for{" "}
             <strong className="text-white">English, French, German, Dutch, Spanish, and Italian</strong>{" "}
             by default (<code>OCR_LANGS=eng+fra+deu+nld+spa+ita</code>), and gracefully falls back to
             English-only if a requested pack isn't installed on the host.
@@ -272,8 +275,8 @@ export default function UserGuidePage() {
                   ["French / FCFA sub-corpus (50 docs)", "Route B — Ollama Qwen 2.5-VL 7B (GPU)", "325/325 = 100% ($0 API cost)"],
                   ["French / FCFA sub-corpus (50 docs)", "Route C — Surya OCR (GPU) + LLM cleanup", "313/325 = 96.3%"],
                   ["Global sample confirmation", "Route C — Surya OCR (GPU) + LLM cleanup", "97.4% field accuracy"],
-                  ["Invoices (clean PDFs)", "Route C (fallback) — Tesseract + LLM cleanup", "100%"],
-                  ["Receipts (200, CORD phone photos)", "Route C (fallback) — Tesseract + LLM cleanup", "57/200 = 28.5%"],
+                  ["Invoices (clean PDFs)", "Route C — Tesseract + LLM cleanup (Surya disabled)", "100%"],
+                  ["Receipts (200, CORD phone photos)", "Route C — Tesseract + LLM cleanup (Surya disabled)", "57/200 = 28.5%"],
                 ].map(([measure, route, result]) => (
                   <tr key={measure} className="border-b border-gray-800">
                     <td className="py-2 pr-4">{measure}</td>

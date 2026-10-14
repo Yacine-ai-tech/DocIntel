@@ -5,12 +5,16 @@
 2. **Docker:** `docker build -t docintel . && docker run -p 8001:8001 --env-file .env docintel`
    (or `docker compose -f docker-compose.dev.yml up` for local dev). FastAPI serves the built
    frontend itself (`frontend/dist/`) at `/`, so frontend and backend share one origin by default.
-3. **GPU Note:** If running Surya or Marker natively, a CUDA GPU with 16GB+ VRAM is recommended.
+3. **OCR engine (Route C):** `SURYA_ENABLED=true` runs Surya, `false` runs Tesseract; the choice is
+   fixed by configuration. The container image bundles a quantized (Q4_K_M) Surya model that runs
+   on CPU (threads set by `LLAMA_CPP_EXTRA_ARGS`, context by `SURYA_INFERENCE_CTX_SIZE`; identical pages
+   are served from an in-memory cache, `SURYA_RESULT_CACHE_SIZE`). A CUDA GPU makes it considerably
+   faster; Marker needs a GPU with 16 GB or more of memory.
 4. **Hosting:** Any host that runs a Dockerfile and honors `$PORT` (a VPS with Docker Compose,
    a container platform), or a dedicated GPU host.
 5. **Database (optional):** batch-job and camera-pairing-session state persists to local JSON
    files by default — zero configuration needed. Set `POSTGRES_URL` (any Postgres, including
-   free-tier serverless providers like Neon or Supabase) if you want that state durable across
+   managed serverless Postgres providers) if you want that state durable across
    restarts/redeploys or correct under more than one running instance; see `.env.example`.
 6. **Mobile camera scan:** set `FRONTEND_URL` to wherever your phone can actually reach the app
    (not `localhost` unless the phone and server are the exact same machine). Most mobile browsers
@@ -34,3 +38,10 @@ Route B needs an Ollama-compatible vision model, which in turn needs real memory
 `docker-compose.ollama.yml` runs Ollama next to DocIntel; it is not started by any other
 compose file. Turning Route B on later is an environment change and a model pull, not a code change.
 
+## Readiness and start-up
+
+On start the service loads the OCR engine and runs a short warm-up page in the background.
+`GET /ready` returns 503 until that completes and 200 afterwards; gate traffic on it and use
+`GET /health` for liveness. A page that has not been seen before takes longer than a repeated one
+(results of recent identical pages are cached). Every variable is described in
+[`.env.example`](.env.example).
