@@ -97,8 +97,10 @@ def _warm_up_models():
     """Pre-load Surya OCR models at startup so the first real request isn't slow.
     Runs regardless of TELEMETRY_OPT_OUT — unrelated to telemetry."""
     try:
-        from services.surya_extractor import SuryaExtractor
-        SuryaExtractor()._ensure_models(warmup=True)
+        from services.ocr_extractor import ocr_engine
+        if ocr_engine() == "surya":
+            from services.surya_extractor import SuryaExtractor
+            SuryaExtractor()._ensure_models(warmup=True)
         _models_ready.set()
     except Exception as exc:
         log.warning("model warm-up failed: %s", exc)
@@ -380,7 +382,7 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
                         control, same network or reachable over the internet). Never a
                         third-party inference API. Configured via ROUTE_B_MODE + OLLAMA_MODEL.
                         Auto-fallback to Route C (OCR) on any failure.
-      - ocr_fallback:   Surya OCR (primary) + Tesseract (fallback) + LLM cleanup (Route C)
+      - ocr_fallback:   configured OCR engine (Surya, or Tesseract when SURYA_ENABLED=false) + LLM cleanup (Route C)
     """
     from services.ocr_extractor import is_pdf, pdf_page_count, pdf_to_pngs
 
@@ -420,7 +422,7 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
                     workspace_logger.log_fallback("vision_route_a", "ocr_fallback", f"Route A failed: {e}")
 
         if fields is None or fallback_used:
-            log.info("Route A Fallback: Using OCR fallback (Surya OCR + Tesseract fallback + LLM cleanup)")
+            log.info("Route A Fallback: Using OCR fallback (configured OCR engine + LLM cleanup)")
             text = await asyncio.to_thread(_ocr_sync, data, pdf)
             if text:
                 fields = await extractor.extract(text, doc_type=doc_type)
@@ -468,7 +470,7 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
                     workspace_logger.log_fallback("vision_route_b", "ocr_fallback", f"{mode}/{model_tag} failed: {e}")
 
         if fields is None or fallback_used:
-            log.info("Route C: Using OCR fallback (Surya OCR + Tesseract fallback + LLM cleanup)")
+            log.info("Route C: Using OCR fallback (configured OCR engine + LLM cleanup)")
             text = await asyncio.to_thread(_ocr_sync, data, pdf)
             if text:
                 fields = await extractor.extract(text, doc_type=doc_type)
@@ -486,7 +488,7 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
 
     # Route C: OCR fallback
     elif route == "ocr_fallback":
-        log.info("Route C: Using OCR fallback (Surya OCR + Tesseract fallback + LLM cleanup)")
+        log.info("Route C: Using OCR fallback (configured OCR engine + LLM cleanup)")
         text = await asyncio.to_thread(_ocr_sync, data, pdf)
         if text:
             fields = await extractor.extract(text, doc_type=doc_type)
@@ -1044,7 +1046,7 @@ async def extract(
     Full extraction pipeline with 3 routes (multi-page PDFs handled end-to-end):
       - vision_route_a  (Claude Sonnet 4.6 Vision - Route A)
       - vision_route_b  (Ollama vision, local or self-hosted-remote - Route B)
-      - ocr_fallback    (Surya OCR + Tesseract fallback + LLM cleanup - Route C)
+      - ocr_fallback    (configured OCR engine + LLM cleanup - Route C)
 
     Route B (set via ROUTE_B_MODE env var — never a third-party inference API):
       - local:  Ollama running on this same machine/container (OLLAMA_HOST)
@@ -1194,7 +1196,7 @@ async def process(
     Routes:
       - vision_route_a: Claude Sonnet 4.6 Vision (high quality)
       - vision_route_b: Ollama vision, local or self-hosted-remote, auto-fallback to Route C
-      - ocr_fallback: Route C (Surya OCR + Tesseract fallback + LLM cleanup)
+      - ocr_fallback: Route C (configured OCR engine + LLM cleanup)
 
     Blocks until the pipeline finishes — a slow route (Route B waking a cold/on-demand host
     especially) can take minutes, which is fine for a direct caller but too long for a
