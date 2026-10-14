@@ -24,14 +24,22 @@ local/remote split exactly (services/route_b.py):
 """
 from __future__ import annotations
 
+import hashlib
 import io
 import os
 import re
+import threading
+from collections import OrderedDict
 from typing import Any, Dict, List, Optional
 
 from core.logger import get_logger
 
 log = get_logger(__name__)
+
+
+_RESULT_CACHE: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
+_RESULT_CACHE_LOCK = threading.Lock()
+_RESULT_CACHE_SIZE = int(os.environ.get("SURYA_RESULT_CACHE_SIZE") or "64")
 
 
 def _html_to_text(html: Optional[str]) -> str:
@@ -136,12 +144,26 @@ class SuryaExtractor:
         Returns:
             {"text": str, "lines": [{"text", "bbox", "confidence"}], "method": "surya"}
             or an error dict (stub) when disabled, unavailable, or the call fails.
+
+        Successful results are cached by image content, so re-submitting the same page
+        (a retry, a re-run of a batch, the same sample document) is answered immediately.
         """
         if not _enabled():
             return {"text": "", "lines": [], "error": "surya_disabled", "method": "surya"}
-        if _mode() == "remote":
-            return self._extract_remote(image_bytes)
-        return self._extract_local(image_bytes)
+        key = hashlib.sha256(image_bytes).hexdigest()
+        with _RESULT_CACHE_LOCK:
+            hit = _RESULT_CACHE.get(key)
+            if hit is not None:
+                _RESULT_CACHE.move_to_end(key)
+                return dict(hit)
+        result = (self._extract_remote(image_bytes) if _mode() == "remote"
+                  else self._extract_local(image_bytes))
+        if not result.get("error"):
+            with _RESULT_CACHE_LOCK:
+                _RESULT_CACHE[key] = result
+                while len(_RESULT_CACHE) > _RESULT_CACHE_SIZE:
+                    _RESULT_CACHE.popitem(last=False)
+        return result
 
     def _extract_local(self, image_bytes: bytes) -> Dict[str, Any]:
         if not _SURYA or not _PIL:
