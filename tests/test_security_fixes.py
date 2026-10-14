@@ -291,22 +291,30 @@ def test_extract_corrupt_image_is_422():
     assert "unreadable_document" in resp.json()["detail"]
 
 
-def test_slow_surya_falls_back_instead_of_blocking(monkeypatch):
-    import time as _t
+def test_surya_failure_is_reported_not_replaced_by_another_engine(monkeypatch):
+    import pytest
     from services import ocr_extractor, surya_extractor
 
-    class _Slow:
+    class _Broken:
         def __init__(self, *a, **k):
             pass
 
         def extract(self, image_bytes):
-            _t.sleep(2.0)
-            return {"text": "late surya text"}
+            return {"text": "", "lines": [], "error": "engine not ready"}
 
-    monkeypatch.setattr(surya_extractor, "SuryaExtractor", _Slow)
-    monkeypatch.setenv("SURYA_LOCAL_TIMEOUT", "0.2")
-    monkeypatch.setattr(ocr_extractor, "_TESSERACT", False)
-    t0 = _t.time()
-    out = ocr_extractor.extract_text_from_image(TINY_PNG)
-    assert _t.time() - t0 < 1.5
-    assert out == ""
+    monkeypatch.setattr(surya_extractor, "SuryaExtractor", _Broken)
+    with pytest.raises(ocr_extractor.OcrUnavailable):
+        ocr_extractor.extract_text_from_image(TINY_PNG)
+
+
+def test_ocr_engine_failure_is_a_503(monkeypatch):
+    from services import ocr_extractor
+
+    def _boom(*a, **k):
+        raise ocr_extractor.OcrUnavailable("engine not ready")
+
+    monkeypatch.setattr(ocr_extractor, "extract_text_from_image", _boom)
+    resp = client.post("/extract", files={"file": ("x.png", TINY_PNG, "image/png")},
+                       data={"route": "ocr_fallback"})
+    assert resp.status_code == 503
+    assert "ocr_engine_unavailable" in resp.json()["detail"]

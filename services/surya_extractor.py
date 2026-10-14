@@ -106,12 +106,28 @@ class SuryaExtractor:
         self._det = _GLOBAL_DET
         self._rec = _GLOBAL_REC
         if warmup and self._rec is not None and _PIL:
+            # Run one realistic page through the whole pipeline (layout detection, model
+            # server start-up, prompt and image encoding paths) so the first real request
+            # is served at steady-state speed.
             try:
-                dummy_img = Image.new("RGB", (64, 32), color=(255, 255, 255))
-                self._rec([dummy_img])
-                log.info("Surya OCR warm-up completed successfully.")
+                from PIL import ImageDraw
+                page = Image.new("RGB", (900, 360), color="white")
+                draw = ImageDraw.Draw(page)
+                for i, line in enumerate((
+                    "INVOICE  No. 2026-0001   Date: 2026-01-15",
+                    "Vendor: Example Supplies Ltd",
+                    "Consulting services     10    120.00    1200.00",
+                    "Subtotal 1200.00    VAT 20% 240.00    TOTAL 1440.00 EUR",
+                )):
+                    draw.text((30, 30 + i * 70), line, fill="black")
+                buf = io.BytesIO()
+                page.save(buf, format="PNG")
+                out = self._extract_local(buf.getvalue())
+                if out.get("error"):
+                    raise RuntimeError(out["error"])
+                log.info("Surya OCR warm-up completed (%d chars).", len(out.get("text", "")))
             except Exception as e:
-                log.warning("Surya OCR warm-up dummy call notice: %s", e)
+                log.warning("Surya OCR warm-up notice: %s", e)
 
     def extract(self, image_bytes: bytes) -> Dict[str, Any]:
         """
