@@ -86,14 +86,14 @@ export default function ResearchPage() {
 
         <Card title="Route C: OCR + LLM Fallback">
           <div className="space-y-3 text-xs text-dim leading-relaxed">
-            <div className="font-semibold text-body text-sm">Surya OCR + Tesseract</div>
+            <div className="font-semibold text-body text-sm">Surya OCR or Tesseract, then LLM cleanup</div>
             <p>
-              High-throughput fallback when vision-model rate limits or quotas are exceeded.
+              The OCR route, and the landing spot for Routes A and B when they fail.
             </p>
             <ul className="list-disc pl-4 space-y-1">
-              <li>Layout-aware text box detection via Surya GPU.</li>
-              <li>Automatic Tesseract CPU fallback.</li>
-              <li>96.3% field accuracy on 650-document test suite.</li>
+              <li>The engine is chosen by configuration (<code>SURYA_ENABLED</code>) and never switches at run time.</li>
+              <li>Surya gives layout-aware text detection; Tesseract is the lightweight option.</li>
+              <li>96.3% field accuracy on the 50-document French/FCFA sub-corpus and 97.4% on the global sample (Surya, GPU run).</li>
             </ul>
           </div>
         </Card>

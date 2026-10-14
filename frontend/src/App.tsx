@@ -1,5 +1,6 @@
 import UserGuidePage from './pages/UserGuidePage';
 import ResearchPage from './pages/ResearchPage';
+import ArchitecturePage from './pages/ArchitecturePage';
 import ApiDocs from './pages/ApiDocs';
 import { Component, ReactNode, lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
@@ -80,6 +81,7 @@ const NAV = [
   { to: "/pipelines", label: "Pipelines", icon: Workflow },
   { to: "/compare", label: "Compare Routes", icon: GitCompareArrows },
   { to: "/batch", label: "Batch", icon: Layers },
+  { to: "/architecture", label: "Architecture", icon: Workflow },
   { to: "/research", label: "Research", icon: GraduationCap },
   { to: "/benchmarks", label: "Benchmarks", icon: BarChart3 },
   { to: "/models", label: "Vision Models", icon: Cpu },
@@ -138,6 +140,7 @@ export default function App() {
                     <Route path="/compare" element={<Compare />} />
                     <Route path="/batch" element={<Batch />} />
                     <Route path="/benchmarks" element={<Benchmarks />} />
+                    <Route path="/architecture" element={<ArchitecturePage />} />
                     <Route path="/research" element={<ResearchPage />} />
                     <Route path="/models" element={<Models />} />
                     <Route path="/activity" element={<Activity />} />
