@@ -59,6 +59,7 @@ try:
 except ImportError:
     _OPENPYXL = False
 
+
 class OcrUnavailable(RuntimeError):
     """Surya OCR could not produce a result (engine missing, failed to start, or errored).
 
