@@ -34,6 +34,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import BackgroundTasks, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from services.ocr_extractor import OcrUnavailable
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -89,14 +90,18 @@ if DB_ENABLED:
         log.warning("Database schema initialization skipped/deferred: %s", _e)
 
 
+_models_ready = threading.Event()
+
+
 def _warm_up_models():
     """Pre-load Surya OCR models at startup so the first real request isn't slow.
     Runs regardless of TELEMETRY_OPT_OUT — unrelated to telemetry."""
     try:
         from services.surya_extractor import SuryaExtractor
         SuryaExtractor()._ensure_models(warmup=True)
-    except Exception:
-        pass
+        _models_ready.set()
+    except Exception as exc:
+        log.warning("model warm-up failed: %s", exc)
 
 
 def _telemetry_instance_id() -> str:
@@ -179,7 +184,7 @@ threading.Thread(target=_send_telemetry, daemon=True).start()
 # should send X-DocIntel-Internal-Token like any other caller once
 # hardening is on.)
 _PUBLIC_PATHS = {
-    "/", "/health", "/benchmarks", "/docs", "/openapi.json", "/api/redoc",
+    "/", "/health", "/ready", "/benchmarks", "/docs", "/openapi.json", "/api/redoc",
     "/favicon.png", "/favicon.ico", "/mark.png", "/logo.png",
     "/api/documents", "/documents", "/api/documents/stats", "/documents/stats",
 }
@@ -215,6 +220,12 @@ app.add_middleware(
 )
 
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+
+@app.exception_handler(OcrUnavailable)
+async def _ocr_unavailable_handler(request: Request, exc: OcrUnavailable):
+    """OCR is Surya-only; when the engine fails the caller gets an explicit 503."""
+    return JSONResponse(status_code=503, content={"detail": f"ocr_engine_unavailable: {exc}"})
 
 
 try:
@@ -733,6 +744,14 @@ def route_capabilities() -> Dict[str, Any]:
         "vision_route_b": route_b,
         "ocr_fallback": {"enabled": True},
     }
+
+
+@app.get("/ready")
+async def ready() -> Dict[str, Any]:
+    """Readiness: 200 once the OCR model has been loaded and exercised, 503 before."""
+    if not _models_ready.is_set():
+        raise HTTPException(status_code=503, detail="warming_up")
+    return {"status": "ready", "service": "docintel"}
 
 
 @app.get("/health")

@@ -30,13 +30,6 @@ except ImportError:
     _PIL = False
 
 try:
-    import pytesseract
-    _TESSERACT = True
-except ImportError:
-    pytesseract = None
-    _TESSERACT = False
-
-try:
     import pdfplumber
     _PDFPLUMBER = True
 except ImportError:
@@ -66,66 +59,23 @@ try:
 except ImportError:
     _OPENPYXL = False
 
-# Tesseract language packs to try (install the matching tesseract-ocr-<lang> packages).
-# Falls back to "eng" automatically if a pack is missing.
-_OCR_LANGS = _os.getenv("OCR_LANGS", "eng+fra+deu+nld+spa+ita")
+class OcrUnavailable(RuntimeError):
+    """Surya OCR could not produce a result (engine missing, failed to start, or errored).
 
-
-_MIN_RAW_OCR_CHARS = 80
+    OCR is performed by Surya only; there is no lower-accuracy fallback engine, so an
+    engine failure is reported to the caller as an error instead of a degraded answer.
+    """
 
 
 def extract_text_from_image(image_bytes: bytes, lang: Optional[str] = None) -> str:
-    """Route C (Surya/Tesseract): layout-aware OCR using Surya with Tesseract as fallback.
-    Returns '' when neither is available or finds no text — the caller decides how to degrade.
-    """
-    try:
-        from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FutTimeout
-        from services.surya_extractor import SuryaExtractor
-        timeout = float(_os.getenv("SURYA_LOCAL_TIMEOUT") or "45")
-        pool = ThreadPoolExecutor(max_workers=1)
-        fut = pool.submit(lambda: SuryaExtractor(langs=[lang] if lang else None).extract(image_bytes))
-        try:
-            surya_res = fut.result(timeout=timeout)
-        except _FutTimeout:
-            log.warning("Surya OCR exceeded %.0fs — falling back to Tesseract OCR", timeout)
-            surya_res = {}
-        finally:
-            pool.shutdown(wait=False)
-        if surya_res.get("text"):
-            return surya_res["text"]
-    except Exception as e:
-        log.warning("Surya OCR skipped/failed: %s — falling back to Tesseract OCR", e)
+    """Route C: layout-aware OCR with Surya. Returns '' for a page with no text and raises
+    OcrUnavailable when the engine fails (never substitutes a different OCR engine)."""
+    from services.surya_extractor import SuryaExtractor
 
-    if not _TESSERACT:
-        log.warning("pytesseract/Tesseract not installed — OCR route unavailable")
-        return ""
-    langs = lang or _OCR_LANGS
-    try:
-        def _ocr(data: bytes) -> str:
-            img = Image.open(io.BytesIO(data)).convert("RGB")
-            try:
-                return pytesseract.image_to_string(img, lang=langs).strip()
-            except pytesseract.TesseractError:
-                # A requested language pack isn't installed — degrade to English.
-                log.warning("Tesseract langs %r unavailable — falling back to eng", langs)
-                return pytesseract.image_to_string(img, lang="eng").strip()
-
-        # Raw first: measured A/B on CORD receipts showed CLAHE+Otsu binarization
-        # doubles the empty-OCR rate (15 -> 30 of 60) and cuts recovered text ~60%, so it
-        # is applied only as a second attempt when the raw pass yields little, keeping
-        # whichever result is longer.
-        text = _ocr(image_bytes)
-        if len(text) < _MIN_RAW_OCR_CHARS:
-            from services.image_preprocess import enhance_contrast_for_ocr
-            enhanced = enhance_contrast_for_ocr(image_bytes)
-            if enhanced is not image_bytes:
-                alt = _ocr(enhanced)
-                if len(alt) > len(text):
-                    text = alt
-        return text
-    except Exception as e:
-        log.error("OCR (Tesseract) failed: %s", e)
-        return ""
+    res = SuryaExtractor(langs=[lang] if lang else None).extract(image_bytes)
+    if res.get("error"):
+        raise OcrUnavailable(f"Surya OCR failed: {res['error']}")
+    return (res.get("text") or "").strip()
 
 
 def is_pdf(data: bytes) -> bool:
@@ -367,11 +317,11 @@ def pdf_first_page_to_png(pdf_bytes: bytes, dpi: int = 150) -> bytes:
 def extract_text_from_pdf(pdf_bytes: bytes, max_pages: int = 50, ocr_dpi: int = 200) -> str:
     """Full-document text for the OCR route. Uses pdfplumber's native text layer across all
     pages; for scanned PDFs with no embedded text it falls back to rendering each page and
-    running Tesseract. Pages are separated by a form-feed marker so the LLM sees boundaries.
+    running Surya. Pages are separated by a form-feed marker so the LLM sees boundaries.
     """
     if not is_pdf(pdf_bytes):
         log.warning("extract_text_from_pdf called with non-PDF bytes")
-        return extract_text_from_image(pdf_bytes) if _TESSERACT else ""
+        return extract_text_from_image(pdf_bytes)
 
     parts: List[str] = []
     if _PDFPLUMBER:
@@ -385,8 +335,8 @@ def extract_text_from_pdf(pdf_bytes: bytes, max_pages: int = 50, ocr_dpi: int = 
     if native:
         return native
     # Scanned PDF (no text layer) → OCR each rendered page.
-    if _TESSERACT and _PDF2IMAGE:
-        log.info("PDF has no text layer — falling back to per-page Tesseract OCR")
+    if _PDF2IMAGE:
+        log.info("PDF has no text layer — running Surya OCR on each page")
         imgs = pdf_to_pngs(pdf_bytes, dpi=ocr_dpi, max_pages=max_pages)
         return "\n\f\n".join(extract_text_from_image(img) for img in imgs).strip()
     return ""
@@ -533,66 +483,38 @@ class FormFieldDetector:
 # ════════════════════════════════════════════════════════════════════════════
 
 class HandwritingOCR:
-    """OCR for handwritten text in documents."""
+    """OCR for handwritten text in documents (Surya handles print and handwriting)."""
 
     @staticmethod
     def extract_handwriting(image_bytes: io.BytesIO, language: str = "eng") -> str:
-        """
-        Extract handwritten text from image using Tesseract.
-
-        Language codes: 'eng' (English), 'fra' (French), 'deu' (German), etc.
-        """
-        if not _TESSERACT:
-            log.warning("pytesseract/Tesseract not installed, skipping handwriting OCR")
-            return ""
-
+        """Extract handwritten text from an image with Surya."""
         try:
-            image = Image.open(image_bytes)
-            # Preprocess for better OCR
-            image = image.convert("RGB")
-
-            # Extract text
-            text = pytesseract.image_to_string(image, lang=language)
-            log.info("Extracted handwritten text (%s): %d characters", language, len(text))
+            text = extract_text_from_image(image_bytes.getvalue())
+            log.info("Extracted handwritten text: %d characters", len(text))
             return text
+        except OcrUnavailable:
+            raise
         except Exception as e:
             log.error("Handwriting OCR error: %s", e)
             return ""
 
     @staticmethod
     def detect_handwriting_regions(image_bytes: io.BytesIO) -> List[Dict[str, Any]]:
-        """
-        Detect regions containing handwritten text.
+        """Text regions (bounding box, confidence, text) located by Surya."""
+        from services.surya_extractor import SuryaExtractor
 
-        Returns: List of regions with confidence scores
-        """
-        if not _TESSERACT:
-            return []
-
-        regions = []
-        try:
-            image = Image.open(image_bytes)
-            # Use Tesseract data to detect regions
-            data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
-
-            # Group by confidence
-            for idx, conf in enumerate(data["conf"]):
-                if int(conf) > 50:  # Confidence threshold
-                    regions.append({
-                        "bbox": {
-                            "x": data["left"][idx],
-                            "y": data["top"][idx],
-                            "width": data["width"][idx],
-                            "height": data["height"][idx],
-                        },
-                        "confidence": int(conf),
-                        "text": data["text"][idx],
-                    })
-
-            log.info("Detected %d handwriting regions", len(regions))
-        except Exception as e:
-            log.error("Handwriting region detection error: %s", e)
-
+        res = SuryaExtractor().extract(image_bytes.getvalue())
+        if res.get("error"):
+            raise OcrUnavailable(f"Surya OCR failed: {res['error']}")
+        regions: List[Dict[str, Any]] = []
+        for ln in res.get("lines", []):
+            conf = ln.get("confidence")
+            regions.append({
+                "bbox": ln.get("bbox"),
+                "confidence": round(float(conf) * 100) if isinstance(conf, (int, float)) and conf <= 1 else conf,
+                "text": ln.get("text", ""),
+            })
+        log.info("Detected %d text regions", len(regions))
         return regions
 
 
@@ -764,33 +686,23 @@ class EnhancedDocumentProcessor:
         return result
 
     def process_image(self, image_bytes: io.BytesIO) -> Dict[str, Any]:
-        """
-        Process image (handwriting extraction, text OCR).
-        """
+        """Process an image (text OCR and handwriting regions) with Surya."""
         result = {
             "text": "",
             "handwriting": "",
             "handwriting_regions": [],
             "metadata": {},
         }
-
-        try:
-            # General text OCR
-            if _TESSERACT:
-                image = Image.open(image_bytes)
-                result["text"] = pytesseract.image_to_string(image)
-
-                # Detect handwriting regions
-                result["handwriting_regions"] = self.handwriting_ocr.detect_handwriting_regions(image_bytes)
-                if result["handwriting_regions"]:
-                    result["handwriting"] = " ".join([r.get("text", "") for r in result["handwriting_regions"]])
-
+        data = image_bytes.getvalue()
+        result["text"] = extract_text_from_image(data)
+        result["handwriting_regions"] = self.handwriting_ocr.detect_handwriting_regions(io.BytesIO(data))
+        if result["handwriting_regions"]:
+            result["handwriting"] = " ".join(r.get("text", "") for r in result["handwriting_regions"])
+        if _PIL:
+            with Image.open(io.BytesIO(data)) as image:
                 result["metadata"]["image_size"] = image.size
-                log.info("Image processing complete: text=%d chars, regions=%d", len(result["text"]), len(result["handwriting_regions"]))
-
-        except Exception as e:
-            log.error("Image processing error: %s", e)
-
+        log.info("Image processing complete: text=%d chars, regions=%d",
+                 len(result["text"]), len(result["handwriting_regions"]))
         return result
 
 

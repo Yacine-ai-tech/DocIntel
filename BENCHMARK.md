@@ -55,7 +55,7 @@ Note: Llama 3.2 Vision 11B was evaluated as a candidate model for this route and
 — it fails to load on current Ollama builds, or scores near zero on builds where it does load.
 Qwen 2.5-VL 7B is the validated model for Route B.
 
-### Route C — Surya OCR with Tesseract fallback
+### Route C — Surya OCR
 
 The corpus for this route comprises 650 documents: 6 invoices, 50 forms, approximately 544
 CORD-v2 receipts, and the 50-document French/FCFA sub-corpus described above.
@@ -69,9 +69,8 @@ A confirmation run on the global corpus, under the same configuration, scored **
 accuracy, indicating the accuracy level is consistent across languages and locales rather than
 specific to either sample.
 
-Surya OCR (layout-aware, requiring a GPU) is the primary engine for this route; Tesseract is
-the automatic fallback on systems without a GPU or when Surya returns no text. Three factors
-contribute to Route C's measured accuracy:
+Surya OCR (layout-aware) is the OCR engine for this route. Three factors contribute to
+Route C's measured accuracy:
 
 1. **Preprocessing order** — OCR is run on the raw image first, with CLAHE/Otsu contrast
    enhancement applied only as a fallback for low-text-yield passes.
@@ -81,11 +80,8 @@ contribute to Route C's measured accuracy:
    due (as distinct from a subtotal, tax line, or change amount) as the `total` field, with
    French invoice vocabulary (`Total TTC` vs. `Total HT`) covered for the FCFA corpus.
 
-**Scope note.** Surya OCR requires a GPU to run; deployments without one use the Tesseract
-fallback, at lower accuracy (see the earlier Route C baseline in
-[`eval/BENCHMARK.md`](eval/BENCHMARK.md) for the Tesseract-only figures). This mirrors Route
-B's positioning: the GPU-accelerated path is available to any self-hosted deployment with
-GPU access.
+**Scope note.** The figures above were measured with Surya on a GPU. The same model runs on
+CPU from a quantized build; throughput is lower, accuracy is unchanged in spot checks.
 
 ### SROIE (ICDAR-2019 Task 3)
 
