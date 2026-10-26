@@ -47,14 +47,14 @@ def _get_pool():
             pool_url = _get_pooler_url(settings.POSTGRES_URL)
             _pool = ConnectionPool(
                 pool_url,
-                min_size=2,
+                min_size=0,
                 max_size=10,
                 max_idle=300,
                 timeout=10.0,
                 reconnect_timeout=30,
                 reconnect_failed=None,
                 check=ConnectionPool.check_connection,
-                open=True,
+                open=False,
             )
             log.info("✅ DocIntel Neon connection pool initialized (min=2, max=10, pooler enabled)")
     return _pool
