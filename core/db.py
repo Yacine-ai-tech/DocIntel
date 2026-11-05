@@ -54,7 +54,7 @@ def _get_pool():
                 reconnect_timeout=30,
                 reconnect_failed=None,
                 check=ConnectionPool.check_connection,
-                open=False,
+                open=True,
             )
             log.info("✅ DocIntel Neon connection pool initialized (min=2, max=10, pooler enabled)")
     return _pool
