@@ -186,11 +186,10 @@ threading.Thread(target=_send_telemetry, daemon=True).start()
 # should send X-DocIntel-Internal-Token like any other caller once
 # hardening is on.)
 _PUBLIC_PATHS = {
-    "/", "/health", "/ready", "/benchmarks", "/docs", "/openapi.json", "/api/redoc",
+    "/", "/health", "/ready", "/live", "/benchmarks", "/docs", "/openapi.json", "/api/redoc",
     "/favicon.png", "/favicon.ico", "/mark.png", "/logo.png",
-    "/api/documents", "/documents", "/api/documents/stats", "/documents/stats",
 }
-_PUBLIC_PREFIXES = ("/api/v1/auth/", "/assets/", "/static/", "/api/documents/", "/documents/")
+_PUBLIC_PREFIXES = ("/api/v1/auth/", "/assets/", "/static/")
 
 
 @app.middleware("http")
