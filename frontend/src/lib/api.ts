@@ -87,9 +87,46 @@ const BASE = import.meta.env.VITE_API_BASE_URL || "";
 // UI outright. Optional: leave unset for the common case where the frontend
 // and backend are same-origin/trusted-network and REQUIRE_INTERNAL_TOKEN
 // stays off.
-const INTERNAL_TOKEN = import.meta.env.VITE_DOCINTEL_INTERNAL_TOKEN || "";
-
+// Build-time token is only a legacy/self-hosted escape hatch — production builds
+// must NOT bake the internal token into the bundle. Browsers normally obtain a
+// short-lived session token from /api/v1/auth/login instead (see sessionToken()).
+const BUILD_TIME_TOKEN = (import.meta.env.VITE_DOCINTEL_INTERNAL_TOKEN || "").trim();
+const SESSION_KEY = "docintel_session_token";
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+export function sessionToken(): string {
+  if (BUILD_TIME_TOKEN) return BUILD_TIME_TOKEN;
+  try {
+    return sessionStorage.getItem(SESSION_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+export function setSessionToken(token: string) {
+  try {
+    if (token) sessionStorage.setItem(SESSION_KEY, token);
+    else sessionStorage.removeItem(SESSION_KEY);
+  } catch { /* storage unavailable */ }
+}
+
+export async function login(internalToken: string): Promise<void> {
+  const res = await fetch(`${BASE}/api/v1/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token: internalToken.trim() }),
+  });
+  if (!res.ok) throw new Error("Invalid token");
+  const body = await res.json();
+  if (!body.session_token) throw new Error("No session token returned");
+  setSessionToken(body.session_token);
+}
+
+export function onAuthRequired(cb: () => void): () => void {
+  const handler = () => cb();
+  window.addEventListener("docintel:auth-required", handler);
+  return () => window.removeEventListener("docintel:auth-required", handler);
+}
 
 // Only GET (the default fetch method, and the only one used read-only by this
 // client) is safe to auto-retry. A POST that already reached the server can
@@ -121,11 +158,16 @@ export function demoSessionId(): string {
 async function req<T>(path: string, init?: RequestInit, retryCount = 0): Promise<T> {
   const headers = new Headers(init?.headers);
   headers.set("X-Demo-Session-Id", demoSessionId());
-  if (INTERNAL_TOKEN) headers.set("X-DocIntel-Internal-Token", INTERNAL_TOKEN);
+  const token = sessionToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
   const finalInit: RequestInit = { ...init, headers };
   try {
     const res = await fetch(BASE + path, finalInit);
     if (!res.ok) {
+      if ((res.status === 401 || res.status === 403) && !BUILD_TIME_TOKEN) {
+        setSessionToken("");
+        window.dispatchEvent(new Event("docintel:auth-required"));
+      }
       if (res.status >= 500 && isIdempotent(init) && retryCount < 5) {
         await delay(2000 * (retryCount + 1));
         return req<T>(path, init, retryCount + 1);

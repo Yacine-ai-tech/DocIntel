@@ -39,6 +39,69 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+# --- Browser session tokens -------------------------------------------------
+# The static internal token is a service-to-service credential and must never be
+# shipped inside the frontend bundle. Browsers exchange it once at
+# POST /api/v1/auth/login for an HMAC-signed, expiring session token instead.
+# Format: <base64url(expiry_unix)>.<base64url(hmac_sha256)> — signed with a key
+# derived from the deployment's internal token, so no extra secret is needed.
+import base64 as _b64
+import hashlib as _hashlib
+import hmac as _hmac
+
+_SESSION_TTL_S = 12 * 60 * 60
+
+
+def _session_anchor() -> str:
+    return (
+        _os.environ.get("DOCINTEL_INTERNAL_TOKEN")
+        or _os.environ.get("INTERNAL_TOKEN")
+        or _os.environ.get("OMNIINTEL_INTERNAL_TOKEN")
+        or ""
+    ).strip()
+
+
+def _session_key() -> bytes | None:
+    anchor = _session_anchor()
+    if not anchor:
+        return None
+    return _hashlib.sha256(b"docintel-session-v1:" + anchor.encode()).digest()
+
+
+def _b64e(raw: bytes) -> str:
+    return _b64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+
+def _b64d(data: str) -> bytes:
+    return _b64.urlsafe_b64decode(data + "=" * (-len(data) % 4))
+
+
+def _session_sign(payload: str, key: bytes) -> str:
+    return _b64e(_hmac.new(key, payload.encode(), _hashlib.sha256).digest())
+
+
+def issue_session_token(ttl_s: int | None = None) -> tuple[str, int]:
+    key = _session_key()
+    if key is None:
+        raise RuntimeError("session tokens unavailable: no internal token configured")
+    ttl = ttl_s if ttl_s is not None else int(_os.environ.get("DOCINTEL_SESSION_TTL_S", str(_SESSION_TTL_S)))
+    payload = _b64e(str(int(time.time()) + ttl).encode())
+    return f"{payload}.{_session_sign(payload, key)}", ttl
+
+
+def verify_session_token(token: str) -> bool:
+    key = _session_key()
+    if key is None or not token or "." not in token:
+        return False
+    try:
+        payload, sig = token.rsplit(".", 1)
+        if not _hmac.compare_digest(sig, _session_sign(payload, key)):
+            return False
+        return int(_b64d(payload).decode()) > int(time.time())
+    except Exception:
+        return False
+# -----------------------------------------------------------------------------
+
 from core.config import settings
 import core.db as _core_db
 from core.db import (
@@ -208,7 +271,10 @@ async def verify_internal_token(request: Request, call_next):
         bearer_token = auth_h[len("Bearer "):] if auth_h.startswith("Bearer ") else ""
         header_token_ok = any(_secrets.compare_digest(token, ct) for ct in correct_tokens)
         bearer_token_ok = any(_secrets.compare_digest(bearer_token, ct) for ct in correct_tokens)
-        if not correct_tokens or not (header_token_ok or bearer_token_ok):
+        session_ok = (not header_token_ok and not bearer_token_ok) and (
+            verify_session_token(token) or verify_session_token(bearer_token)
+        )
+        if not correct_tokens or not (header_token_ok or bearer_token_ok or session_ok):
             return JSONResponse(status_code=403, content={"detail": "Missing or invalid X-DocIntel-Internal-Token"})
     return await call_next(request)
 
@@ -777,6 +843,37 @@ async def health() -> Dict[str, Any]:
     # curl -f (Dockerfile's HEALTHCHECK) and most uptime monitors only look at the
     # HTTP status, not the JSON body — a degraded check has to be a real non-2xx.
     return body if ok else JSONResponse(status_code=503, content=body)
+
+
+@app.post("/api/v1/auth/login")
+async def auth_login(request: Request) -> Dict[str, Any]:
+    """Exchange the deployment's internal token for a short-lived session token.
+
+    The static internal token is a service-to-service credential and is never
+    shipped in the frontend bundle; browsers call this once per session and use
+    the returned token for subsequent API requests.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    candidate = str((body or {}).get("token") or "").strip()
+    expected = [
+        t
+        for t in (
+            _os.environ.get("DOCINTEL_INTERNAL_TOKEN"),
+            _os.environ.get("INTERNAL_TOKEN"),
+            _os.environ.get("OMNIINTEL_INTERNAL_TOKEN"),
+        )
+        if t
+    ]
+    if not candidate or not any(_secrets.compare_digest(candidate, exp) for exp in expected):
+        raise HTTPException(status_code=401, detail="invalid_credentials")
+    try:
+        session, ttl = issue_session_token()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    return {"session_token": session, "expires_in": ttl, "token_type": "bearer"}
 
 
 _BENCHMARK_CACHE_TIME = 0.0
