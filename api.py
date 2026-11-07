@@ -28,6 +28,7 @@ import secrets as _secrets
 import threading
 import time
 import uuid as _uuid
+from collections import deque as _deque
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -845,6 +846,14 @@ async def health() -> Dict[str, Any]:
     return body if ok else JSONResponse(status_code=503, content=body)
 
 
+# Failed-login throttle state for /api/v1/auth/login: lock a client IP out
+# briefly after repeated bad internal-token guesses. In-memory is sufficient —
+# the service is single-process.
+_LOGIN_FAILS: Dict[str, _deque] = {}
+_LOGIN_LOCK_SECONDS = 900
+_LOGIN_MAX_FAILS = 5
+
+
 @app.post("/api/v1/auth/login")
 async def auth_login(request: Request) -> Dict[str, Any]:
     """Exchange the deployment's internal token for a short-lived session token.
@@ -853,6 +862,17 @@ async def auth_login(request: Request) -> Dict[str, Any]:
     shipped in the frontend bundle; browsers call this once per session and use
     the returned token for subsequent API requests.
     """
+    client_ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    fails = _LOGIN_FAILS.get(client_ip)
+    if fails is not None:
+        while fails and now - fails[0] > _LOGIN_LOCK_SECONDS:
+            fails.popleft()
+        if not fails:
+            _LOGIN_FAILS.pop(client_ip, None)
+        elif len(fails) >= _LOGIN_MAX_FAILS:
+            raise HTTPException(status_code=429, detail="too_many_attempts")
+
     try:
         body = await request.json()
     except Exception:
@@ -868,7 +888,10 @@ async def auth_login(request: Request) -> Dict[str, Any]:
         if t
     ]
     if not candidate or not any(_secrets.compare_digest(candidate, exp) for exp in expected):
+        fails = _LOGIN_FAILS.setdefault(client_ip, _deque())
+        fails.append(now)
         raise HTTPException(status_code=401, detail="invalid_credentials")
+    _LOGIN_FAILS.pop(client_ip, None)
     try:
         session, ttl = issue_session_token()
     except RuntimeError as exc:
