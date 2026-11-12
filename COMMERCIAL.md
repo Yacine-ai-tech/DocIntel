@@ -18,3 +18,23 @@ Commercial licensing is offered through OmniIntelOS, the unified platform this p
 capability is also offered as part of (full-platform SaaS, per-module SaaS, or self-hosted/
 hybrid deployment) — the same contact handles a standalone commercial license for this
 repository or a broader OmniIntelOS engagement.
+
+### Registering your license key
+
+After purchasing a Commercial License you will receive a key in the form
+`LIC-<PROJECT>-<ID>`. Set it in your deployment's environment:
+
+```
+LICENSE_KEY=LIC-<PROJECT>-<ID>
+```
+
+On startup the application reports the key anonymously (project, random install
+id, version, coarse country/organization) so your licensed install is
+associated with your license. This beacon is opt-out-able at any time:
+
+```
+LICENSE_BEACON_DISABLE=true
+```
+
+License status (active / expired / revoked / unlicensed) is visible only to the
+licensor; no usage data beyond the install ping is collected.
