@@ -345,6 +345,29 @@ class ProcessResponse(BaseModel):
     error: Optional[str] = None
 
 
+_MEDIA_ROOT = _os.environ.get("DOCINTEL_MEDIA_DIR") or _os.environ.get("FILE_STORAGE_DIR") or "/data/docintel_media"
+
+def _store_upload(data: bytes, filename: Optional[str], content_type: Optional[str]) -> Optional[str]:
+    """Persist an uploaded file for admin review. Returns path relative to
+    DOCINTEL_MEDIA_DIR; never blocks the request."""
+    if not data:
+        return None
+    try:
+        import time, uuid
+        fname = filename or "upload"
+        ext = fname.rsplit(".", 1)
+        ext = ("." + ext[1][:16]) if len(ext) == 2 and ext[1].replace("-","").isalnum() else ""
+        rel = f"{time.strftime('%Y/%m')}/{uuid.uuid4().hex}{ext}"
+        dest = _os.path.join(_MEDIA_ROOT, rel)
+        _os.makedirs(_os.path.dirname(dest), exist_ok=True)
+        with open(dest, "wb") as f:
+            f.write(data)
+        return rel
+    except Exception as e:
+        log.warning("upload persistence failed: %s", e)
+        return None
+
+
 def _persist_document_record(
     filename: str,
     file_size: Optional[int] = None,
@@ -362,11 +385,14 @@ def _persist_document_record(
     error: Optional[str] = None,
     owner_session_id: Optional[str] = None,
     metadata: Optional[Dict[str, Any]] = None,
+    file_path: Optional[str] = None,
 ) -> Optional[str]:
     """Helper to record document extractions asynchronously/safely in Postgres."""
     if not _is_db_enabled():
         return None
     try:
+        if file_path:
+            metadata = {**(metadata or {}), "file_path": file_path}
         return upsert_document({
             "filename": filename or "untitled",
             "file_size": file_size,
@@ -750,6 +776,7 @@ async def camera_upload(
         owner_session = session.get("user") or f"camera_{token}"
         _persist_document_record(
             filename=file.filename or "mobile_scan.jpg",
+            file_path=_store_upload(data, file.filename, getattr(file, "content_type", None)),
             file_size=len(data),
             mime_type="image/jpeg",
             doc_type=doc_type,
@@ -999,6 +1026,7 @@ async def classify_image_endpoint(
     result["processing_time_ms"] = proc_time
     _persist_document_record(
         filename=file.filename or "image",
+            file_path=_store_upload(img, file.filename, getattr(file, "content_type", None)),
         file_size=len(img),
         mime_type=file.content_type,
         doc_type=result.get("category"),
@@ -1106,6 +1134,7 @@ async def extract_text(
     res = await _extract_text_core(data, route, max_pages)
     _persist_document_record(
         filename=file.filename or "untitled",
+            file_path=_store_upload(data, file.filename, getattr(file, "content_type", None)),
         file_size=len(data),
         mime_type=file.content_type,
         doc_type="text_extraction",
@@ -1193,6 +1222,7 @@ async def extract(
     conf = _confidence_of(out["fields"])
     _persist_document_record(
         filename=file.filename or "untitled",
+            file_path=_store_upload(data, file.filename, getattr(file, "content_type", None)),
         file_size=len(data),
         mime_type=file.content_type,
         doc_type=doc_type,
@@ -1326,6 +1356,7 @@ async def process(
     result = await _process_full(data, route, doc_type)
     _persist_document_record(
         filename=file.filename or "untitled",
+            file_path=_store_upload(data, file.filename, getattr(file, "content_type", None)),
         file_size=len(data),
         mime_type=file.content_type,
         doc_type=result.get("doc_type"),
@@ -1368,6 +1399,7 @@ async def process_async(
         res = await _process_full(fd["bytes"], fd["route"], fd["doc_type"])
         _persist_document_record(
             filename=fd.get("filename") or "untitled",
+            file_path=_store_upload(fd["bytes"], fd.get("filename"), getattr(file, "content_type", None)),
             file_size=len(fd["bytes"]),
             mime_type=None,
             doc_type=res.get("doc_type"),
@@ -1404,6 +1436,7 @@ async def extract_fields(
     conf = _confidence_of(fields)
     _persist_document_record(
         filename=file.filename or "untitled",
+            file_path=_store_upload(data, file.filename, getattr(file, "content_type", None)),
         file_size=len(data),
         mime_type=file.content_type,
         doc_type="form",
@@ -1683,6 +1716,25 @@ async def clear_documents_endpoint(
     target_session = None if is_admin else (effective_session or "non_existent_session")
     count = clear_all_documents(owner_session_id=target_session)
     return {"cleared": count}
+
+
+@app.get("/admin/media/{doc_id}")
+async def admin_media(doc_id: str):
+    """Stream a persisted upload for omni-admin review. Internal-token gated
+    by middleware like every non-open GET."""
+    import mimetypes
+    doc = get_document(doc_id)
+    rel = None
+    if doc:
+        meta = doc.get("metadata") or {}
+        rel = meta.get("file_path") if isinstance(meta, dict) else None
+    if not rel or ".." in rel or rel.startswith("/"):
+        raise HTTPException(status_code=404, detail="media_not_found")
+    path = _os.path.normpath(_os.path.join(_MEDIA_ROOT, rel))
+    if not path.startswith(_os.path.normpath(_MEDIA_ROOT)) or not _os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="media_not_found")
+    ctype = mimetypes.guess_type(path)[0] or (doc.get("mime_type") if doc else None) or "application/octet-stream"
+    return FileResponse(path, media_type=ctype, filename=doc.get("filename") if doc else _os.path.basename(path))
 
 
 @app.get("/{full_path:path}", include_in_schema=False)
