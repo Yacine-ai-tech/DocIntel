@@ -27,13 +27,13 @@ async function assertNoReactCrash(page: Page) {
 test.describe('DocIntel UI Workflows', () => {
 
   test.beforeEach(async ({ page }) => {
-    // When run against a Vercel-hosted preview of this frontend, rewrite its API
-    // calls to the deployed backend under test instead of Vercel's own origin.
+    // When run against a Cloudflare Pages preview of this frontend, rewrite its API
+    // calls to the deployed backend under test instead of the preview origin.
     await page.route('**/*', async route => {
       const req = route.request();
       const url = req.url();
       if ((req.resourceType() === 'fetch' || req.resourceType() === 'xhr') &&
-          url.includes('vercel.app') && url.includes('docintel-ui')) {
+          url.includes('pages.dev') && url.includes('docintel-ui')) {
         // Staging backend comes from the environment; no host is baked in here.
         // Unset -> pass the request through untouched.
         const backendUrl = process.env.STAGING_DOCINTEL_URL;

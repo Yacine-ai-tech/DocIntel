@@ -23,7 +23,7 @@ def test_default_mobile_route_setting():
 
 
 def test_camera_mobile_redirect_custom_domain(client):
-    """Verify /camera/mobile redirects to FRONTEND_URL without forcing vercel rewrite."""
+    """Verify /camera/mobile redirects to FRONTEND_URL without forcing a platform-specific rewrite."""
     custom_url = "https://docintel.ysiddo-ai-projects.app"
     with patch.dict(os.environ, {"FRONTEND_URL": custom_url}):
         res = client.get("/camera/mobile?token=test-tok-123", follow_redirects=False)
@@ -35,7 +35,7 @@ def test_qr_generation_preserves_custom_domain():
     """Verify MobilePairing.qr_bytes preserves custom domain without rewrite."""
     mgr = MobilePairing()
     custom_domain = "https://docintel.ysiddo-ai-projects.app"
-    # Should not raise or force to vercel
+    # Should not raise or force a platform rewrite
     with patch.dict(os.environ, {"FRONTEND_URL": custom_domain}):
         qr = mgr.qr_base64("sample-token")
         if qr:
