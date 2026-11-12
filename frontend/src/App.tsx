@@ -2,6 +2,7 @@ import UserGuidePage from './pages/UserGuidePage';
 import ResearchPage from './pages/ResearchPage';
 import ArchitecturePage from './pages/ArchitecturePage';
 import ApiDocs from './pages/ApiDocs';
+import LicensePage from './pages/LicensePage.tsx';
 import { Component, ReactNode, lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { Camera, FileScan, Image, Layers, BarChart3, Cpu, History, Workflow, GitCompareArrows, FolderOpen, Settings2, Code2, BookOpen, GraduationCap } from "lucide-react";
@@ -205,7 +206,8 @@ export default function App() {
                     <Route path="/api-docs" element={<ApiDocs />} />
                     {/* /benchmark redirects to /benchmarks so older bookmarks and links keep working. */}
                     <Route path="/benchmark" element={<Navigate to="/benchmarks" replace />} />
-                    <Route path="/user-guide" element={<UserGuidePage />} />
+                                  <Route path="/license" element={<LicensePage />} />
+<Route path="/user-guide" element={<UserGuidePage />} />
                     <Route path="/guide" element={<Navigate to="/user-guide" replace />} />
                     <Route path="*" element={<Workspace />} />
                   </Routes>
