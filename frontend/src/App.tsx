@@ -1,8 +1,3 @@
-import UserGuidePage from './pages/UserGuidePage';
-import ResearchPage from './pages/ResearchPage';
-import ArchitecturePage from './pages/ArchitecturePage';
-import ApiDocs from './pages/ApiDocs';
-import LicensePage from './pages/LicensePage.tsx';
 import { Component, ReactNode, lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { Camera, FileScan, Image, Layers, BarChart3, Cpu, History, Workflow, GitCompareArrows, FolderOpen, Settings2, Code2, BookOpen, GraduationCap } from "lucide-react";
@@ -11,18 +6,23 @@ import { WakingBackend } from "./kit/misc";
 import { Skeleton } from "./kit/primitives";
 import { api, login, onAuthRequired } from "./lib/api";
 import Workspace from "./pages/Workspace";
-import ImageIntel from "./pages/ImageIntel";
-import Batch from "./pages/Batch";
-import Models from "./pages/Models";
-import Activity from "./pages/Activity";
-import Pipelines from "./pages/Pipelines";
-import Compare from "./pages/Compare";
-import Documents from "./pages/Documents";
-import Settings from "./pages/Settings";
-import CameraDashboard from "./pages/CameraDashboard";
-import CameraMobile from "./pages/CameraMobile";
 
+const ImageIntel = lazy(() => import("./pages/ImageIntel"));
+const Batch = lazy(() => import("./pages/Batch"));
+const Models = lazy(() => import("./pages/Models"));
+const Activity = lazy(() => import("./pages/Activity"));
+const Pipelines = lazy(() => import("./pages/Pipelines"));
+const Compare = lazy(() => import("./pages/Compare"));
+const Documents = lazy(() => import("./pages/Documents"));
+const Settings = lazy(() => import("./pages/Settings"));
+const CameraDashboard = lazy(() => import("./pages/CameraDashboard"));
+const CameraMobile = lazy(() => import("./pages/CameraMobile"));
 const Benchmarks = lazy(() => import("./pages/Benchmarks"));
+const ArchitecturePage = lazy(() => import("./pages/ArchitecturePage"));
+const ResearchPage = lazy(() => import("./pages/ResearchPage"));
+const ApiDocs = lazy(() => import("./pages/ApiDocs"));
+const LicensePage = lazy(() => import("./pages/LicensePage"));
+const UserGuidePage = lazy(() => import("./pages/UserGuidePage"));
 
 interface ErrorBoundaryState {
   hasError: boolean;
@@ -175,7 +175,11 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/camera/mobile" element={<CameraMobile />} />
+        <Route path="/camera/mobile" element={
+          <Suspense fallback={<Skeleton className="h-64 w-full" />}>
+            <CameraMobile />
+          </Suspense>
+        } />
         <Route path="*" element={
           <AppShell
             product="DocIntel"
