@@ -5,13 +5,12 @@ order), the modern open-source successor to plain Tesseract for the OCR route.
 The OCR path is now a *fallback* behind vision-first, but for clean scanned documents Surya
 gives much better layout fidelity than Tesseract (proper reading order, tables, multi-column).
 
-Off by default (SURYA_ENABLED=false) — Surya's real dependency chain is torch + torchvision +
-transformers, the same class of heavy ML stack Route B's Ollama models are, and this module
-degrades to a stub (falls through to Tesseract) rather than installing/loading it uninvited,
-exactly like MarkerExtractor. Two deployment modes when enabled, mirroring Route B's
-local/remote split exactly (services/route_b.py):
+On by default (SURYA_ENABLED=true) — Surya's real dependency chain is torch + torchvision +
+transformers, the same class of heavy ML stack Route B's Ollama models are. Set
+SURYA_ENABLED=false to skip straight to Tesseract on constrained hosts. Two deployment
+modes when enabled, mirroring Route B's local/remote split exactly (services/route_b.py):
 
-  SURYA_ENABLED=true            — turn Surya on at all (default false: skip straight to Tesseract)
+  SURYA_ENABLED=true            — turn Surya on at all (default true; false skips to Tesseract)
   SURYA_MODE=local (default)    — surya-ocr installed in this same process (see requirements-ml.txt)
   SURYA_MODE=remote             — offload to an OCR-serving HTTP endpoint you host yourself
       SURYA_REMOTE_ENDPOINT      — POST {endpoint}/ocr with {"image_b64": "..."}, expects

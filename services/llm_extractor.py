@@ -176,7 +176,7 @@ class LLMExtractor:
                     # so honor the provider's own number instead of guessing.
                     if rl_attempt >= settings.LLM_RATE_LIMIT_RETRIES:
                         log.warning("LLM rate-limited after %d retries: %s", rl_attempt, e)
-                        return {"error": f"rate_limited: {e}", "_cost_usd": cost}
+                        return {"error": "rate_limited", "_cost_usd": cost}
                     if keypool.other_key_available(keypool.provider_for_model(self.model)):
                         rl_attempt += 1
                         continue  # another key of this provider is free: retry at once
@@ -191,7 +191,7 @@ class LLMExtractor:
                     return {"error": f"llm_call_timed_out_after_{settings.LLM_CALL_TIMEOUT}s", "_cost_usd": cost}
                 except Exception as e:
                     log.exception("LLM extraction failed: %s", e)
-                    return {"error": str(e), "_cost_usd": cost}
+                    return {"error": "llm_extraction_failed", "_cost_usd": cost}
             if attempt == 1:
                 prompt += " Your previous reply was not valid JSON. Output ONLY the JSON object."
                 continue

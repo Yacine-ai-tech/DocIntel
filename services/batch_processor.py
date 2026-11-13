@@ -227,7 +227,7 @@ class BatchProcessor:
                     job["processed"] += 1
                 except Exception as e:  # isolate per-file failures
                     log.exception("Batch item failed (%s): %s", file_data.get("filename"), e)
-                    job["results"][idx] = {"error": str(e), "filename": file_data.get("filename")}
+                    job["results"][idx] = {"error": "processing_failed", "filename": file_data.get("filename")}
                     job["failed"] += 1
                 job["updated_at"] = _now()
                 # Persist incrementally (not just on final completion) so a restart

@@ -132,13 +132,29 @@ _CURRENCY_ALIASES = [
 _CURRENCY_ALIASES.sort(key=lambda kv: -len(kv[0]))
 
 
+def _alias_pattern(token: str) -> "re.Pattern":
+    """Compile an alias matcher that can't match inside a larger word.
+
+    Alphabetic edges get a not-a-letter lookaround on that side, so "RS" no longer
+    fires inside "PARS"/"FIRST" and "RM" not inside "CONFIRM". Symbol edges ("$",
+    "₹", "元") keep plain substring semantics — currency symbols legitimately sit
+    against digits and letters ("$100", "100₹").
+    """
+    left = r"(?<![A-Za-z])" if token[0].isalpha() else ""
+    right = r"(?![A-Za-z])" if token[-1].isalpha() else ""
+    return re.compile(left + re.escape(token) + right)
+
+
+_CURRENCY_ALIAS_PATTERNS = [(_alias_pattern(tok), iso) for tok, iso in _CURRENCY_ALIASES]
+
+
 def detect_currency_in_text(text: str) -> Optional[str]:
     """Return the ISO 4217 code for the first currency symbol/word found in ``text``."""
     if not text:
         return None
     up = str(text).upper()
-    for token, iso in _CURRENCY_ALIASES:
-        if token in up:
+    for pattern, iso in _CURRENCY_ALIAS_PATTERNS:
+        if pattern.search(up):
             return iso
     m = re.search(r"\b([A-Z]{3})\b", up)
     if m and m.group(1) in _ISO_CODES:
