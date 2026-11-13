@@ -252,7 +252,7 @@ async def _extract_one_route_a(model: str, prompt: str, imgs: List[bytes]) -> Di
             return {"error": "non_json_response", "raw": last[:500], "_cost_usd": cost}
         except Exception as e:
             log.exception("Route A extraction failed: %s", e)
-            return {"error": str(e), "_cost_usd": cost}
+            return {"error": "vision_extraction_failed", "_cost_usd": cost}
     return {"error": "unreachable", "_cost_usd": cost}
 
 
@@ -289,7 +289,7 @@ async def _extract_one_route_b(prompt: str, imgs: List[bytes]) -> Dict[str, Any]
             return {"error": "non_json_response", "raw": last[:500]}
         except Exception as e:
             log.error("Route B extraction failed: %s", e)
-            return {"error": str(e), "_route_b_failed": True}
+            return {"error": "vision_extraction_failed", "_route_b_failed": True}
     return {"error": "unreachable"}
 
 
@@ -451,4 +451,4 @@ async def classify_image(
         return result
     except Exception as e:
         log.exception("classify_image failed: %s", e)
-        return {"category": "unknown", "confidence": 0.0, "error": str(e)}
+        return {"category": "unknown", "confidence": 0.0, "error": "classification_failed"}

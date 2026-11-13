@@ -327,6 +327,19 @@ except Exception as e:
 
 _MAX_UPLOAD_BYTES = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
 
+# Aggregate cap across ALL files in one batch job. The per-file cap above bounds
+# each upload, but batch endpoints buffer every file's bytes in memory at once —
+# N files could otherwise total N×MAX_UPLOAD_SIZE_MB in a single request.
+_MAX_BATCH_TOTAL_BYTES = int(os.getenv("BATCH_MAX_TOTAL_MB", "500")) * 1024 * 1024
+
+
+def _check_batch_budget(total_bytes: int) -> None:
+    if total_bytes > _MAX_BATCH_TOTAL_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Batch exceeds the {int(_MAX_BATCH_TOTAL_BYTES / (1024 * 1024))}MB total upload limit",
+        )
+
 
 async def _read_upload(file: UploadFile) -> bytes:
     """Read an uploaded file's bytes with a size cap.
@@ -474,6 +487,25 @@ def _ocr_sync(data: bytes, pdf: bool) -> str:
     return extract_text_from_image(data)
 
 
+def _pdf_table_count_sync(data: bytes) -> int:
+    """Blocking pdfplumber table count — always called via asyncio.to_thread."""
+    import io as _io
+    import pdfplumber
+    with pdfplumber.open(_io.BytesIO(data)) as pdf:
+        return sum(len(p.extract_tables() or []) for p in pdf.pages)
+
+
+def _pdf_extract_tables_sync(data: bytes) -> List[Any]:
+    """Blocking pdfplumber table extraction — always called via asyncio.to_thread."""
+    import io as _io
+    import pdfplumber
+    tables: List[Any] = []
+    with pdfplumber.open(_io.BytesIO(data)) as pdf:
+        for page in pdf.pages:
+            tables.extend(page.extract_tables() or [])
+    return tables
+
+
 _KNOWN_ROUTES = {"vision_route_a", "vision_route_b", "ocr_fallback", "vision_premium", "vision_local"}
 
 
@@ -539,7 +571,7 @@ async def _run_route(data: bytes, route: str, doc_type: str) -> Dict[str, Any]:
             status_code=422,
             detail="unreadable_document: send a PDF, an image (PNG, JPEG, TIFF, WebP), or an Office or text file",
         )
-    page_count = pdf_page_count(data) if pdf else 1
+    page_count = await asyncio.to_thread(pdf_page_count, data) if pdf else 1
     used_route = route
     fallback_used = False
 
@@ -676,13 +708,13 @@ async def extract_marker(file: UploadFile = File(...)):
     """Route A explicit: Convert PDF to Markdown via Marker."""
     import tempfile
     import os
-    suffix = ".pdf" if file.filename.lower().endswith(".pdf") else ""
+    suffix = ".pdf" if (file.filename or "").lower().endswith(".pdf") else ""
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         data = await _read_upload(file)
         tmp.write(data)
         tmp_path = tmp.name
     try:
-        res = _marker.convert(tmp_path)
+        res = await asyncio.to_thread(_marker.convert, tmp_path)
     finally:
         os.remove(tmp_path)
     return res
@@ -798,20 +830,19 @@ async def camera_upload(
             except Exception as ex:
                 log.warning("Camera upload route %s failed: %s — trying next fallback", r, ex)
 
-        if out is None:
-            out = {
-                "fields": {
-                    "document_type": doc_type,
-                    "status": "extracted",
-                    "source": "camera_mobile",
-                    "notes": "Captured via mobile scanner",
-                    "_fallback_used": True,
-                    "_confidence": 0.85,
-                },
-                "page_count": 1,
-            }
-
         proc_time_ms = round((time.time() - t0) * 1000, 1)
+        if out is None:
+            # Every extraction route failed — record the failure on the pairing
+            # session and return an honest error. Never fabricate a successful
+            # "extracted" result with invented fields/confidence. A non-2xx keeps
+            # the mobile client on its error path instead of a false "success".
+            err = "all_extraction_routes_failed"
+            _camera.record_mobile_upload(token, error=err)
+            raise HTTPException(
+                status_code=502,
+                detail={"error": err, "processing_time_ms": proc_time_ms},
+            )
+
         result = {
             "fields": out["fields"],
             "confidence": _confidence_of(out["fields"]) or 0.85,
@@ -842,6 +873,8 @@ async def camera_upload(
             },
         )
         return result
+    except HTTPException:
+        raise
     except Exception as ex:
         _camera.record_mobile_upload(token, error=str(ex))
         raise
@@ -1106,7 +1139,7 @@ async def _extract_text_core(data: bytes, route: str, max_pages: int) -> Dict[st
     )
     t0 = time.time()
     pdf = is_pdf(data)
-    pages = pdf_page_count(data) if pdf else 1
+    pages = await asyncio.to_thread(pdf_page_count, data) if pdf else 1
     limit = max_pages or settings.MAX_PDF_PAGES
     text, method = "", ""
 
@@ -1219,9 +1252,13 @@ async def extract_text_batch(
             _validate_webhook_url(webhook_url)
         except WebhookURLRejected as e:
             raise HTTPException(status_code=400, detail=str(e))
-    file_data: List[Dict[str, Any]] = [
-        {"filename": f.filename, "bytes": await _read_upload(f)} for f in files
-    ]
+    file_data: List[Dict[str, Any]] = []
+    total_bytes = 0
+    for f in files:
+        b = await _read_upload(f)
+        total_bytes += len(b)
+        _check_batch_budget(total_bytes)
+        file_data.append({"filename": f.filename, "bytes": b})
     job_id = batch.new_job(total=len(file_data))
 
     async def _process_one(fd: Dict[str, Any]) -> Dict[str, Any]:
@@ -1325,7 +1362,13 @@ async def _process_full(data: bytes, route: str, doc_type: str) -> Dict[str, Any
         if office_text is not None:
             raw_text = office_text
         else:
-            raw_text = await asyncio.to_thread(_ocr_sync, data, is_pdf(data))
+            # Bounded separately from _run_route_bounded's deadline: this pre-pass
+            # runs BEFORE that clock starts, so without its own cap a slow OCR pass
+            # could add unbounded time on top of the extraction deadline.
+            raw_text = await asyncio.wait_for(
+                asyncio.to_thread(_ocr_sync, data, is_pdf(data)),
+                timeout=max(10, settings.EXTRACT_DEADLINE_SECONDS // 3),
+            )
     except Exception:
         log.exception("raw_text extraction failed (non-fatal)")
 
@@ -1357,10 +1400,7 @@ async def _process_full(data: bytes, route: str, doc_type: str) -> Dict[str, Any
 
     if isinstance(fields, dict) and is_pdf(data):
         try:
-            import io as _io
-            import pdfplumber
-            with pdfplumber.open(_io.BytesIO(data)) as pdf:
-                tcount = sum(len(p.extract_tables() or []) for p in pdf.pages)
+            tcount = await asyncio.to_thread(_pdf_table_count_sync, data)
             fields.setdefault("_tables_detected", tcount)
         except Exception:
             log.exception("Unexpected error")
@@ -1441,6 +1481,7 @@ async def process_async(
     it completes, no separate endpoints needed.
     """
     data = await _read_upload(file)
+    _check_batch_budget(len(data))
     file_data = [{"filename": file.filename, "bytes": data, "doc_type": doc_type, "route": route}]
     job_id = batch.new_job(total=1, owner_session_id=x_demo_session_id)
 
@@ -1525,20 +1566,14 @@ async def extract_llm(text: str = Form(...), doc_type: str = Form("invoice")) ->
 async def extract_tables(file: UploadFile = File(...)) -> Dict[str, Any]:
     """Extract tables from a PDF via pdfplumber (table detection only)."""
     try:
-        import pdfplumber
-        import io
         pdf_bytes = await _read_upload(file)
-        tables: List[Any] = []
-        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-            for page in pdf.pages:
-                page_tables = page.extract_tables() or []
-                tables.extend(page_tables)
+        tables = await asyncio.to_thread(_pdf_extract_tables_sync, pdf_bytes)
         return {"tables": tables, "table_count": len(tables)}
     except ImportError:
         return {"error": "pdfplumber_not_installed", "tables": []}
     except Exception as e:
         log.exception("extract_tables failed: %s", e)
-        return {"error": str(e), "tables": []}
+        return {"error": "table_extraction_failed", "tables": []}
 
 
 @app.post("/batch/upload")
@@ -1569,10 +1604,14 @@ async def batch_upload(
         except WebhookURLRejected as e:
             raise HTTPException(status_code=400, detail=str(e))
     file_data: List[Dict[str, Any]] = []
+    total_bytes = 0
     for f in files:
+        b = await _read_upload(f)
+        total_bytes += len(b)
+        _check_batch_budget(total_bytes)
         file_data.append({
             "filename": f.filename,
-            "bytes": await _read_upload(f),
+            "bytes": b,
             "doc_type": doc_type,
             "route": route,
         })
@@ -1804,7 +1843,13 @@ async def spa_fallback(full_path: str):
 
     Real static files in frontend/dist/ (favicon, logo, sw.js, ...) are
     served directly rather than falling back to index.html for them.
+
+    API-namespace paths are excluded: a typo'd /api/* URL must 404, not return
+    the SPA shell with a 200 (which hides the mistake and breaks API clients).
     """
+    first_segment = full_path.split("/", 1)[0]
+    if first_segment in ("api", "docs") or full_path in ("openapi.json", "redoc"):
+        raise HTTPException(status_code=404, detail="Not Found")
     root = _os.path.dirname(__file__)
     dist = _os.path.realpath(_os.path.join(root, "frontend", "dist"))
     candidate = _os.path.realpath(_os.path.join(dist, full_path))
