@@ -90,7 +90,12 @@ const BASE = import.meta.env.VITE_API_BASE_URL || "";
 // Build-time token is only a legacy/self-hosted escape hatch — production builds
 // must NOT bake the internal token into the bundle. Browsers normally obtain a
 // short-lived session token from /api/v1/auth/login instead (see sessionToken()).
-const BUILD_TIME_TOKEN = (import.meta.env.VITE_DOCINTEL_INTERNAL_TOKEN || "").trim();
+const BUILD_TIME_TOKEN = (
+  import.meta.env.VITE_DOCINTEL_INTERNAL_TOKEN ||
+  import.meta.env.VITE_OMNIINTEL_INTERNAL_TOKEN ||
+  import.meta.env.VITE_INTERNAL_TOKEN ||
+  ""
+).trim();
 const SESSION_KEY = "docintel_session_token";
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -159,7 +164,11 @@ async function req<T>(path: string, init?: RequestInit, retryCount = 0): Promise
   const headers = new Headers(init?.headers);
   headers.set("X-Demo-Session-Id", demoSessionId());
   const token = sessionToken();
-  if (token) headers.set("Authorization", `Bearer ${token}`);
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+    headers.set("X-DocIntel-Internal-Token", token);
+    headers.set("X-Internal-Token", token);
+  }
   const finalInit: RequestInit = { ...init, headers };
   try {
     const res = await fetch(BASE + path, finalInit);
